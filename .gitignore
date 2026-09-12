@@ -1,0 +1,12 @@
+/build*/
+/dist/
+/artifacts/
+/.cache/
+.DS_Store
+*.dSYM/
+__pycache__/
+*.pyc
+
+/output/
+/.baseline-c11-staging/
+/.git-tmp/

@@ -1,0 +1,36 @@
+name: engine
+on: [push, pull_request]
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            graphics: 'OFF'
+            network: 'OFF'
+          - os: ubuntu-latest
+            graphics: 'OFF'
+            network: 'ON'
+          - os: windows-latest
+            graphics: 'OFF'
+            network: 'ON'
+          - os: macos-latest
+            graphics: 'ON'
+            network: 'ON'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cmake -S . -B build -DSHINY_GRAPHICS=${{ matrix.graphics }} -DSHINY_NETWORK=${{ matrix.network }} -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --config Release --parallel
+      - run: ctest --test-dir build -C Release --output-on-failure
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DSHINY_GRAPHICS=OFF -DSHINY_NETWORK=ON -DSHINY_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure

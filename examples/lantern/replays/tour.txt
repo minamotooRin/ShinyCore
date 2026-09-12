@@ -1,0 +1,14 @@
+# Held input mask changes at global, zero-based simulation frames.
+# left=1 right=2 up=4 down=8 jump=16 action=32
+# Walk to the first light, jump to the next two, and enter the archive.
+0 2
+155 18
+182 2
+272 18
+299 2
+381 0
+390 32
+391 0
+# After admiring the archive, interact with its doorway to begin again.
+460 32
+461 0
