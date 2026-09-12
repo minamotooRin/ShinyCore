@@ -1,6 +1,6 @@
 ---@meta
 -- ShinyCore 0.1: include this file in LuaLS workspace.library; do not execute it.
--- Host: C++23 with an owning Lua VM; gameplay API and scene format remain Lua 5.4.
+-- Host: C11 with an explicitly managed Lua VM; gameplay API and scene format use Lua 5.4.
 -- Coordinates are pixels with +Y down. Map coordinates are zero-based cells.
 -- Fixed update: 60 Hz. Colors: #RRGGBB or #RRGGBBAA. Angles use radians.
 -- Entity IDs are generation-checked integers. Invalid inputs raise Lua errors.

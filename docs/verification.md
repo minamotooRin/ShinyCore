@@ -13,3 +13,7 @@ Verified on macOS arm64, AppleClang 21, Release configuration, 2026-09-12:
 - Native Lantern rendered and reviewed in the original build; packaged C11 app remains preserved outside Git.
 
 Build artifacts and generated output are excluded from Git. Branch `release/c11` and annotated tag `v0.1.0-c11` identify this reference. Use a separate worktree and a separate build directory when comparing with C++23.
+
+The branch includes a documentation-only correction after the original tag: two
+comments accidentally described the later C++23 ownership model. The C11 sources,
+tests, and build settings are unchanged; `v0.1.0-c11` remains at the original commit.
