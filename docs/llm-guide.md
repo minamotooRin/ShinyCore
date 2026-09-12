@@ -4,6 +4,10 @@ Give the model the public API, a working scene, and a command that checks its
 changes. Keep one behavior change small enough to verify with a deterministic
 input recording.
 
+ShinyCore's native implementation uses C++23; game rules use Lua scene tables
+and `sc.*` functions. Most game tasks only need Lua and assets. A native engine
+change requires a compiler and standard library with `std::expected`.
+
 ## A short working loop
 
 From the repository root:
@@ -65,7 +69,7 @@ primitive instead of adding engine systems for a single mechanic.
 > Work in `examples/lantern/main.lua`. Read `./build/shiny --api` and the current
 > scene before changing code. Add a pressure plate that opens a nearby gate
 > while the keeper overlaps it. Keep the existing movement controller and
-> assets. Use `sc.get`, `sc.set`, and `sc.overlap`; do not add C APIs. Add an input
+> assets. Use `sc.get`, `sc.set`, and `sc.overlap`; do not add native APIs. Add an input
 > recording that demonstrates the plate opening and closing. Run the scene
 > check and a headless replay; inspect the snapshot. Report the changed files,
 > observed behavior, and the checks you actually ran.
@@ -74,3 +78,27 @@ For a rendering change, add a windowed screenshot to that request. For a new
 room, explicitly exercise the transition into and out of it. For randomness,
 run the same recording and seed twice and compare results before claiming
 determinism. Cross-platform bit-identical floating point is not a promise.
+
+## When a native change is needed
+
+This section requires a source checkout. A runnable package includes the Lua
+examples and API guide, but does not include native sources or repository tools.
+
+Read `AGENTS.md` and `docs/architecture.md`, then locate the owning `.cpp` module.
+Keep fixed-step simulation in `src/core.cpp`, Lua validation in `src/script.cpp`,
+and platform resources in `src/main.cpp` or `src/render.cpp`. Preserve bounded
+world storage, stable iteration, and explicit error results. Use RAII for native
+resources and exclusive ownership for a world plus its VM; their addresses must
+remain stable while Lua borrows them.
+
+The Lua C API is a special boundary: an error can `longjmp` past callback-local
+destructors. Do not introduce an owning C++ object that stays alive across a
+potentially raising Lua call. Put such work outside the protected callback or
+finish its scope before reporting the Lua error. Update the Lua annotations and
+API metadata when a public game contract changes. An ownership refactor should
+preserve existing projects and replay behavior.
+
+The C11 baseline remains at `v0.1.0-c11`; the README includes separate-worktree
+commands and links to `tools/compare_engines.py`. Compare the same project,
+seed, and recording before claiming equivalent behavior. Use matched build
+options and actual measurements for performance or binary-size comparisons.

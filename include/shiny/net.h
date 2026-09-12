@@ -1,58 +1,67 @@
-#ifndef SHINY_NET_H
-#define SHINY_NET_H
+#pragma once
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 
-#define SC_NET_MAX_PEERS 32
-#define SC_NET_MAX_PAYLOAD 1200
-#define SC_NET_ERROR_MAX 160
-#define SC_NET_MAX_QUEUED 256
+inline constexpr unsigned SC_NET_MAX_PEERS = 32;
+inline constexpr std::size_t SC_NET_MAX_PAYLOAD = 1200;
+inline constexpr std::size_t SC_NET_MAX_QUEUED = 256;
+inline constexpr std::size_t SC_NET_ERROR_MAX = 160;
 
-typedef struct ScNet ScNet;
-typedef enum { SC_NET_CONTROL = 0, SC_NET_STATE = 1 } ScNetChannel;
-typedef enum { SC_NET_CONNECT = 1, SC_NET_RECEIVE, SC_NET_DISCONNECT } ScNetEventType;
-typedef struct {
-    ScNetEventType type;
-    uint32_t peer;
-    ScNetChannel channel;
-    uint32_t reason;
-    size_t size;
-    unsigned char data[SC_NET_MAX_PAYLOAD];
-} ScNetEvent;
+enum class ScNetChannel { Control = 0, State = 1 };
+enum class ScNetEventType { Connect, Receive, Disconnect };
+struct ScNetEvent {
+    ScNetEventType type{};
+    std::uint32_t peer{};
+    ScNetChannel channel{};
+    std::uint32_t reason{};
+    std::size_t size{};
+    std::array<std::uint8_t, SC_NET_MAX_PAYLOAD> data{};
+};
 
-/* All instances and their lifetime operations belong to one owner thread.
- * IPv4 addresses must be numeric; host NULL binds all interfaces. Port 0 asks
- * the OS for a free host port. A join is asynchronous: poll both endpoints.
- * On failure, constructors return NULL and fill the optional error buffer. */
-ScNet *sc_net_host(const char *bind_ip, uint16_t port, unsigned max_peers,
-                   char error[SC_NET_ERROR_MAX]);
-ScNet *sc_net_join(const char *ip, uint16_t port, char error[SC_NET_ERROR_MAX]);
-/* Immediate cleanup, dropping pending messages; NULL is safe. */
-void sc_net_close(ScNet *net);
+// All endpoints and their lifetimes belong to one owner thread. This boundary
+// owns ENet resources; it has no dependency on a world, window, or Lua runtime.
+class ScNet final {
+public:
+    // Numeric IPv4 only. Empty bind_ip listens on all interfaces; host port 0
+    // requests a free port. Join is asynchronous: poll both endpoints.
+    [[nodiscard]] static std::expected<std::unique_ptr<ScNet>, std::string>
+        host(std::string_view bind_ip, std::uint16_t port, unsigned max_peers);
+    [[nodiscard]] static std::expected<std::unique_ptr<ScNet>, std::string>
+        join(std::string_view ip, std::uint16_t port);
+    ~ScNet(); // Immediate cleanup drops pending messages.
+    ScNet(const ScNet&) = delete;
+    ScNet& operator=(const ScNet&) = delete;
+    ScNet(ScNet&&) = delete;
+    ScNet& operator=(ScNet&&) = delete;
 
-/* -1 error, 0 no event, 1 event; timeout_ms must be in 0..1000. Event data is
- * copied and remains valid after later polls. Peer IDs are local to this
- * endpoint, never reused during its lifetime, and invalid after disconnect.
- * A connection attempt that fails before CONNECT has DISCONNECT peer == 0. */
-int sc_net_poll(ScNet *net, ScNetEvent *event, int timeout_ms);
-/* CONTROL is reliable ordered; STATE is unreliable sequenced. Both accept
- * binary messages of 0..1200 bytes. Peer 0 broadcasts to established peers
- * and fails if there are none. Success means queued, not acknowledged.
- * Pending commands are bounded by SC_NET_MAX_QUEUED per peer; backpressure
- * fails explicitly. Poll regularly to service traffic. A broadcast may be partially
- * queued if allocation fails midway. */
-bool sc_net_send(ScNet *net, uint32_t peer, ScNetChannel channel,
-                 const void *data, size_t size);
-void sc_net_flush(ScNet *net);
-/* Starts a graceful disconnect; keep polling until DISCONNECT. The peer can
- * no longer be sent to immediately after this call. Reason is application data. */
-bool sc_net_disconnect(ScNet *net, uint32_t peer, uint32_t reason);
-uint16_t sc_net_port(const ScNet *net);
-/* Round-trip estimate in milliseconds, or -1 for an invalid/disconnecting peer. */
-int sc_net_rtt(ScNet *net, uint32_t peer);
-/* Last operation error; constructors use their output buffer. */
-const char *sc_net_error(const ScNet *net);
+    // Empty optional means no event; timeout must be 0..1000 ms. Events own
+    // their data. Local peer IDs never repeat during an endpoint's lifetime
+    // and expire after disconnect. Failed joins emit Disconnect with peer 0.
+    [[nodiscard]] std::expected<std::optional<ScNetEvent>, std::string>
+        poll(int timeout_ms = 0);
+    // Control: reliable ordered; State: unreliable sequenced. Binary payloads
+    // are 0..1200 bytes. Peer 0 broadcasts and fails with no established peers.
+    // Success means queued. Bounded outgoing queues apply explicit backpressure;
+    // allocation failure during broadcast can leave a partially queued send.
+    [[nodiscard]] std::expected<void, std::string>
+        send(std::uint32_t peer, ScNetChannel channel, std::span<const std::uint8_t> data);
+    void flush() noexcept;
+    // Drains queued messages before disconnect; new sends fail immediately.
+    [[nodiscard]] std::expected<void, std::string>
+        disconnect(std::uint32_t peer, std::uint32_t reason = 0);
+    [[nodiscard]] std::uint16_t port() const noexcept;
+    [[nodiscard]] std::expected<int, std::string> rtt(std::uint32_t peer) const;
 
-#endif
+private:
+    struct Impl;
+    explicit ScNet(std::unique_ptr<Impl> impl) noexcept;
+    std::unique_ptr<Impl> impl_;
+};

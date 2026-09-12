@@ -1,15 +1,61 @@
 #include "shiny/net_lua.h"
 #include "shiny/net.h"
 
+extern "C" {
 #include <lauxlib.h>
-#include <stdio.h>
-#include <string.h>
+}
+#include <cstdio>
+#include <cstring>
+#include <exception>
+#include <memory>
+#include <span>
+#include <type_traits>
+#include <utility>
 
-#define SESSION_TYPE "ShinyCore.network.session"
+namespace {
+constexpr auto SESSION_TYPE = "ShinyCore.network.session";
 
-typedef struct { unsigned live; } NetContext;
-typedef struct { ScNet *net; NetContext *context; } NetSession;
-static const char context_key = 0;
+struct NetContext { unsigned live = 0; };
+struct NetSession {
+    std::unique_ptr<ScNet> net;
+    NetContext *context;
+
+    void close() noexcept {
+        if (net) {
+            net.reset();
+            --context->live;
+        }
+    }
+    ~NetSession() { close(); }
+};
+constexpr char context_key = 0;
+
+/* Lua uses longjmp, so every expected/string/exception scope must end before
+ * returning to Lua. Operations and accept callbacks here must never call Lua. */
+template<class Operation, class Accept>
+bool native_call(char (&error)[SC_NET_ERROR_MAX], Operation operation, Accept accept) noexcept {
+    static_assert(std::is_trivially_destructible_v<Operation>);
+    static_assert(std::is_trivially_destructible_v<Accept>);
+    try {
+        auto result = operation();
+        if (!result) {
+            std::snprintf(error, sizeof error, "%s", result.error().c_str());
+            return false;
+        }
+        accept(result);
+        return true;
+    } catch (const std::exception &exception) {
+        std::snprintf(error, sizeof error, "network operation failed: %s", exception.what());
+    } catch (...) {
+        std::snprintf(error, sizeof error, "network operation failed");
+    }
+    return false;
+}
+
+template<class Operation>
+bool native_call(char (&error)[SC_NET_ERROR_MAX], Operation operation) noexcept {
+    return native_call(error, operation, [](const auto &) {});
+}
 
 static void arg_count(lua_State *L, int minimum, int maximum) {
     int count = lua_gettop(L);
@@ -61,16 +107,11 @@ static int failure(lua_State *L, const char *message) {
 }
 
 static NetSession *session_at(lua_State *L) {
-    return luaL_checkudata(L, 1, SESSION_TYPE);
+    return static_cast<NetSession *>(luaL_checkudata(L, 1, SESSION_TYPE));
 }
 
 static int session_gc(lua_State *L) {
-    NetSession *session = luaL_checkudata(L, 1, SESSION_TYPE);
-    if (session->net) {
-        sc_net_close(session->net);
-        session->net = NULL;
-        --session->context->live;
-    }
+    std::destroy_at(session_at(L));
     return 0;
 }
 
@@ -81,22 +122,22 @@ static int create_session(lua_State *L, bool hosting) {
     uint16_t port = (uint16_t)integer_at(L, 2, hosting ? 0 : 1, UINT16_MAX);
     unsigned peers = hosting && !lua_isnoneornil(L, 3)
         ? (unsigned)integer_at(L, 3, 1, SC_NET_MAX_PEERS) : 8;
-    NetContext *context = lua_touserdata(L, lua_upvalueindex(1));
+    auto *context = static_cast<NetContext *>(lua_touserdata(L, lua_upvalueindex(1)));
     if (context->live >= SC_NET_LUA_MAX_SESSIONS)
         return failure(L, "network session limit reached (4 per VM)");
 
     /* Finish every Lua allocation before acquiring the native socket. The
      * already-finalizable userdata owns the result even if later Lua code OOMs. */
-    NetSession *session = lua_newuserdatauv(L, sizeof *session, 1);
-    session->net = NULL;
+    auto *session = std::construct_at(static_cast<NetSession *>(lua_newuserdatauv(L, sizeof(NetSession), 1)));
     session->context = context;
     lua_pushvalue(L, lua_upvalueindex(1));
     lua_setiuservalue(L, -2, 1);
     luaL_setmetatable(L, SESSION_TYPE);
-    char error[SC_NET_ERROR_MAX];
-    session->net = hosting ? sc_net_host(address, port, peers, error)
-                           : sc_net_join(address, port, error);
-    if (!session->net) return failure(L, error);
+    char error[SC_NET_ERROR_MAX]{};
+    bool success = native_call(error,
+        [&] { return hosting ? ScNet::host(address, port, peers) : ScNet::join(address, port); },
+        [&](auto &result) { session->net = std::move(*result); });
+    if (!success) return failure(L, error);
     ++context->live;
     return 1;
 }
@@ -107,7 +148,8 @@ static int net_join(lua_State *L) { return create_session(L, false); }
 static int session_close(lua_State *L) {
     arg_count(L, 1, 1);
     require_mutable(L);
-    return session_gc(L);
+    session_at(L)->close();
+    return 0;
 }
 
 static int session_poll(lua_State *L) {
@@ -115,22 +157,26 @@ static int session_poll(lua_State *L) {
     require_mutable(L);
     NetSession *session = session_at(L);
     if (!session->net) return failure(L, "network session is closed");
-    ScNetEvent event;
-    int status = sc_net_poll(session->net, &event, 0);
-    if (status < 0) return failure(L, sc_net_error(session->net));
+    ScNetEvent event{};
+    static_assert(std::is_trivially_destructible_v<ScNetEvent>);
+    bool status = false;
+    char error[SC_NET_ERROR_MAX]{};
+    bool success = native_call(error, [&] { return session->net->poll(); },
+        [&](auto &result) { if (*result) { event = **result; status = true; } });
+    if (!success) return failure(L, error);
     if (!status) { lua_pushnil(L); return 1; }
     lua_createtable(L, 0, 5);
-    lua_pushstring(L, event.type == SC_NET_CONNECT ? "connect" :
-                      event.type == SC_NET_RECEIVE ? "receive" : "disconnect");
+    lua_pushstring(L, event.type == ScNetEventType::Connect ? "connect" :
+                      event.type == ScNetEventType::Receive ? "receive" : "disconnect");
     lua_setfield(L, -2, "type");
     lua_pushinteger(L, (lua_Integer)event.peer);
     lua_setfield(L, -2, "peer");
-    if (event.type == SC_NET_RECEIVE) {
-        lua_pushlstring(L, (const char *)event.data, event.size);
+    if (event.type == ScNetEventType::Receive) {
+        lua_pushlstring(L, reinterpret_cast<const char *>(event.data.data()), event.size);
         lua_setfield(L, -2, "data");
-        lua_pushstring(L, event.channel == SC_NET_CONTROL ? "reliable" : "state");
+        lua_pushstring(L, event.channel == ScNetChannel::Control ? "reliable" : "state");
         lua_setfield(L, -2, "channel");
-    } else if (event.type == SC_NET_DISCONNECT) {
+    } else if (event.type == ScNetEventType::Disconnect) {
         lua_pushinteger(L, (lua_Integer)event.reason);
         lua_setfield(L, -2, "reason");
     }
@@ -146,18 +192,21 @@ static int session_send(lua_State *L) {
     size_t size;
     const char *data = lua_tolstring(L, 3, &size);
     if (size > SC_NET_MAX_PAYLOAD) return luaL_argerror(L, 3, "message exceeds 1200 bytes");
-    ScNetChannel channel = SC_NET_CONTROL;
+    ScNetChannel channel = ScNetChannel::Control;
     if (!lua_isnoneornil(L, 4)) {
         size_t length;
         if (lua_type(L, 4) != LUA_TSTRING) return luaL_argerror(L, 4, "expected 'reliable' or 'state'");
         const char *name = lua_tolstring(L, 4, &length);
-        if (length == 5 && memcmp(name, "state", 5) == 0) channel = SC_NET_STATE;
+        if (length == 5 && memcmp(name, "state", 5) == 0) channel = ScNetChannel::State;
         else if (length != 8 || memcmp(name, "reliable", 8) != 0)
             return luaL_argerror(L, 4, "expected 'reliable' or 'state'");
     }
     if (!session->net) return failure(L, "network session is closed");
-    if (!sc_net_send(session->net, peer, channel, data, size))
-        return failure(L, sc_net_error(session->net));
+    char error[SC_NET_ERROR_MAX]{};
+    if (!native_call(error, [&] {
+            return session->net->send(peer, channel,
+                std::span{reinterpret_cast<const std::uint8_t *>(data), size});
+        })) return failure(L, error);
     lua_pushboolean(L, true);
     return 1;
 }
@@ -167,7 +216,7 @@ static int session_flush(lua_State *L) {
     require_mutable(L);
     NetSession *session = session_at(L);
     if (!session->net) return failure(L, "network session is closed");
-    sc_net_flush(session->net);
+    session->net->flush();
     lua_pushboolean(L, true);
     return 1;
 }
@@ -180,8 +229,9 @@ static int session_disconnect(lua_State *L) {
     uint32_t reason = lua_isnoneornil(L, 3) ? 0
         : (uint32_t)integer_at(L, 3, 0, UINT32_MAX);
     if (!session->net) return failure(L, "network session is closed");
-    if (!sc_net_disconnect(session->net, peer, reason))
-        return failure(L, sc_net_error(session->net));
+    char error[SC_NET_ERROR_MAX]{};
+    if (!native_call(error, [&] { return session->net->disconnect(peer, reason); }))
+        return failure(L, error);
     lua_pushboolean(L, true);
     return 1;
 }
@@ -190,7 +240,7 @@ static int session_port(lua_State *L) {
     arg_count(L, 1, 1);
     NetSession *session = session_at(L);
     if (!session->net) return failure(L, "network session is closed");
-    lua_pushinteger(L, sc_net_port(session->net));
+    lua_pushinteger(L, session->net->port());
     return 1;
 }
 
@@ -199,17 +249,19 @@ static int session_rtt(lua_State *L) {
     NetSession *session = session_at(L);
     uint32_t peer = (uint32_t)integer_at(L, 2, 1, UINT32_MAX);
     if (!session->net) return failure(L, "network session is closed");
-    int rtt = sc_net_rtt(session->net, peer);
-    if (rtt < 0) return failure(L, sc_net_error(session->net));
+    int rtt = 0;
+    char error[SC_NET_ERROR_MAX]{};
+    if (!native_call(error, [&] { return session->net->rtt(peer); },
+        [&](auto &result) { rtt = *result; })) return failure(L, error);
     lua_pushinteger(L, rtt);
     return 1;
 }
 
-typedef struct {
+struct NetEntry {
     const char *name;
     lua_CFunction function;
     const char *signature, *description;
-} NetEntry;
+};
 
 static const NetEntry constructors[] = {
     {"host", net_host, "sc.net.host(bind_ipv4, port[, max_peers=8]) -> session|nil, error", "Bind numeric IPv4; port 0 selects a free port. Maximum 4 live sessions per VM and 32 peers per host; forbidden in draw."},
@@ -238,14 +290,15 @@ static void add_functions(lua_State *L, const NetEntry *entries, int context,
     }
 }
 
+} // namespace
+
 void sc_net_lua_register(lua_State *L, lua_CFunction guard) {
     int sc = lua_absindex(L, -1);
     luaL_checktype(L, sc, LUA_TTABLE);
     lua_rawgetp(L, LUA_REGISTRYINDEX, &context_key);
     if (lua_isnil(L, -1)) {
         lua_pop(L, 1);
-        NetContext *context = lua_newuserdatauv(L, sizeof *context, 0);
-        context->live = 0;
+        std::construct_at(static_cast<NetContext *>(lua_newuserdatauv(L, sizeof(NetContext), 0)));
         lua_pushvalue(L, -1);
         lua_rawsetp(L, LUA_REGISTRYINDEX, &context_key);
     }

@@ -1,9 +1,11 @@
 #include "shiny/script.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <type_traits>
 #ifdef _WIN32
 #include <direct.h>
 #include <process.h>
@@ -24,11 +26,16 @@
 
 static char project[SC_PATH_MAX];
 
+static_assert(std::is_default_constructible_v<ScScript>);
+static_assert(!std::is_copy_constructible_v<ScScript>);
+static_assert(!std::is_move_constructible_v<ScScript>);
+static_assert(std::is_nothrow_destructible_v<ScScript>);
+
 static void fixture(const char *source) {
     char path[SC_PATH_MAX + 16];
     snprintf(path, sizeof path, "%s/main.lua", project);
     FILE *file = fopen(path, "wb");
-    CHECK(file != NULL);
+    CHECK(file != nullptr);
     CHECK(fwrite(source, 1, strlen(source), file) == strlen(source));
     CHECK(fclose(file) == 0);
 }
@@ -44,7 +51,7 @@ static void expect_bad(ScScript *script, ScWorld *world, const char *source, con
     if (!strstr(script->error, message)) {
         fprintf(stderr, "Expected '%s', got: %s\n", message, script->error); exit(1);
     }
-    CHECK(script->lua == NULL);
+    CHECK(script->lua == nullptr);
     CHECK(script->memory_used == 0);
 }
 
@@ -52,7 +59,7 @@ static void test_paths(void) {
     CHECK(sc_script_validate_path("main.lua"));
     CHECK(sc_script_validate_path("rooms/quiet-well.lua"));
     CHECK(sc_script_validate_path("assets/picture.v2.png"));
-    const char *bad[] = {NULL, "", "/tmp/main.lua", "../main.lua", "rooms/../main.lua", "./main.lua",
+    const char *bad[] = {nullptr, "", "/tmp/main.lua", "../main.lua", "rooms/../main.lua", "./main.lua",
                          "rooms//main.lua", "rooms/", "C:/main.lua", "C:\\main.lua", "x\ny.lua", "a/./b.lua"};
     for (size_t i = 0; i < sizeof bad / sizeof *bad; ++i) CHECK(!sc_script_validate_path(bad[i]));
 }
@@ -167,14 +174,34 @@ static void test_limits(ScScript *script, ScWorld *world) {
     CHECK(script->memory_used == 0);
 }
 
+static void test_ownership(ScWorld *world) {
+    {
+        ScScript scoped;
+        CHECK(scoped.lua == nullptr && scoped.memory_used == 0);
+        CHECK(open_source(&scoped, world, "return {}"));
+        CHECK(scoped.lua != nullptr && scoped.memory_used > 0);
+        // Reopen with aliased path arguments: the old VM is released first.
+        CHECK(sc_script_open(&scoped, world, scoped.root, scoped.entry));
+        CHECK(scoped.lua != nullptr && scoped.memory_used > 0);
+        // Destructor owns the successful VM; no explicit close on this path.
+    }
+    {
+        auto scoped = std::make_unique<ScScript>();
+        CHECK(open_source(scoped.get(), world, "return {}"));
+        CHECK(!sc_script_open(scoped.get(), world, project, "../invalid.lua"));
+        CHECK(scoped->lua == nullptr && scoped->memory_used == 0);
+        sc_script_close(scoped.get());
+        sc_script_close(scoped.get());
+    }
+}
+
 int main(void) {
-    snprintf(project, sizeof project, "tests/.script-test-%ld", (long)test_pid());
+    snprintf(project, sizeof project, "tests/.script-test-%ld", static_cast<long>(test_pid()));
     CHECK(test_mkdir(project) == 0);
-    ScWorld *world = malloc(sizeof *world);
-    CHECK(world != NULL);
+    auto world = std::make_unique<ScWorld>();
     ScScript script;
-    test_paths(); test_scene_validation(&script, world); test_api(&script, world); test_limits(&script, world);
-    free(world);
+    test_paths(); test_scene_validation(&script, world.get()); test_api(&script, world.get()); test_limits(&script, world.get());
+    test_ownership(world.get());
     char path[SC_PATH_MAX + 16];
     snprintf(path, sizeof path, "%s/main.lua", project);
     CHECK(remove(path) == 0); CHECK(test_rmdir(project) == 0);

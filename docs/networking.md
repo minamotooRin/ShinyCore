@@ -2,7 +2,7 @@
 
 网络是可选模块：C++23 网络层以 RAII 管理 ENet 的 UDP 资源，Lua 游戏决定消息格式、玩家身份和同步方式。模拟内核不读取套接字，不依赖 ENet，也不会自动复制实体。默认构建关闭网络，只有显式开启时才下载并静态链接固定版本的 ENet。
 
-C 接口在 [`include/shiny/net.h`](../include/shiny/net.h)，独立于 Lua、图形和模拟内核。C 调用方可以用 `sc_net_poll` 指定 0..1000 ms 等待；Lua 的 `session:poll()` 始终不等待。一个会话及其生命周期由单一线程管理。
+C++ 接口在 [`include/shiny/net.h`](../include/shiny/net.h)，独立于 Lua、图形和模拟内核。原生调用方可以用 `ScNet::poll` 指定 0..1000 ms 等待；Lua 的 `session:poll()` 始终不等待。一个会话及其生命周期由单一线程管理。
 
 ```sh
 cmake -S . -B build-net -DSHINY_NETWORK=ON -DCMAKE_BUILD_TYPE=Release
@@ -11,7 +11,7 @@ ctest --test-dir build-net --output-on-failure
 ./build-net/shiny examples/duet
 ```
 
-独立无窗口主机加 `-DSHINY_GRAPHICS=OFF`。运行时使用 `--headless --realtime`，按真实时间推进固定 60 Hz 更新；普通 `--headless` 仍尽快完成离线回放。网络到达时间不在回放文件或 C 世界 hash 中，联机运行不承诺离线回放的确定性。
+独立无窗口主机加 `-DSHINY_GRAPHICS=OFF`。运行时使用 `--headless --realtime`，按真实时间推进固定 60 Hz 更新；普通 `--headless` 仍尽快完成离线回放。网络到达时间不在回放文件或世界状态 hash 中，联机运行不承诺离线回放的确定性。
 
 打包时显式包含联机示例，工具会检查可执行文件的 `--api` 能力，拒绝给关闭网络的二进制打出联机包：
 
@@ -22,6 +22,8 @@ python3 tools/package.py build-net/shiny dist/ShinyCore-Network --with-network-e
 包内同时保留 LANTERN、DUET、网络文档和原始依赖许可。运行命令在包根目录的 `README.txt`；双击默认应用仍启动 LANTERN。
 
 ## 最小接口
+
+原生 C++ 接口位于 `include/shiny/net.h`：`ScNet` 独占连接资源，工厂返回 `std::expected<std::unique_ptr<ScNet>, std::string>`，消息使用 `std::span`，接收事件持有自己的 `std::array`。Lua 绑定在调用可能触发错误跳转的 Lua API 前结束所有原生临时对象与异常处理作用域，防止跳过 C++ 析构。
 
 ```lua
 -- 在 init/update 中显式创建；DUET 选择等玩家按键后才创建。
@@ -88,4 +90,6 @@ macOS arm64、AppleClang 21、CMake 4.3.1：网络启用的 Release 与 ASan/UBS
 
 4 项双进程测试验证握手与合作目标完成、非法方向拒绝、输入过期停止，以及端口已占用时 `--check` 仍不监听。原生客机与无窗口主机也实际交换位置，菜单和联网画面均完成截图检查。公网、丢包模拟和 Windows/Linux 实机运行尚未验收；CI 已配置网络开关与多平台构建。
 
-同一 Release 配置、未剥离符号的无窗口二进制：网络关闭 **312,808 字节**，开启 **369,320 字节**，差额 **56,512 字节**。关闭时没有下载 ENet，二进制没有 ENet 符号；LANTERN 的 480 帧回放在两个构建中输出完全相同的 JSON 状态。体积会随编译器与功能变化，数字不是跨平台上限。交付包测试还验证了资源搬移，以及关闭网络的二进制拒绝 `--with-network-examples`。
+C++23 网络启用的无窗口 Release 二进制为 **401,000 字节**；保留的 C11 网络启用版本为 **369,320 字节**，差额 **31,680 字节**。两者均未剥离符号。相同 LANTERN 项目、seed 42 和 480 帧回放的全部游戏状态相同，每个程序重复运行也得到相同结果。可复用 `tools/compare_engines.py C11_BINARY CPP23_BINARY` 生成 JSON 对比；版本/语言作为元数据报告，其他状态差异会返回非零退出码。比较体积时应匹配图形、网络、优化与符号选项，工具不会修改或剥离二进制。
+
+原 C11 构建的网络关闭/开启大小分别为 312,808 / 369,320 字节，网络增量为 56,512 字节；这组数字仅描述保留基线，不是 C++23 的网络增量。关闭时没有下载 ENet，二进制没有 ENet 符号。体积会随编译器与功能变化，数字不是跨平台上限。交付包测试还验证了资源搬移，以及关闭网络的二进制拒绝 `--with-network-examples`。

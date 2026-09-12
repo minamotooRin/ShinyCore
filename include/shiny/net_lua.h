@@ -1,9 +1,11 @@
 #ifndef SHINY_NET_LUA_H
 #define SHINY_NET_LUA_H
 
+extern "C" {
 #include <lua.h>
+}
 
-#define SC_NET_LUA_MAX_SESSIONS 4
+inline constexpr unsigned SC_NET_LUA_MAX_SESSIONS = 4;
 
 /* Attach sc.net to the sc table at the top of the stack, preserving that stack.
  * The optional guard is called before operations with network side effects.

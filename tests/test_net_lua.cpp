@@ -3,12 +3,14 @@
 #include "shiny/net.h"
 #include "shiny/script.h"
 
+extern "C" {
 #include <lauxlib.h>
 #include <lualib.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+}
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
 #ifdef _WIN32
 #include <direct.h>
 #include <process.h>
@@ -58,11 +60,13 @@ static void register_api(lua_State *L) {
     lua_setglobal(L, "pause_one_ms");
 }
 
-static lua_State *new_vm(void) {
-    lua_State *L = luaL_newstate();
-    CHECK(L != NULL);
-    register_api(L);
-    return L;
+using LuaVm = std::unique_ptr<lua_State, decltype(&lua_close)>;
+
+static LuaVm new_vm() {
+    LuaVm vm{luaL_newstate(), lua_close};
+    CHECK(vm != nullptr);
+    register_api(vm.get());
+    return vm;
 }
 
 static void run(lua_State *L, const char *source) {
@@ -82,15 +86,14 @@ static uint16_t read_port(lua_State *L) {
 }
 
 static void check_bind(uint16_t port, bool available) {
-    char error[SC_NET_ERROR_MAX];
-    ScNet *net = sc_net_host("127.0.0.1", port, 1, error);
-    CHECK((net != NULL) == available);
-    if (!net) CHECK(error[0] != '\0');
-    sc_net_close(net);
+    auto result = ScNet::host("127.0.0.1", port, 1);
+    CHECK(result.has_value() == available);
+    if (!result) CHECK(!result.error().empty());
 }
 
 static void test_arguments_and_limits(void) {
-    lua_State *L = new_vm();
+    auto vm = new_vm();
+    auto *L = vm.get();
     run(L,
         "assert(sc.net.available == true)\n"
         "local function bad(f, ...) assert(not pcall(f, ...)) end\n"
@@ -123,11 +126,11 @@ static void test_arguments_and_limits(void) {
         "ok,err=h:send(0,''); assert(ok==nil and err:find('closed'))\n"
         "ok,err=h:rtt(1); assert(ok==nil and err:find('closed'))\n"
         "ok,err=h:disconnect(1); assert(ok==nil and err:find('closed'))\n");
-    lua_close(L);
 }
 
 static void test_loopback(void) {
-    lua_State *L = new_vm();
+    auto vm = new_vm();
+    auto *L = vm.get();
     run(L,
         "local host=assert(sc.net.host('127.0.0.1',0,2))\n"
         "local client=assert(sc.net.join('127.0.0.1',host:port()))\n"
@@ -156,11 +159,11 @@ static void test_loopback(void) {
         "assert(host:disconnect(hp,42)); local ok,err=host:send(hp,'late'); assert(ok==nil and err)\n"
         "for i=1,3000 do pump(); if disconnected then break end; pause_one_ms() end\n"
         "assert(disconnected,'disconnect timed out'); host:close(); client:close()\n");
-    lua_close(L);
 }
 
 static void test_guard(void) {
-    lua_State *L = new_vm();
+    auto vm = new_vm();
+    auto *L = vm.get();
     run(L, "h=assert(sc.net.host('127.0.0.1',0)); port=h:port()");
     allow_mutation = false;
     run(L,
@@ -171,13 +174,14 @@ static void test_guard(void) {
     uint16_t port = read_port(L);
     check_bind(port, false);
     /* C cleanup must run even when authored mutation is forbidden. */
-    lua_close(L);
+    vm.reset();
     check_bind(port, true);
     allow_mutation = true;
 }
 
 static void test_gc(void) {
-    lua_State *L = new_vm();
+    auto vm = new_vm();
+    auto *L = vm.get();
     run(L, "h=assert(sc.net.host('127.0.0.1',0)); port=h:port()");
     uint16_t port = read_port(L);
     check_bind(port, false);
@@ -189,14 +193,14 @@ static void test_gc(void) {
         "for i=1,4 do hosts=assert(sc.net.host('127.0.0.1',0)); hosts:close() end\n"
         "h=assert(sc.net.host('127.0.0.1',port))\n");
     check_bind(port, false);
-    lua_close(L);
+    vm.reset();
     check_bind(port, true);
 }
 
-typedef struct { bool armed; size_t remaining; } FailingAllocator;
+struct FailingAllocator { bool armed; size_t remaining; };
 
 static void *failing_alloc(void *user, void *pointer, size_t old, size_t size) {
-    FailingAllocator *allocator = user;
+    auto *allocator = static_cast<FailingAllocator *>(user);
     if (!size) { free(pointer); return NULL; }
     if (!pointer) old = 0;
     if (allocator->armed && size > old) {
@@ -207,16 +211,16 @@ static void *failing_alloc(void *user, void *pointer, size_t old, size_t size) {
 }
 
 static void test_allocation_cleanup(void) {
-    char error[SC_NET_ERROR_MAX];
-    ScNet *probe = sc_net_host("127.0.0.1", 0, 1, error);
-    CHECK(probe != NULL);
-    uint16_t port = sc_net_port(probe);
-    sc_net_close(probe);
+    auto probe = ScNet::host("127.0.0.1", 0, 1);
+    CHECK(probe.has_value());
+    uint16_t port = (*probe)->port();
+    probe->reset();
     unsigned failures = 0, successes = 0;
     for (size_t threshold = 0; threshold < 32; ++threshold) {
         FailingAllocator allocator = {false, threshold};
-        lua_State *L = lua_newstate(failing_alloc, &allocator);
-        CHECK(L != NULL);
+        LuaVm vm{lua_newstate(failing_alloc, &allocator), lua_close};
+        auto *L = vm.get();
+        CHECK(L != nullptr);
         register_api(L);
         char source[256];
         snprintf(source, sizeof source,
@@ -227,10 +231,34 @@ static void test_allocation_cleanup(void) {
         allocator.armed = false;
         CHECK(status == LUA_ERRMEM || status == LUA_OK);
         if (status == LUA_ERRMEM) ++failures; else ++successes;
-        lua_close(L);
+        vm.reset();
         check_bind(port, true);
     }
     CHECK(failures > 0 && successes > 0);
+
+    /* A failed factory creates an expected<string>; even if Lua then OOMs
+     * while returning its error, that native result must already be destroyed. */
+    probe = ScNet::host("127.0.0.1", port, 1);
+    CHECK(probe.has_value());
+    failures = successes = 0;
+    for (size_t threshold = 0; threshold < 16; ++threshold) {
+        FailingAllocator allocator{false, threshold};
+        LuaVm vm{lua_newstate(failing_alloc, &allocator), lua_close};
+        CHECK(vm != nullptr);
+        register_api(vm.get());
+        char source[256];
+        snprintf(source, sizeof source,
+            "local h,e=sc.net.host('127.0.0.1',%u); assert(h==nil and type(e)=='string')", (unsigned)port);
+        CHECK(luaL_loadstring(vm.get(), source) == LUA_OK);
+        allocator.armed = true;
+        int status = lua_pcall(vm.get(), 0, 0, 0);
+        allocator.armed = false;
+        CHECK(status == LUA_ERRMEM || status == LUA_OK);
+        if (status == LUA_ERRMEM) ++failures; else ++successes;
+    }
+    CHECK(failures > 0 && successes > 0);
+    probe->reset();
+    check_bind(port, true);
 }
 
 static void write_scene(const char *path, const char *source) {
@@ -246,9 +274,8 @@ static void test_script_integration(void) {
     snprintf(directory, sizeof directory, ".net-script-test-%ld", (long)test_pid());
     snprintf(path, sizeof path, "%s/main.lua", directory);
     CHECK(test_mkdir(directory) == 0);
-    ScWorld *world = malloc(sizeof *world);
-    CHECK(world != NULL);
-    ScScript script;
+    auto world = std::make_unique<ScWorld>();
+    ScScript script{};
     write_scene(path,
         "local h; return {\n"
         " init=function() h=assert(sc.net.host('127.0.0.1',0)); port=h:port() end,\n"
@@ -258,8 +285,8 @@ static void test_script_integration(void) {
         "  ok,err=pcall(sc.net.host,'127.0.0.1',0); assert(not ok and err:find('forbidden in draw'))\n"
         "  assert(h:port()==port)\n"
         " end}\n");
-    sc_world_init(world, 42);
-    CHECK(sc_script_open(&script, world, directory, "main.lua"));
+    sc_world_init(world.get(), 42);
+    CHECK(sc_script_open(&script, world.get(), directory, "main.lua"));
     uint16_t port = read_port(script.lua);
     check_bind(port, false);
     CHECK(sc_script_draw(&script, 0));
@@ -273,8 +300,8 @@ static void test_script_integration(void) {
         " init=function() h=assert(sc.net.host('127.0.0.1',0)); port=h:port() end,\n"
         " update=function() assert(h:flush()) end,\n"
         " draw=function() h:poll() end}\n");
-    sc_world_init(world, 42);
-    CHECK(sc_script_open(&script, world, directory, "main.lua"));
+    sc_world_init(world.get(), 42);
+    CHECK(sc_script_open(&script, world.get(), directory, "main.lua"));
     port = read_port(script.lua);
     CHECK(!sc_script_draw(&script, 0));
     CHECK(strstr(script.error, "forbidden in draw") != NULL);
@@ -288,12 +315,11 @@ static void test_script_integration(void) {
         "return {init=function() h=assert(sc.net.host('127.0.0.1',%u)); error('init failed') end}",
         (unsigned)port);
     write_scene(path, source);
-    sc_world_init(world, 42);
-    CHECK(!sc_script_open(&script, world, directory, "main.lua"));
+    sc_world_init(world.get(), 42);
+    CHECK(!sc_script_open(&script, world.get(), directory, "main.lua"));
     CHECK(strstr(script.error, "init failed") != NULL);
     CHECK(script.lua == NULL && script.memory_used == 0);
     check_bind(port, true);
-    free(world);
     CHECK(remove(path) == 0);
     CHECK(test_rmdir(directory) == 0);
 }
