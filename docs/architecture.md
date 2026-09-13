@@ -36,7 +36,7 @@ Function tables drive both registration and `--api`; tests compare names and wri
 
 `sc.state` is an ordered plain-data object with independent copies on read. Dense arrays, string-key objects, UTF-8 strings, finite numbers and booleans are supported; nil deletes a key. Empty Lua tables represent objects. Metatables, cycles, sparse/mixed arrays and JSON null are rejected. Serialized state is bounded to 256 KiB and depth 16.
 
-A scene request inherits explicit state unless a replacement is supplied. The host constructs a new world and VM, runs load/init/initial draw, validates physics and declared assets, and prepares GPU resources before swapping ownership. Graphics failure retains the old runtime/cache and reports the diagnostic; headless failure exits nonzero. Viewport dimensions must match the live window. F5 follows the same process and retains explicit state. Module caches and Lua locals restart.
+A scene request inherits explicit state unless a replacement is supplied. The host constructs a new world and VM, runs load/init/initial draw, validates physics and declared assets, and prepares GPU resources before swapping ownership. Graphics failure retains the old runtime/cache and reports the diagnostic; headless failure exits nonzero. Viewport dimensions must match the live window. With `--debug-keys`, F5 follows the same process and retains explicit state. Module caches and Lua locals restart.
 
 Only persistent music voices carry across rooms/F5; other voices expire. Candidate init may create new voices within the remaining capacity. The renderer retains matching persistent handles and replaces other resources after preparation succeeds.
 
@@ -59,3 +59,13 @@ Audio has a deterministic logical clock even when muted/headless, 32 SFX voices 
 Rendering uses scene/light/composite targets, integer scaling, nearest-neighbor textures, layers and particles. Tiled layers interleave with entity layers; custom world drawing follows entities and screen drawing follows lighting. Light occlusion remains an approximate ASCII-grid DDA; it does not reflect Tiled or dynamic-body geometry. Default sc.message/debug text uses the ASCII font; multilingual authored UI uses sc.text.
 
 Optional ENet transport remains separate from the solver and game protocol; see networking.md. Platform acceptance and sanitizer availability are recorded in verification.md.
+
+## Device input
+
+The host owns `ScInputBuffer`; the world owns a fixed-capacity `ScDeviceInput` snapshot, with no raylib or Lua dependency. The native backend selects a single gamepad and samples named controls; Lua reads only the committed fixed tick. Buffered presses/releases survive render-only iterations and are consumed once, including taps with both edges in one tick. OS repeat is suppressed. Hardware events not reported by the backend cannot be recovered.
+
+Loss of window focus submits neutral state and release edges. A disconnected pad cannot be replaced until at least one neutral simulation tick has been consumed. A scene transition or successful reload inherits held device/action state before init, with consumed edges cleared. The host buffer survives both. Failed reloads preserve the active runtime.
+
+The six legacy actions derive from the same device state, retaining the 0.25 stick direction threshold and adding vertical left-stick motion. Logical actions OR all sources; releasing one source while another remains held does not release the action. `--debug-keys` explicitly enables host shortcuts; otherwise all keyboard controls, including Escape, belong to the game.
+
+Both replay versions suppress live device input. Legacy masks do not fabricate device state. Version 2 contains normalized controls and derives legacy actions just like live sampling. State hashes include device held/edge bits, connection state and each axis as an explicit logical field; device metadata and native slot numbers are excluded. Hash values therefore change from older binaries. See [input.md](input.md) for names and format.

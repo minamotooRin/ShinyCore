@@ -7,6 +7,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <array>
+#include <algorithm>
 #include <utility>
 #include <vector>
 #include <map>
@@ -57,6 +58,8 @@ struct Backend final {
     std::array<bool,512> pressed_keys{};
     std::size_t asset_count{},voice{};
     int width{},height{};
+    bool debug_keys{};
+    ScGamepadSelection gamepad;
     bool audio{},open{},stats{},hitboxes{},lighting{true};
     char root[SC_PATH_MAX]{},error[SC_ERROR_MAX]{};
     Backend()=default;
@@ -72,7 +75,7 @@ struct Backend final {
         final.reset();light.reset();scene.reset();
         if (audio) CloseAudioDevice();
         if (open) CloseWindow();
-        audio=open=stats=hitboxes=false; lighting=true;
+        audio=open=stats=hitboxes=debug_keys=false; lighting=true; gamepad={};
         asset_count=voice=0; width=height=0; root[0]=error[0]='\0';pressed_keys.fill(false);
     }
 } backend;
@@ -159,7 +162,7 @@ bool sc_render_open(const ScWorld *world,const char *root,bool audio,char *error
     SetConfigFlags(FLAG_WINDOW_RESIZABLE|FLAG_VSYNC_HINT);
     InitWindow(backend.width*3,backend.height*3,world->title);
     if (!IsWindowReady()) { snprintf(error,error_size,"unable to create native graphics window"); return false; }
-    backend.open=true;
+    backend.open=true; SetExitKey(KEY_NULL);
     SetWindowMinSize(backend.width,backend.height); SetTargetFPS(60);
     backend.scene.reset(LoadRenderTexture(backend.width,backend.height));
     backend.light.reset(LoadRenderTexture(backend.width,backend.height));
@@ -184,38 +187,45 @@ bool sc_render_should_close(void) {
     return WindowShouldClose();
 }
 float sc_render_delta(void) { return GetFrameTime(); }
-static bool key_pressed(int key) { return backend.pressed_keys[static_cast<std::size_t>(key)] || IsKeyPressed(key); }
+static bool key_pressed(int key) { return backend.debug_keys && IsWindowFocused() && (backend.pressed_keys[static_cast<std::size_t>(key)] || IsKeyPressed(key)); }
 bool sc_render_reload_requested(void) { return key_pressed(KEY_F5); }
 bool sc_render_pause_requested(void) { return key_pressed(KEY_P); }
 bool sc_render_step_requested(void) { return key_pressed(KEY_O); }
-uint32_t sc_render_pressed_input(void) {
-    uint32_t mask=0;
-    if (key_pressed(KEY_LEFT)||key_pressed(KEY_A)) mask|=SC_LEFT;
-    if (key_pressed(KEY_RIGHT)||key_pressed(KEY_D)) mask|=SC_RIGHT;
-    if (key_pressed(KEY_UP)||key_pressed(KEY_W)) mask|=SC_UP;
-    if (key_pressed(KEY_DOWN)||key_pressed(KEY_S)) mask|=SC_DOWN;
-    if (key_pressed(KEY_SPACE)||key_pressed(KEY_Z)) mask|=SC_JUMP;
-    if (key_pressed(KEY_E)||key_pressed(KEY_X)) mask|=SC_INTERACT;
-    return mask;
+void sc_render_debug_keys(bool enabled) {
+    backend.debug_keys=enabled; SetExitKey(enabled?KEY_ESCAPE:KEY_NULL);
 }
-uint32_t sc_render_input(void) {
-    uint32_t mask=0;
-    if (IsKeyDown(KEY_LEFT)||IsKeyDown(KEY_A)) mask|=SC_LEFT;
-    if (IsKeyDown(KEY_RIGHT)||IsKeyDown(KEY_D)) mask|=SC_RIGHT;
-    if (IsKeyDown(KEY_UP)||IsKeyDown(KEY_W)) mask|=SC_UP;
-    if (IsKeyDown(KEY_DOWN)||IsKeyDown(KEY_S)) mask|=SC_DOWN;
-    if (IsKeyDown(KEY_SPACE)||IsKeyDown(KEY_Z)) mask|=SC_JUMP;
-    if (IsKeyDown(KEY_E)||IsKeyDown(KEY_X)) mask|=SC_INTERACT;
-    if (IsGamepadAvailable(0)) {
-        float x=GetGamepadAxisMovement(0,GAMEPAD_AXIS_LEFT_X);
-        if (x<-.25f || IsGamepadButtonDown(0,GAMEPAD_BUTTON_LEFT_FACE_LEFT)) mask|=SC_LEFT;
-        if (x>.25f || IsGamepadButtonDown(0,GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) mask|=SC_RIGHT;
-        if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_LEFT_FACE_UP)) mask|=SC_UP;
-        if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_LEFT_FACE_DOWN)) mask|=SC_DOWN;
-        if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) mask|=SC_JUMP;
-        if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) mask|=SC_INTERACT;
+void sc_render_input_consumed() { backend.gamepad.consumed(); }
+ScDeviceInput sc_render_sample_input() {
+    ScDeviceInput input;
+    std::array<bool,4> available{};
+    for(std::size_t i=0;i<available.size();++i) available[i]=IsGamepadAvailable(static_cast<int>(i));
+    int pad=backend.gamepad.sample(available);
+    if(!IsWindowFocused()) return input;
+    for(const auto& key:SC_KEYS) {
+        auto id=static_cast<std::size_t>(key.id);
+        input.keys[id]=IsKeyDown(key.id);
+        input.key_pressed[id]=backend.pressed_keys[id]||IsKeyPressed(key.id);
+        input.key_released[id]=IsKeyReleased(key.id);
     }
-    return mask;
+    if(pad<0) return input;
+    input.connected=true;
+    constexpr int buttons[]={
+        GAMEPAD_BUTTON_LEFT_FACE_UP,GAMEPAD_BUTTON_LEFT_FACE_RIGHT,GAMEPAD_BUTTON_LEFT_FACE_DOWN,GAMEPAD_BUTTON_LEFT_FACE_LEFT,
+        GAMEPAD_BUTTON_RIGHT_FACE_UP,GAMEPAD_BUTTON_RIGHT_FACE_RIGHT,GAMEPAD_BUTTON_RIGHT_FACE_DOWN,GAMEPAD_BUTTON_RIGHT_FACE_LEFT,
+        GAMEPAD_BUTTON_LEFT_TRIGGER_1,GAMEPAD_BUTTON_LEFT_TRIGGER_2,GAMEPAD_BUTTON_RIGHT_TRIGGER_1,GAMEPAD_BUTTON_RIGHT_TRIGGER_2,
+        GAMEPAD_BUTTON_MIDDLE_LEFT,GAMEPAD_BUTTON_MIDDLE,GAMEPAD_BUTTON_MIDDLE_RIGHT,GAMEPAD_BUTTON_LEFT_THUMB,GAMEPAD_BUTTON_RIGHT_THUMB
+    };
+    for(std::size_t i=0;i<std::size(buttons);++i) {
+        if(IsGamepadButtonDown(pad,buttons[i])) input.buttons|=1u<<i;
+        if(IsGamepadButtonPressed(pad,buttons[i])) input.button_pressed|=1u<<i;
+        if(IsGamepadButtonReleased(pad,buttons[i])) input.button_released|=1u<<i;
+    }
+    constexpr int axes[]={GAMEPAD_AXIS_LEFT_X,GAMEPAD_AXIS_LEFT_Y,GAMEPAD_AXIS_RIGHT_X,GAMEPAD_AXIS_RIGHT_Y,GAMEPAD_AXIS_LEFT_TRIGGER,GAMEPAD_AXIS_RIGHT_TRIGGER};
+    int count=GetGamepadAxisCount(pad);
+    for(std::size_t i=0;i<std::size(axes);++i) if(axes[i]<count) {
+        input.axes[i]=sc_normalize_gamepad_axis(GetGamepadAxisMovement(pad,axes[i]),i>=4);
+    }
+    return input;
 }
 static Font font_asset(const ScResource* resource) {
     if(!resource) return GetFontDefault();

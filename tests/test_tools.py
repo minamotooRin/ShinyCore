@@ -46,12 +46,13 @@ class ToolTests(unittest.TestCase):
 
     def fixture_checkout(self) -> tuple[Path, Path]:
         root = self.base / "engine fixture"
-        for directory in ("tools", "docs", "licenses", "examples/lantern/replays"):
+        for directory in ("tools", "docs", "licenses", "examples/lantern/replays", "examples/input"):
             (root / directory).mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "tools" / "package.py", root / "tools" / "package.py")
-        for name in ("LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "licenses/Lua.txt"):
+        for name in ("LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "docs/input.md", "licenses/Lua.txt"):
             (root / name).write_text(f"fixture {name}\n", encoding="utf-8")
         (root / "examples" / "lantern" / "main.lua").write_text("return {}\n", encoding="utf-8")
+        (root / "examples" / "input" / "main.lua").write_text("return {}\n", encoding="utf-8")
         binary = root / "shiny"
         binary.write_bytes(b"fixture executable, copied without stripping\n")
         return root, binary
@@ -86,7 +87,7 @@ class ToolTests(unittest.TestCase):
         self.cli(root / "tools" / "package.py", binary, destination, "--no-strip")
         packaged_binary, resources = layout(destination)
         self.assertEqual(packaged_binary.read_bytes(), binary.read_bytes())
-        for name in ("LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "licenses/Lua.txt", "examples/lantern/main.lua"):
+        for name in ("LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "docs/input.md", "licenses/Lua.txt", "examples/lantern/main.lua", "examples/input/main.lua"):
             self.assertEqual((resources / name).read_bytes(), (root / name).read_bytes())
         if os.name != "nt":
             self.assertTrue(os.access(packaged_binary, os.X_OK))

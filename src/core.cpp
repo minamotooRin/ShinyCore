@@ -318,6 +318,13 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
         hash_float(&hash, particle->size); hash_u32(&hash, particle->color);
     }
     hash_u32(&hash, world->held); hash_u32(&hash, world->pressed);
+    for (const auto& key:SC_KEYS) {
+        auto i=static_cast<std::size_t>(key.id);
+        hash_u32(&hash,world->input.keys[i]); hash_u32(&hash,world->input.key_pressed[i]); hash_u32(&hash,world->input.key_released[i]);
+    }
+    hash_u32(&hash,world->input.connected); hash_u32(&hash,world->input.buttons);
+    hash_u32(&hash,world->input.button_pressed); hash_u32(&hash,world->input.button_released);
+    for(float axis:world->input.axes) hash_float(&hash,axis);
     hash_u32(&hash, world->released); hash_u32(&hash, world->rng);
     hash_u64(&hash, world->tick);
     hash_float(&hash, world->gravity); hash_float(&hash, world->camera_x);

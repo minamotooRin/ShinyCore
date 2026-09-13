@@ -61,7 +61,7 @@ session:flush()
 
 通道之间没有统一的到达顺序。每条应用消息为 **0..1200 字节**，可包含 NUL；不要发送 Lua 表、内存结构体或无界 JSON。每个 VM 最多 4 个会话、每个主机最多 32 个 peer（默认 8）、每个 peer 最多 256 条待处理发送命令。达到上限显式返回 `nil, error`；参数类型错误抛出 Lua 错误。`send` 成功代表消息进入本地发送队列，不代表应用层已经接收；广播在中途分配失败时可能已经部分发送。轮询并定期 `flush`，不要在一个更新中无界处理事件。
 
-会话由当前 Lua VM 持有；显式 `close`、垃圾回收、场景切换和 VM 关闭都会释放原生资源。F5 成功重载会重建 VM，旧连接随之关闭。网络创建、poll、send、flush、disconnect、close 属于有副作用的操作，不能在 `draw` 中调用。关闭网络的构建仅提供 `sc.net.available = false`，不注册会话工厂或方法；游戏在创建前检查 available，并提供所需提示。
+会话由当前 Lua VM 持有；显式 `close`、垃圾回收、场景切换和 VM 关闭都会释放原生资源。使用 `--debug-keys` 时，F5 成功重载会重建 VM，旧连接随之关闭。网络创建、poll、send、flush、disconnect、close 属于有副作用的操作，不能在 `draw` 中调用。关闭网络的构建仅提供 `sc.net.available = false`，不注册会话工厂或方法；游戏在创建前检查 available，并提供所需提示。
 
 ## DUET 的主机权威协议
 

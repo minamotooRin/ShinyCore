@@ -1,6 +1,7 @@
 #ifndef SHINY_CORE_H
 #define SHINY_CORE_H
 
+#include "shiny/input.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -126,6 +127,7 @@ struct ScWorld {
     std::array<ScTone, SC_MAX_TONES> tones{};
     std::array<ScDraw, SC_MAX_DRAWS> draws{};
     int tone_count{}, draw_count{};
+    ScDeviceInput input{};
     std::uint32_t held{}, pressed{}, released{}, rng{SC_DEFAULT_SEED};
     std::uint64_t tick{};
     float gravity{600}, camera_x{}, camera_y{}, ambient{0.4f};

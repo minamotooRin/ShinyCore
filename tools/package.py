@@ -54,8 +54,8 @@ def preflight(binary: Path, destination: Path, make_zip: bool, with_network: boo
             raise FileExistsError(f"output already exists; refusing to overwrite: {path}")
     if not binary.is_file():
         raise OSError(f"engine executable is missing: {binary}")
-    files = ["LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md"]
-    directories = ["licenses"] + ([] if custom else ["examples/lantern"])
+    files = ["LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "docs/input.md"]
+    directories = ["licenses"] + ([] if custom else ["examples/lantern", "examples/input"])
     if with_network:
         files += ["docs/networking.md", "examples/duet/main.lua", "licenses/enet.txt"]
         directories += ["examples/duet"]
@@ -86,12 +86,13 @@ def copy_resources(destination: Path, with_network: bool = False, custom: bool =
     (destination / "examples").mkdir(parents=True)
     ignored = shutil.ignore_patterns(".DS_Store", "__pycache__", "*.pyc")
     if not custom:
-        shutil.copytree(ROOT / "examples" / "lantern", destination / "examples" / "lantern", ignore=ignored)
+        for name in ("lantern", "input"):
+            shutil.copytree(ROOT / "examples" / name, destination / "examples" / name, ignore=ignored)
     if with_network:
         shutil.copytree(ROOT / "examples" / "duet", destination / "examples" / "duet", ignore=ignored)
     shutil.copytree(ROOT / "licenses", destination / "licenses", ignore=ignored)
     (destination / "docs").mkdir()
-    for name in ("api.lua", "llm-guide.md"):
+    for name in ("api.lua", "llm-guide.md", "input.md"):
         shutil.copy2(ROOT / "docs" / name, destination / "docs" / name)
     if with_network:
         shutil.copy2(ROOT / "docs" / "networking.md", destination / "docs" / "networking.md")

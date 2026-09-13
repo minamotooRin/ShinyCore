@@ -19,7 +19,7 @@ Windows 可使用现代 MSVC，或 GCC/MinGW + Ninja。Visual Studio 多配置�
 
 Workshop 展示中文 UI、Tiled 图层、箱子、斜坡、移动平台、Lua 动画和存档。A/D 移动，Space 跳跃，Down+Space 穿透单向平台，E 保存，Up 读取，走到右端切换房间。原创 Lantern 和可选联机示例 Duet 仍保留。
 
-F1 统计、F2 实体边界、F3 光照、F5 重载、P 暂停、O 单步、Esc 退出。F5 和切换房间会重建 VM 与世界，继承显式 `sc.state`；候选脚本、资源或窗口尺寸校验失败时，图形运行保留旧场景并报告错误。
+默认所有键交给游戏，关闭窗口退出。显式使用 `--debug-keys` 后启用 F1 统计、F2 实体边界、F3 光照、F5 重载、P 暂停、O 单步、Esc 退出。F5 和切换房间会重建 VM 与世界，继承显式 `sc.state`；候选脚本、资源或窗口尺寸校验失败时，图形运行保留旧场景并报告错误。
 
 ## 当前能力
 
@@ -66,6 +66,12 @@ ctest --test-dir build-headless --output-on-failure
 ```
 
 回放每行是 `frame mask`，帧从 0 开始，输入保持到下一条记录。左/右/上/下/跳跃/互动的掩码分别为 1/2/4/8/16/32。帧号跨房间连续，场景 `sc.tick()` 重新计数。
+
+## 键盘与手柄
+
+Lua 可直接查询完整桌面键盘、标准单人手柄的按钮、双摇杆和扳机。例如 `sc.key_pressed("escape")`、`sc.gamepad_down("south")`、`sc.gamepad_axis("left_x")`。摇杆轴为 `[-1,1]`，扳机为 `[0,1]`，默认逐轴死区 `0.2`；第二参数传 `0` 可关闭死区。没有设备时返回中立值；拔出手柄会产生释放边沿。
+
+旧六动作 API 继续有效，键盘和手柄可同时使用。新接口读取固定模拟帧快照，也支持新版 JSON Lines 无窗口回放。完整控件名见 `--api` 和 [Lua 注解](docs/api.lua)，格式及语义见 [输入说明](docs/input.md)。运行 `shiny examples/input` 可查看设备状态，或添加 `--replay examples/input/demo.jsonl --frames 125` 查看演示。
 
 ## 发行包
 

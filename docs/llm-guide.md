@@ -38,3 +38,9 @@ project.resources 集中声明 PNG、WAV、Ogg Vorbis 与字体；字体 charact
 资源路径相对于项目，使用正斜线，最多 127 字节。新增依赖保持版本和校验固定，不在游戏运行时联网获取素材。发行包只面向构建系统和架构；可选网络需单独开启并验证双进程交通。
 
 保留用户已有修改，不自动提交/推送。测试失败先缩小触发条件；不要把旧验证记录当作新版本证据。hash 不包含任意 Lua 局部状态、关节和求解器缓存，不可当作完整存档。
+
+## Device input and new replays
+
+Use `sc.key_down/pressed/released(name)` and `sc.gamepad_down/pressed/released(name)` for game-defined controls. Use `sc.gamepad_axis(axis, deadzone)` for analog motion and `sc.gamepad_connected()` for device status. Names come from `shiny --api` and `docs/api.lua`; invalid names fail explicitly. Keep game bindings in ordinary Lua tables. These queries read fixed-tick state, not text entry.
+
+All keys belong to the game by default. Launch with `--debug-keys` to opt into F1/F2/F3/F5/P/O/Escape host shortcuts. Use version 2 device replay files to exercise custom keys and axes headlessly; existing six-action mask recordings still work. See [input.md](input.md) and `examples/input/demo.jsonl`.

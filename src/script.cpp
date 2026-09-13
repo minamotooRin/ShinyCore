@@ -374,6 +374,42 @@ static uint32_t action_at(lua_State *L) {
     return 0;
 }
 
+template<std::size_t N> static int device_name(lua_State* L,const ScInputName (&names)[N]) {
+    const char* name=string_at(L,1,32,true);
+    int id=sc_input_id(names,name);
+    if(id<0) return luaL_error(L,"unknown input name '%s'",name);
+    return id;
+}
+template<int Edge> static int api_key(lua_State* L) {
+    arg_count(L,1,1);
+    int id=device_name(L,SC_KEYS); const auto& in=script_of(L)->world->input;
+    const auto& bits=Edge==0?in.keys:Edge==1?in.key_pressed:in.key_released;
+    lua_pushboolean(L,bits[static_cast<std::size_t>(id)]); return 1;
+}
+template<int Edge> static int api_gamepad(lua_State* L) {
+    arg_count(L,1,1);
+    int id=device_name(L,SC_BUTTONS); const auto& in=script_of(L)->world->input;
+    auto bits=Edge==0?in.buttons:Edge==1?in.button_pressed:in.button_released;
+    lua_pushboolean(L,(bits&(1u<<id))!=0); return 1;
+}
+static int api_gamepad_connected(lua_State* L) {
+    arg_count(L,0,0);
+    lua_pushboolean(L,script_of(L)->world->input.connected); return 1;
+}
+static int api_gamepad_axis(lua_State* L) {
+    arg_count(L,1,2);
+    int axis=device_name(L,SC_AXES);
+    float deadzone=0.2f;
+    if(!lua_isnoneornil(L,2)) {
+        if(lua_type(L,2)!=LUA_TNUMBER) return luaL_error(L,"deadzone must be a number in [0,1)");
+        double value=lua_tonumber(L,2);
+        if(!std::isfinite(value)||value<0||value>=1) return luaL_error(L,"deadzone must be in [0,1)");
+        deadzone=static_cast<float>(value);
+        if(deadzone>=1) return luaL_error(L,"deadzone must be representable below 1");
+    }
+    lua_pushnumber(L,sc_gamepad_axis(script_of(L)->world->input,axis,deadzone)); return 1;
+}
+
 static int api_down(lua_State *L) {
     uint32_t action = action_at(L);
     lua_pushboolean(L, (script_of(L)->world->held & action) != 0); return 1;
@@ -601,6 +637,14 @@ static const ScLuaApi api[] = {
     {"destroy", sc_lua_guard<api_destroy>, "destroy(id) -> true", "Destroy a live generation-checked entity."},
     {"find", sc_lua_guard<api_find>, "find(tag) -> id|nil", "Find the first living entity with an exact tag."},
     {"overlap", sc_lua_guard<api_overlap>, "overlap(a, b) -> boolean", "Test axis-aligned entity bounds."},
+    {"key_down", sc_lua_guard<api_key<0>>, "key_down(name) -> boolean", "Read the fixed-tick device input snapshot."},
+    {"key_pressed", sc_lua_guard<api_key<1>>, "key_pressed(name) -> boolean", "Read the fixed-tick device input snapshot."},
+    {"key_released", sc_lua_guard<api_key<2>>, "key_released(name) -> boolean", "Read the fixed-tick device input snapshot."},
+    {"gamepad_down", sc_lua_guard<api_gamepad<0>>, "gamepad_down(name) -> boolean", "Read the fixed-tick device input snapshot."},
+    {"gamepad_pressed", sc_lua_guard<api_gamepad<1>>, "gamepad_pressed(name) -> boolean", "Read the fixed-tick device input snapshot."},
+    {"gamepad_released", sc_lua_guard<api_gamepad<2>>, "gamepad_released(name) -> boolean", "Read the fixed-tick device input snapshot."},
+    {"gamepad_connected", sc_lua_guard<api_gamepad_connected>, "gamepad_connected() -> boolean", "Read the fixed-tick device input snapshot."},
+    {"gamepad_axis", sc_lua_guard<api_gamepad_axis>, "gamepad_axis(axis, deadzone?) -> number", "Read the fixed-tick device input snapshot."},
     {"down", sc_lua_guard<api_down>, "down(action) -> boolean", "Read held input."},
     {"pressed", sc_lua_guard<api_pressed>, "pressed(action) -> boolean", "Read this tick's press edge."},
     {"released", sc_lua_guard<api_released>, "released(action) -> boolean", "Read this tick's release edge."},
@@ -868,6 +912,12 @@ bool sc_script_draw(ScScript *script, float alpha) {
 void sc_script_describe(void) {
     std::printf("{\"engine\":\"ShinyCore\",\"version\":\"%s\",\"language\":\"Lua 5.4\",\"fixed_hz\":60,", SC_VERSION);
     std::printf("\"limits\":{\"entities\":256,\"tiles\":16384,\"particles\":1024,\"draws\":512,\"tones_per_tick\":32,\"sound_voices\":32,\"music_streams\":2,\"state_bytes\":262144,\"state_depth\":16,\"layers\":16,\"compound_shapes\":4,\"joints\":256,\"lua_memory_bytes\":16777216,\"instructions_per_callback\":1000000},");
+    auto names=[](const char* label,const auto& list) {
+        std::printf("\"%s\":[",label); bool first=true;
+        for(const auto& item:list) { std::printf("%s\"%.*s\"",first?"":",",static_cast<int>(item.name.size()),item.name.data()); first=false; }
+        std::printf("],");
+    };
+    names("keys",SC_KEYS); names("gamepad_buttons",SC_BUTTONS); names("gamepad_axes",SC_AXES);
     std::printf("\"actions\":[\"left\",\"right\",\"up\",\"down\",\"jump\",\"action\"],");
 #ifdef SC_HAS_NETWORK
     std::printf("\"network\":{\"available\":true,\"transport\":\"ENet 1.3.18\",\"max_peers\":32,\"max_payload\":1200,\"max_sessions\":4},");

@@ -1,0 +1,7 @@
+{"version":2}
+{"frame":0,"keys":[],"gamepad":{"connected":false}}
+{"frame":10,"keys":["a","left_shift"],"gamepad":{"connected":true,"buttons":["south","left_shoulder"],"axes":{"left_x":-0.7,"left_y":0.4,"right_x":0.8,"right_y":-0.6,"left_trigger":0.5,"right_trigger":1}}}
+{"frame":60,"keys":[],"gamepad":{"connected":false}}
+{"frame":75,"keys":[],"key_pressed":["escape"],"key_released":["escape"],"gamepad":{"connected":false}}
+{"frame":90,"keys":["f5","p","o"],"gamepad":{"connected":true,"buttons":["north","start"],"axes":{"left_x":0.6}}}
+{"frame":120,"keys":[],"gamepad":{"connected":false}}

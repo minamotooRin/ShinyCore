@@ -1,4 +1,5 @@
 #include "shiny/core.h"
+#include "shiny/input_replay.h"
 #include "shiny/script.h"
 #include "shiny/physics.h"
 #ifdef SC_HAS_GRAPHICS
@@ -25,11 +26,11 @@
 namespace {
 struct Error { std::string code, message; };
 template<class T> using Result = std::expected<T, Error>;
-struct ReplayEvent { uint64_t frame{}; uint32_t mask{}; };
+struct ReplayEvent { uint64_t frame{}; uint32_t mask{}; bool devices{}; ScDeviceInput input{}; };
 enum class Command { run, help, version, api };
 struct Options {
     std::string project="examples/lantern", replay, snapshot, capture, save_directory;
-    bool headless=false, check=false, check_all=false, mute=false, realtime=false;
+    bool headless=false, check=false, check_all=false, mute=false, realtime=false, debug_keys=false;
     std::optional<uint64_t> frames;
     uint32_t seed=42;
     Command command=Command::run;
@@ -80,6 +81,7 @@ Result<Options> parse_options(const char* exe_name,std::span<char*> arguments) {
         if (arg=="--check") { opt.check=true; continue; }
         if (arg=="--check-all") { opt.check=opt.check_all=true; continue; }
         if (arg=="--mute") { opt.mute=true; continue; }
+        if (arg=="--debug-keys") { opt.debug_keys=true; continue; }
         if (arg=="--realtime") { opt.realtime=true; continue; }
         if (arg=="--frames" || arg=="--seed" || arg=="--replay" || arg=="--snapshot" || arg=="--capture" || arg=="--save-dir") {
             if (++i==arguments.size()) return std::unexpected(Error{"arguments","option requires a value"});
@@ -123,12 +125,13 @@ void usage() {
         "  --realtime          Pace headless simulation at 60 Hz wall time\n"
         "  --frames N          Stop after N ticks (headless default: 600)\n"
         "  --seed N            Simulation seed, 1..4294967295 (default: 42)\n"
-        "  --replay FILE       Held input as zero-based frame mask lines\n"
+        "  --replay FILE       Legacy frame/mask or version 2 device JSON Lines\n"
         "  --snapshot FILE     Write final JSON state\n"
         "  --capture FILE.png  Capture final native output; requires --frames\n"
         "  --mute              Disable the audio device\n"
         "  --api / --version / --help\n"
-        "Keys: arrows/WASD, Z/Space jump, X/E interact; F1 stats, F2 bounds,\n"
+        "  --debug-keys        Enable host shortcuts (off by default)\n"
+        "Game: arrows/WASD, Z/Space jump, X/E interact. Debug keys: F1 stats, F2 bounds,\n"
         "      F3 lighting, F5 reload, P pause, O single step, Esc quit.\n"
         "Replay masks: left=1 right=2 up=4 down=8 jump=16 action=32.\n";
 }
@@ -142,6 +145,8 @@ Result<RuntimeOwner> open_runtime(const Options& options,const char* entry,const
     }
     sc_world_init(&runtime->world,options.seed);
     if(previous) {
+        runtime->world.input=previous->world->input; runtime->world.input.clear_edges();
+        runtime->world.held=previous->world->held;
         runtime->world.audio_generations=previous->world->audio_generations;
         for(size_t i=32;i<34;++i) if(previous->world->audio[i].alive&&previous->world->audio[i].persistent) runtime->world.audio[i]=previous->world->audio[i];
     }
@@ -167,9 +172,30 @@ Result<std::vector<ReplayEvent>> read_replay(const std::string& path) {
     if (path.empty()) return events;
     std::ifstream file(path);
     if (!file) return std::unexpected(Error{"replay","cannot open replay: "+path});
-    std::string line; size_t line_number=0;
+    std::string line; size_t line_number=0; bool format_seen=false,devices=false;
     while (std::getline(file,line)) {
         ++line_number;
+        if(line.find_first_not_of(" \t\r")==std::string::npos) continue;
+        if(!format_seen && line[line.find_first_not_of(" \t\r")]=='#') continue;
+        if(!format_seen) {
+            format_seen=true;
+            if(line[line.find_first_not_of(" \t\r")]=='{') {
+                auto header=sc_json_read(line,65536);
+                if(!header || !header->get("version") || header->get("version")->number()!=2 ||
+                   !std::holds_alternative<ScValue::Object>(header->data) || std::get<ScValue::Object>(header->data).size()!=1)
+                    return std::unexpected(Error{"replay",path+":"+std::to_string(line_number)+": expected {\"version\":2} header"});
+                devices=true; continue;
+            }
+        }
+        if(devices) {
+            auto value=sc_json_read(line,65536);
+            if(!value) return std::unexpected(Error{"replay",path+":"+std::to_string(line_number)+": "+value.error()});
+            auto event=sc_device_replay_event(*value);
+            if(!event) return std::unexpected(Error{"replay",path+":"+std::to_string(line_number)+": "+event.error()});
+            if((!events.empty()&&event->frame<=events.back().frame)||events.size()>=1'000'000)
+                return std::unexpected(Error{"replay",path+":"+std::to_string(line_number)+": expected increasing frames and at most 1000000 events"});
+            events.push_back({event->frame,0,true,event->input}); continue;
+        }
         bool valid=line.size()<255;
         if (auto comment=line.find('#');comment!=std::string::npos) line.resize(comment);
         std::istringstream tokens(line); std::string first,second,extra;
@@ -213,7 +239,7 @@ std::string snapshot(const Runtime& runtime,uint64_t frames) {
         first=false;
         out<<"{\"id\":"<<voice.id<<",\"path\":"<<json_string(voice.path)<<",\"volume\":"<<voice.volume<<",\"position\":"<<voice.position<<",\"paused\":"<<(voice.paused?"true":"false")<<'}';
     }
-    out << "],\"state\":" << sc_json_write(runtime.script.state)
+    out << "],\"input\":" << sc_json_write(sc_input_snapshot(world.input)) << ",\"state\":" << sc_json_write(runtime.script.state)
         << ",\"state_hash\":\"" << std::hex << sc_data_hash(runtime.script.state) << "\"}\n"; return out.str();
 }
 #ifdef SC_HAS_GRAPHICS
@@ -254,6 +280,7 @@ Result<void> run(const Options& options) {
     auto replay=read_replay(options.replay);
     if (!replay) return std::unexpected(replay.error());
     size_t event_index=0; uint64_t frames=0; uint32_t held=0;
+    ScInputBuffer input_buffer; bool device_replay=false;
     bool bounded=options.headless || options.frames.has_value();
     uint64_t limit=options.frames.value_or(600);
     std::string reload_error;
@@ -261,12 +288,12 @@ Result<void> run(const Options& options) {
     GraphicsSession graphics;
     bool paused=false;
     double accumulator=0;
-    uint32_t pending_pressed=0,pending_released=0,last_sample=0;
     if (!options.headless && !options.check) {
         char error[SC_ERROR_MAX]{};
         if (!sc_render_open(&runtime->world,options.project.c_str(),!options.mute,error,sizeof(error)))
             return std::unexpected(Error{"backend",error});
         graphics.active=true;
+        sc_render_debug_keys(options.debug_keys);
         if(!sc_render_prepare_assets(&runtime->world,error,sizeof error)) return std::unexpected(Error{"resources",error});
         sc_render_audio(&runtime->world);
     }
@@ -294,16 +321,13 @@ Result<void> run(const Options& options) {
                 } else {
                     runtime=std::move(*candidate); reload_error.clear();
                     sc_render_audio(&runtime->world);
-                    accumulator=0; paused=false; pending_pressed=pending_released=last_sample=0;
+                    accumulator=0; paused=false;
                 }
             }
             if (sc_render_pause_requested()) paused=!paused;
             bool single_step=sc_render_step_requested();
             if (options.replay.empty()) {
-                uint32_t sample=sc_render_input(),queued=sc_render_pressed_input()&~last_sample;
-                pending_pressed|=(sample&~last_sample)|queued;
-                pending_released|=(last_sample&~sample)|(queued&~sample);
-                held=last_sample=sample;
+                input_buffer.push(sc_render_sample_input());
             }
             if (options.frames) steps=paused?(single_step?1:0):1;
             else {
@@ -316,15 +340,20 @@ Result<void> run(const Options& options) {
 #endif
         for (int step=0;step<steps;step++) {
             runtime->world.tone_count=0;
-            if (!options.replay.empty())
-                while (event_index<replay->size() && (*replay)[event_index].frame==frames) held=(*replay)[event_index++].mask;
-            sc_input(&runtime->world,held);
+            if (!options.replay.empty()) {
+                if(event_index<replay->size() && (*replay)[event_index].frame==frames) {
+                    const auto& event=(*replay)[event_index++];
+                    device_replay=event.devices;
+                    if(device_replay) input_buffer.push(event.input); else held=event.mask;
+                }
+                if(device_replay) input_buffer.consume(&runtime->world); else sc_input(&runtime->world,held);
+            } else {
+                input_buffer.consume(&runtime->world);
 #ifdef SC_HAS_GRAPHICS
-            if (graphics.active && options.replay.empty() && step==0) {
-                runtime->world.pressed|=pending_pressed; runtime->world.released|=pending_released;
-                pending_pressed=pending_released=0;
-            }
+                if(graphics.active) sc_render_input_consumed();
 #endif
+            }
+            held=runtime->world.held;
             if (!sc_script_update(&runtime->script)) return std::unexpected(Error{"script",runtime->script.error});
             sc_step(&runtime->world); ++frames;
 #ifdef SC_HAS_GRAPHICS

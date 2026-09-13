@@ -106,6 +106,11 @@ def create_project(destination: Path) -> list[str]:
     agents = f'''# Working on this ShinyCore game
 
 Read the authoritative Lua API at `{api}` and the workflow at `{guide}`.
+
+All keyboard keys belong to the game by default; close the window to exit.
+Use `--debug-keys` explicitly for F1/F2/F3/F5/P/O/Escape host controls.
+Custom controls use `sc.key_down/pressed/released` and `sc.gamepad_*`;
+keep binding names in Lua tables. Device replay format is documented at `{ROOT / "docs" / "input.md"}`.
 The `.luarc.json` file links that same API for Lua Language Server completion.
 
 - Keep game rules in Lua and assets in this project. Each scene returns a table.

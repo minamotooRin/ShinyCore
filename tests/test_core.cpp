@@ -66,15 +66,15 @@ static void test_cpp_value_initialization(void) {
         return !entity.alive && entity.id == 0 && entity.x == 0 && entity.w == 0;
     }));
     CHECK(std::ranges::all_of(world.particles, [](const ScParticle &particle) { return particle.life == 0; }));
-    // These platform-independent initial-state hashes were captured from C11.
-    CHECK(sc_state_hash(&world) == UINT64_C(0x60e0f9bf1d922288));
+    // Golden logical-field hash includes the neutral device input snapshot.
+    CHECK(sc_state_hash(&world) == UINT64_C(0x2987410a525336f8));
     world.map.tiles[1] = '#';
     world.held = SC_JUMP;
     world.tick = 42;
     sc_world_init(&world, 0);
-    CHECK(sc_state_hash(&world) == UINT64_C(0x60e0f9bf1d922288));
+    CHECK(sc_state_hash(&world) == UINT64_C(0x2987410a525336f8));
     sc_world_init(&world, 42);
-    CHECK(sc_state_hash(&world) == UINT64_C(0x5dc417192fb381e0));
+    CHECK(sc_state_hash(&world) == UINT64_C(0x8e7afd2936df5550));
     ScWorld copy; copy.map = world.map;
     copy.map.tiles[1] = '#';
     CHECK(world.map.tiles[1] == '.' && copy.map.tiles[1] == '#');

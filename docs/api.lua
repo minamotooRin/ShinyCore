@@ -494,3 +494,49 @@ function sc.audio.set(handle, options) end
 ---@param handle integer
 ---@param fade? number # 0..60 seconds, default 0 (immediate).
 function sc.audio.stop(handle, fade) end
+
+-- Device queries use a fixed-tick snapshot, not text/IME input.
+---@alias ScKey 'apostrophe'|'comma'|'minus'|'period'|'slash'|'0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'|'semicolon'|'equal'|'a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'|'i'|'j'|'k'|'l'|'m'|'n'|'o'|'p'|'q'|'r'|'s'|'t'|'u'|'v'|'w'|'x'|'y'|'z'|'left_bracket'|'backslash'|'right_bracket'|'grave'|'space'|'escape'|'enter'|'tab'|'backspace'|'insert'|'delete'|'right'|'left'|'down'|'up'|'page_up'|'page_down'|'home'|'end'|'caps_lock'|'scroll_lock'|'num_lock'|'print_screen'|'pause'|'f1'|'f2'|'f3'|'f4'|'f5'|'f6'|'f7'|'f8'|'f9'|'f10'|'f11'|'f12'|'left_shift'|'left_control'|'left_alt'|'left_super'|'right_shift'|'right_control'|'right_alt'|'right_super'|'kb_menu'|'kp_0'|'kp_1'|'kp_2'|'kp_3'|'kp_4'|'kp_5'|'kp_6'|'kp_7'|'kp_8'|'kp_9'|'kp_decimal'|'kp_divide'|'kp_multiply'|'kp_subtract'|'kp_add'|'kp_enter'|'kp_equal'
+---@alias ScGamepadButton 'dpad_up'|'dpad_right'|'dpad_down'|'dpad_left'|'north'|'east'|'south'|'west'|'left_shoulder'|'left_trigger'|'right_shoulder'|'right_trigger'|'back'|'guide'|'start'|'left_thumb'|'right_thumb'
+---@alias ScGamepadAxis 'left_x'|'left_y'|'right_x'|'right_y'|'left_trigger'|'right_trigger'
+
+---Read this tick; unknown names raise errors. Release also occurs on disconnect.
+---@param name ScKey
+---@return boolean
+function sc.key_down(name) end
+
+---Read this tick; unknown names raise errors. Release also occurs on disconnect.
+---@param name ScKey
+---@return boolean
+function sc.key_pressed(name) end
+
+---Read this tick; unknown names raise errors. Release also occurs on disconnect.
+---@param name ScKey
+---@return boolean
+function sc.key_released(name) end
+
+---Read this tick; unknown names raise errors. Release also occurs on disconnect.
+---@param name ScGamepadButton
+---@return boolean
+function sc.gamepad_down(name) end
+
+---Read this tick; unknown names raise errors. Release also occurs on disconnect.
+---@param name ScGamepadButton
+---@return boolean
+function sc.gamepad_pressed(name) end
+
+---Read this tick; unknown names raise errors. Release also occurs on disconnect.
+---@param name ScGamepadButton
+---@return boolean
+function sc.gamepad_released(name) end
+
+---Connection state of the selected single-player gamepad in this tick.
+---@return boolean
+function sc.gamepad_connected() end
+
+---Sticks [-1,1], positive right/down; triggers [0,1]. Missing devices/axes return 0.
+---Deadzone defaults to 0.2, per axis; outside values rescale linearly. Pass 0 to disable.
+---@param axis ScGamepadAxis
+---@param deadzone? number # Finite [0,1), representable below 1 as float.
+---@return number
+function sc.gamepad_axis(axis, deadzone) end
