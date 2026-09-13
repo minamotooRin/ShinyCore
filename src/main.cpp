@@ -1,5 +1,6 @@
 #include "shiny/core.h"
 #include "shiny/script.h"
+#include "shiny/physics.h"
 #ifdef SC_HAS_GRAPHICS
 #include "shiny/render.h"
 #endif
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <expected>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -26,8 +28,8 @@ template<class T> using Result = std::expected<T, Error>;
 struct ReplayEvent { uint64_t frame{}; uint32_t mask{}; };
 enum class Command { run, help, version, api };
 struct Options {
-    std::string project="examples/lantern", replay, snapshot, capture;
-    bool headless=false, check=false, mute=false, realtime=false;
+    std::string project="examples/lantern", replay, snapshot, capture, save_directory;
+    bool headless=false, check=false, check_all=false, mute=false, realtime=false;
     std::optional<uint64_t> frames;
     uint32_t seed=42;
     Command command=Command::run;
@@ -67,7 +69,7 @@ std::optional<uint64_t> number(std::string_view text,uint64_t maximum) {
     if (error!=std::errc{} || end!=text.data()+text.size() || value>maximum) return std::nullopt;
     return value;
 }
-Result<Options> parse_options(std::span<char*> arguments) {
+Result<Options> parse_options(const char* exe_name,std::span<char*> arguments) {
     Options opt; bool project_set=false;
     for (size_t i=0;i<arguments.size();i++) {
         std::string_view arg=arguments[i];
@@ -76,9 +78,10 @@ Result<Options> parse_options(std::span<char*> arguments) {
         if (arg=="--api") { opt.command=Command::api; return opt; }
         if (arg=="--headless") { opt.headless=true; continue; }
         if (arg=="--check") { opt.check=true; continue; }
+        if (arg=="--check-all") { opt.check=opt.check_all=true; continue; }
         if (arg=="--mute") { opt.mute=true; continue; }
         if (arg=="--realtime") { opt.realtime=true; continue; }
-        if (arg=="--frames" || arg=="--seed" || arg=="--replay" || arg=="--snapshot" || arg=="--capture") {
+        if (arg=="--frames" || arg=="--seed" || arg=="--replay" || arg=="--snapshot" || arg=="--capture" || arg=="--save-dir") {
             if (++i==arguments.size()) return std::unexpected(Error{"arguments","option requires a value"});
             std::string_view value=arguments[i];
             if (arg=="--frames") {
@@ -91,11 +94,19 @@ Result<Options> parse_options(std::span<char*> arguments) {
                 opt.seed=static_cast<uint32_t>(*seed);
             } else if (arg=="--replay") opt.replay=value;
             else if (arg=="--snapshot") opt.snapshot=value;
+            else if (arg=="--save-dir") opt.save_directory=value;
             else opt.capture=value;
             continue;
         }
         if (arg.starts_with('-') || project_set) return std::unexpected(Error{"arguments","unknown option or extra project path; use --help"});
         opt.project=arg; project_set=true;
+    }
+    if (!project_set) {
+        if (std::filesystem::exists("main.lua")) opt.project=".";
+        else if (exe_name) {
+            std::filesystem::path path(exe_name);
+            if(path.has_parent_path()&&std::filesystem::exists(path.parent_path()/"main.lua")) opt.project=path.parent_path().string();
+        }
     }
     if (opt.realtime && (!opt.headless || opt.check)) return std::unexpected(Error{"arguments","realtime requires --headless and cannot be combined with --check"});
     if (!opt.capture.empty() && (opt.headless || opt.check || !opt.frames || *opt.frames==0))
@@ -105,7 +116,9 @@ Result<Options> parse_options(std::span<char*> arguments) {
 void usage() {
     std::cout << "ShinyCore " << SC_VERSION << " - C++23 native 2D engine\n"
         "Usage: shiny [project-directory] [options]\n"
-        "  --check             Validate main.lua, init, draw and referenced assets\n"
+        "  --check             Validate project entry, init, draw and assets\n"
+        "  --check-all         Validate entry and all declared rooms\n"
+        "  --save-dir DIR      Explicit save root; headless otherwise uses memory\n"
         "  --headless          Simulate without window, GPU or audio\n"
         "  --realtime          Pace headless simulation at 60 Hz wall time\n"
         "  --frames N          Stop after N ticks (headless default: 600)\n"
@@ -119,11 +132,23 @@ void usage() {
         "      F3 lighting, F5 reload, P pause, O single step, Esc quit.\n"
         "Replay masks: left=1 right=2 up=4 down=8 jump=16 action=32.\n";
 }
-Result<RuntimeOwner> open_runtime(const Options& options,const char* entry) {
+Result<RuntimeOwner> open_runtime(const Options& options,const char* entry,const ScScript* previous=nullptr) {
     auto runtime=std::make_unique<Runtime>();
+    runtime->script.checking=options.check;
+    runtime->script.save_directory=options.save_directory.empty()&&!options.headless&&!options.check?sc_user_data_directory():options.save_directory;
+    if(previous) {
+        runtime->script.state=previous->has_pending_state?previous->pending_state:previous->state;
+        runtime->script.memory_saves=previous->memory_saves;
+    }
     sc_world_init(&runtime->world,options.seed);
+    if(previous) {
+        runtime->world.audio_generations=previous->world->audio_generations;
+        for(size_t i=32;i<34;++i) if(previous->world->audio[i].alive&&previous->world->audio[i].persistent) runtime->world.audio[i]=previous->world->audio[i];
+    }
     if (!sc_script_open(&runtime->script,&runtime->world,options.project.c_str(),entry) || !sc_script_draw(&runtime->script,0))
         return std::unexpected(Error{"scene",runtime->script.error});
+    try { sc_physics_sync(&runtime->world); }
+    catch(const std::exception& e) { return std::unexpected(Error{"physics",e.what()}); }
     for (const auto& entity:runtime->world.entities) {
         if (!entity.alive || !entity.sprite[0]) continue;
         std::string path=options.project+"/"+entity.sprite;
@@ -172,9 +197,24 @@ std::string snapshot(const Runtime& runtime,uint64_t frames) {
         first=false;
         out << "{\"id\":" << entity.id << ",\"tag\":" << json_string(entity.tag) << std::setprecision(9)
             << ",\"x\":" << entity.x << ",\"y\":" << entity.y << ",\"vx\":" << entity.vx << ",\"vy\":" << entity.vy
-            << ",\"grounded\":" << (entity.grounded?"true":"false") << '}';
+            << ",\"grounded\":" << (entity.grounded?"true":"false")
+            << ",\"angle\":" << entity.angle << ",\"support\":" << entity.support
+            << ",\"normal_x\":" << entity.normal_x << ",\"normal_y\":" << entity.normal_y << '}';
     }
-    out << "]}\n"; return out.str();
+    out << "],\"contacts\":[";
+    for(int i=0;i<world.contact_count;++i) {
+        const auto& c=world.contacts[static_cast<size_t>(i)];
+        if(i) out<<',';
+        out<<"{\"a\":"<<c.a<<",\"b\":"<<c.b<<",\"nx\":"<<c.nx<<",\"ny\":"<<c.ny<<",\"sensor\":"<<(c.sensor?"true":"false")<<",\"phase\":"<<json_string(c.phase==1?"begin":c.phase==2?"end":"contact")<<'}';
+    }
+    out << "],\"audio\":["; first=true;
+    for(const auto& voice:world.audio) if(voice.alive) {
+        if(!first) out<<',';
+        first=false;
+        out<<"{\"id\":"<<voice.id<<",\"path\":"<<json_string(voice.path)<<",\"volume\":"<<voice.volume<<",\"position\":"<<voice.position<<",\"paused\":"<<(voice.paused?"true":"false")<<'}';
+    }
+    out << "],\"state\":" << sc_json_write(runtime.script.state)
+        << ",\"state_hash\":\"" << std::hex << sc_data_hash(runtime.script.state) << "\"}\n"; return out.str();
 }
 #ifdef SC_HAS_GRAPHICS
 class GraphicsSession final {
@@ -198,9 +238,19 @@ public:
     }
 };
 Result<void> run(const Options& options) {
-    auto opened=open_runtime(options,"main.lua");
+    auto opened=open_runtime(options,"__project_entry__.lua");
     if (!opened) return std::unexpected(opened.error());
     auto runtime=std::move(*opened);
+    if(options.check_all) {
+        if(const auto* rooms=runtime->script.project.get("rooms")) {
+            auto* entries=std::get_if<ScValue::Array>(&rooms->data);
+            if(!entries) return std::unexpected(Error{"project","rooms must be an array"});
+            for(const auto& room:*entries) {
+                auto path=room.text(); auto candidate=open_runtime(options,path.c_str());
+                if(!candidate) return std::unexpected(candidate.error());
+            }
+        }
+    }
     auto replay=read_replay(options.replay);
     if (!replay) return std::unexpected(replay.error());
     size_t event_index=0; uint64_t frames=0; uint32_t held=0;
@@ -217,6 +267,7 @@ Result<void> run(const Options& options) {
         if (!sc_render_open(&runtime->world,options.project.c_str(),!options.mute,error,sizeof(error)))
             return std::unexpected(Error{"backend",error});
         graphics.active=true;
+        if(!sc_render_prepare_assets(&runtime->world,error,sizeof error)) return std::unexpected(Error{"resources",error});
         sc_render_audio(&runtime->world);
     }
 #else
@@ -230,15 +281,19 @@ Result<void> run(const Options& options) {
         if (graphics.active) {
             if (sc_render_should_close()) break;
             if (sc_render_reload_requested()) {
-                auto candidate=open_runtime(options,runtime->script.entry);
+                auto candidate=open_runtime(options,runtime->script.entry,&runtime->script);
                 if (candidate && ((*candidate)->world.view_width!=runtime->world.view_width || (*candidate)->world.view_height!=runtime->world.view_height))
                     candidate=std::unexpected(Error{"reload","view dimensions changed; restart the application to resize the render targets"});
+                if(candidate) {
+                    char error[SC_ERROR_MAX]{};
+                    if(!sc_render_prepare_assets(&(*candidate)->world,error,sizeof error)) candidate=std::unexpected(Error{"reload",error});
+                }
                 if (!candidate) {
                     reload_error=candidate.error().message;
                     diagnostic({"reload",reload_error});
                 } else {
                     runtime=std::move(*candidate); reload_error.clear();
-                    sc_render_reload_assets(); sc_render_audio(&runtime->world);
+                    sc_render_audio(&runtime->world);
                     accumulator=0; paused=false; pending_pressed=pending_released=last_sample=0;
                 }
             }
@@ -276,12 +331,25 @@ Result<void> run(const Options& options) {
             if (graphics.active) sc_render_audio(&runtime->world);
 #endif
             if (runtime->script.pending_scene[0]) {
-                auto candidate=open_runtime(options,runtime->script.pending_scene);
-                if (!candidate) return std::unexpected(candidate.error());
+                auto candidate=open_runtime(options,runtime->script.pending_scene,&runtime->script);
+                if (!candidate) {
+                    runtime->script.pending_scene[0]=0; runtime->script.has_pending_state=false;
+                    if(options.headless) return std::unexpected(candidate.error());
+                    reload_error=candidate.error().message; diagnostic(candidate.error());
+                    continue;
+                }
 #ifdef SC_HAS_GRAPHICS
-                if (graphics.active && ((*candidate)->world.view_width!=runtime->world.view_width || (*candidate)->world.view_height!=runtime->world.view_height))
-                    return std::unexpected(Error{"scene","scene view dimensions must match the running window"});
-                if (graphics.active) sc_render_reload_assets();
+                if (graphics.active && ((*candidate)->world.view_width!=runtime->world.view_width || (*candidate)->world.view_height!=runtime->world.view_height)) {
+                    runtime->script.pending_scene[0]=0; runtime->script.has_pending_state=false;
+                    reload_error="scene view dimensions must match the running window"; diagnostic({"scene",reload_error}); continue;
+                }
+                if(graphics.active) {
+                    char error[SC_ERROR_MAX]{};
+                    if(!sc_render_prepare_assets(&(*candidate)->world,error,sizeof error)) {
+                        runtime->script.pending_scene[0]=0; runtime->script.has_pending_state=false;
+                        reload_error=error; diagnostic({"resources",error}); continue;
+                    }
+                }
 #endif
                 runtime=std::move(*candidate); runtime->world.held=held;
 #ifdef SC_HAS_GRAPHICS
@@ -319,7 +387,7 @@ Result<void> run(const Options& options) {
 
 int main(int argc,char** argv) {
     try {
-        auto options=parse_options(std::span(argv+1,static_cast<size_t>(argc-1)));
+        auto options=parse_options(argc>0?argv[0]:nullptr,std::span(argv+1,static_cast<size_t>(argc-1)));
         if (!options) return diagnostic(options.error());
         switch (options->command) {
             case Command::help: usage(); return 0;

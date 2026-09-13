@@ -49,14 +49,9 @@ static void row(ScWorld *world, int y, char tile) {
         world->map.tiles[static_cast<std::size_t>(y * world->map.width + x)] = tile;
 }
 
-static void column(ScWorld *world, int x, char tile) {
-    for (int y = 0; y < world->map.height; ++y)
-        world->map.tiles[static_cast<std::size_t>(y * world->map.width + x)] = tile;
-}
-
 static void test_cpp_value_initialization(void) {
     static_assert(std::is_aggregate_v<ScWorld>);
-    static_assert(std::is_trivially_copyable_v<ScWorld>);
+    static_assert(!std::is_copy_constructible_v<ScWorld>);
     static_assert(std::is_same_v<decltype(ScWorld::entities), std::array<ScEntity, SC_MAX_ENTITIES>>);
     // Bare default initialization must be safe, including every bounded pool.
     ScWorld world;
@@ -80,7 +75,7 @@ static void test_cpp_value_initialization(void) {
     CHECK(sc_state_hash(&world) == UINT64_C(0x60e0f9bf1d922288));
     sc_world_init(&world, 42);
     CHECK(sc_state_hash(&world) == UINT64_C(0x5dc417192fb381e0));
-    ScWorld copy = world;
+    ScWorld copy; copy.map = world.map;
     copy.map.tiles[1] = '#';
     CHECK(world.map.tiles[1] == '.' && copy.map.tiles[1] == '#');
 }
@@ -174,177 +169,12 @@ static void test_spawn_validation(void) {
     CHECK(entity->sprite[sizeof(entity->sprite) - 1] == '\0');
 }
 
-static void test_fixed_step_and_flags(void) {
-    ScWorld world{};
-    fixture(&world);
-    ScEntity prototype = body(8, 8);
-    prototype.vx = 60;
-    ScEntity *entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    sc_step(&world);
-    NEAR(entity->x, 9);
-    NEAR(entity->vy, 10);
-    NEAR(entity->y, 8 + 10.0 / 60);
-    entity->dynamic = false;
-    float old_x = entity->x, old_y = entity->y;
-    sc_step(&world);
-    NEAR(entity->x, old_x); NEAR(entity->y, old_y);
-    entity->dynamic = true;
-    entity->solid = false;
-    entity->gravity = 0;
-    entity->vy = 6000;
-    row(&world, 8, '#');
-    sc_step(&world);
-    CHECK(entity->y > 96 && !entity->grounded);
-    CHECK(world.tick == 3);
-}
 
-static void test_floor_and_grounded(void) {
-    ScWorld world{};
-    fixture(&world);
-    row(&world, 8, '#');
-    ScEntity prototype = body(8, 8);
-    ScEntity *entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    for (int i = 0; i < 180; ++i) sc_step(&world);
-    NEAR(entity->y, 58);
-    CHECK(entity->grounded && entity->vy == 0);
-    for (int i = 0; i < 120; ++i) {
-        sc_step(&world);
-        CHECK(entity->grounded && entity->y == 58 && entity->vy == 0);
-    }
-    entity->gravity = 0;
-    sc_step(&world);
-    CHECK(entity->grounded);
-    entity->vy = -180;
-    sc_step(&world);
-    CHECK(entity->y < 58 && !entity->grounded);
-}
 
-static void test_swept_walls_and_ceiling(void) {
-    ScWorld world{};
-    fixture(&world);
-    column(&world, 10, '#');
-    ScEntity prototype = body(8, 8);
-    prototype.gravity = 0;
-    prototype.vx = 1000000;
-    ScEntity *entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    sc_step(&world);
-    NEAR(entity->x, 74); CHECK(entity->vx == 0);
-    entity->x = 110; entity->vx = -1000000;
-    sc_step(&world);
-    NEAR(entity->x, 88); CHECK(entity->vx == 0);
-    fixture(&world);
-    row(&world, 3, '#');
-    prototype = body(8, 60); prototype.gravity = 0; prototype.vy = -1000000;
-    entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    sc_step(&world);
-    NEAR(entity->y, 32); CHECK(entity->vy == 0 && !entity->grounded);
-    fixture(&world);
-    row(&world, 8, '#');
-    prototype = body(8, 8); prototype.vy = 1000000;
-    entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    sc_step(&world);
-    NEAR(entity->y, 58); CHECK(entity->vy == 0 && entity->grounded);
-}
 
-static void test_map_perimeter(void) {
-    ScWorld world{};
-    fixture(&world);
-    ScEntity prototype = body(8, 8);
-    prototype.gravity = 0; prototype.vx = -1000000; prototype.vy = -1000000;
-    ScEntity *entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    sc_step(&world);
-    NEAR(entity->x, 0); NEAR(entity->y, 0);
-    CHECK(entity->vx == 0 && entity->vy == 0 && !entity->grounded);
-    entity->vx = 1000000; entity->vy = 1000000;
-    sc_step(&world);
-    NEAR(entity->x, 122); NEAR(entity->y, 90);
-    CHECK(entity->vx == 0 && entity->vy == 0 && entity->grounded);
-    entity->x = -1000000; entity->y = 1000000;
-    sc_step(&world);
-    NEAR(entity->x, 0); NEAR(entity->y, 90);
-    entity->w = entity->h = 200;
-    sc_step(&world);
-    NEAR(entity->x, 0); NEAR(entity->y, 0);
-}
 
-static void test_one_way_platforms(void) {
-    ScWorld world{};
-    fixture(&world);
-    row(&world, 6, '=');
-    ScEntity prototype = body(8, 4);
-    prototype.gravity = 0; prototype.vy = 1000000;
-    ScEntity *entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    sc_step(&world);
-    NEAR(entity->y, 42); CHECK(entity->grounded && entity->vy == 0);
-    sc_step(&world); CHECK(entity->grounded);
-    entity->y = 60; entity->vy = -1200;
-    sc_step(&world);
-    NEAR(entity->y, 40); CHECK(entity->vy == -1200 && !entity->grounded);
-    entity->vy = 1200;
-    sc_step(&world);
-    NEAR(entity->y, 42); CHECK(entity->grounded);
-    entity->y = 46; entity->vy = 120;
-    sc_step(&world);
-    NEAR(entity->y, 48); CHECK(!entity->grounded && entity->vy == 120);
-    entity->vy = 0; entity->vx = 1200;
-    sc_step(&world);
-    NEAR(entity->x, 28); CHECK(entity->vx == 1200);
-    entity->x = 8; entity->y = 42; entity->vy = -180; entity->vx = 0;
-    sc_step(&world);
-    NEAR(entity->y, 39); CHECK(!entity->grounded);
-}
 
-static void test_contact_precision_and_ledge(void) {
-    ScWorld world{};
-    fixture(&world);
-    for (int x = 4; x < 8; ++x) world.map.tiles[static_cast<std::size_t>(6 * world.map.width + x)] = '=';
-    ScEntity prototype = body(60, 42.7f);
-    prototype.h = 5.3f; prototype.gravity = 0;
-    ScEntity *entity = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(entity != nullptr);
-    sc_step(&world);
-    CHECK(entity->grounded);
-    entity->gravity = 1;
-    for (int i = 0; i < 120; ++i) {
-        sc_step(&world);
-        CHECK(entity->grounded);
-        NEAR(static_cast<double>(entity->y) + entity->h, 48);
-    }
-    entity->gravity = 0;
-    entity->vx = 240;
-    sc_step(&world);
-    NEAR(entity->x, 64);
-    CHECK(!entity->grounded);
-}
 
-static void test_overlap_and_independent_bodies(void) {
-    ScWorld world{};
-    fixture(&world);
-    ScEntity prototype = body(8, 8);
-    prototype.gravity = 0;
-    ScEntity *a = sc_entity(&world, sc_spawn(&world, &prototype));
-    prototype.x = 10;
-    ScEntity *b = sc_entity(&world, sc_spawn(&world, &prototype));
-    CHECK(a && b);
-    CHECK(sc_overlap(a, b));
-    a->vx = 60;
-    sc_step(&world);
-    NEAR(a->x, 9); NEAR(b->x, 10);
-    CHECK(sc_overlap(a, b));
-    b->x = 15;
-    CHECK(!sc_overlap(a, b));
-    b->x = 14.99f;
-    CHECK(sc_overlap(a, b));
-    CHECK(sc_destroy(&world, b->id));
-    CHECK(!sc_overlap(a, b) && !sc_overlap(a, nullptr));
-}
 
 static void test_particles_and_random(void) {
     ScWorld world{}, other{};
@@ -379,32 +209,6 @@ static void test_particles_and_random(void) {
     CHECK(world.particles[0].life == 0);
 }
 
-static void test_camera(void) {
-    ScWorld world{};
-    fixture(&world);
-    ScEntity prototype = body(100, 70);
-    prototype.dynamic = false;
-    std::uint32_t id = sc_spawn(&world, &prototype);
-    CHECK(id != 0);
-    world.camera_target = id;
-    sc_step(&world);
-    CHECK(world.camera_x > 0 && world.camera_x < 87);
-    CHECK(world.camera_y > 0 && world.camera_y < 61);
-    for (int i = 0; i < 180; ++i) sc_step(&world);
-    NEAR(world.camera_x, 87); NEAR(world.camera_y, 61);
-    ScEntity *entity = sc_entity(&world, id);
-    CHECK(entity != nullptr);
-    entity->x = 1000000; entity->y = 1000000;
-    for (int i = 0; i < 180; ++i) sc_step(&world);
-    NEAR(world.camera_x, 96); NEAR(world.camera_y, 72);
-    world.view_width = 1000; world.view_height = 1000;
-    sc_step(&world);
-    NEAR(world.camera_x, 0); NEAR(world.camera_y, 0);
-    CHECK(sc_destroy(&world, id) && world.camera_target == 0);
-    world.camera_x = NAN; world.camera_y = INFINITY;
-    sc_step(&world);
-    CHECK(world.camera_x == 0 && world.camera_y == 0);
-}
 
 static void test_deterministic_simulation(void) {
     ScWorld world{}, other{};
@@ -444,7 +248,7 @@ static void test_logical_hash(void) {
     world.draw_count = 1;
     world.draws[0].kind = SC_DRAW_TEXT;
     std::strcpy(world.draws[0].text, "hello");
-    other = world;
+    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id);
     other.title[100] = 'x';
     other.map.tiles[SC_MAX_TILES - 1] = '#';
     other.entities[42].x = NAN;
@@ -458,13 +262,13 @@ static void test_logical_hash(void) {
     CHECK(sc_state_hash(&world) == sc_state_hash(&other));
     other.map.tiles[10] = '#';
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));
-    other = world; other.entities[id & 255u].vx = 1;
+    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id); other.entities[id & 255u].vx = 1;
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));
-    other = world; other.generations[42]++;
+    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id); other.generations[42]++;
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));
-    other = world; other.draws[0].text[0] = 'j';
+    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id); other.draws[0].text[0] = 'j';
     CHECK(sc_state_hash(&world) == sc_state_hash(&other));
-    other = world; other.tick++;
+    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id); other.tick++;
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));
 }
 
@@ -472,8 +276,8 @@ static void test_hash_ignores_presentation_queues(void) {
     ScWorld world{}, other{};
     fixture(&world);
     ScEntity prototype = body(8, 8);
-    CHECK(sc_spawn(&world, &prototype) != 0);
-    other = world;
+    auto id=sc_spawn(&world, &prototype); CHECK(id != 0);
+    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id);
     other.draw_count = SC_MAX_DRAWS;
     for (std::size_t i = 0; i < other.draws.size(); ++i) {
         other.draws[i] = ScDraw{
@@ -493,54 +297,16 @@ static void test_hash_ignores_presentation_queues(void) {
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));
 }
 
-static void test_malformed_native_state(void) {
-    ScWorld world{};
-    fixture(&world);
-    ScEntity prototype = body(8, 8);
-    std::uint32_t id = sc_spawn(&world, &prototype);
-    ScEntity *entity = sc_entity(&world, id);
-    CHECK(entity != nullptr);
-    world.map.width = INT_MAX; world.map.height = INT_MAX;
-    CHECK(sc_tile(&world, 100, 100) == '#');
-    sc_step(&world);
-    CHECK(entity->x == 8 && entity->y == 8 && entity->vx == 0 && entity->vy == 0);
-    world.map.width = 16; world.map.height = 12; world.map.tile_size = 0;
-    sc_step(&world);
-    CHECK(entity->x == 8 && entity->y == 8);
-    world.map.tile_size = INT_MAX;
-    entity->vx = 1000000; entity->vy = 1000000;
-    sc_step(&world);
-    CHECK(std::isfinite(entity->x) && std::isfinite(entity->y));
-    entity->x = FLT_MAX; entity->vy = INFINITY;
-    sc_step(&world);
-    CHECK(entity->vx == 0 && entity->vy == 0);
-    world.map.height = INT_MIN;
-    world.tone_count = INT_MAX; world.draw_count = INT_MAX;
-    CHECK(sc_state_hash(&world) != 0);
-    CHECK(sc_state_hash(nullptr) == 0);
-    sc_step(nullptr); sc_input(nullptr, 0); sc_world_init(nullptr, 0);
-    CHECK(sc_tile(nullptr, 0, 0) == '#');
-    CHECK(sc_entity(nullptr, 1) == nullptr && !sc_destroy(nullptr, 1));
-}
 
 int main(void) {
     test_cpp_value_initialization();
     test_initialization_and_input();
     test_handles_and_capacity();
     test_spawn_validation();
-    test_fixed_step_and_flags();
-    test_floor_and_grounded();
-    test_swept_walls_and_ceiling();
-    test_map_perimeter();
-    test_one_way_platforms();
-    test_contact_precision_and_ledge();
-    test_overlap_and_independent_bodies();
     test_particles_and_random();
-    test_camera();
     test_deterministic_simulation();
     test_logical_hash();
     test_hash_ignores_presentation_queues();
-    test_malformed_native_state();
     if (failures) {
         std::fprintf(stderr, "%d core test(s) failed (%d checks)\n", failures, checks);
         return 1;

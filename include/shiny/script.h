@@ -1,6 +1,7 @@
 #ifndef SHINY_SCRIPT_H
 #define SHINY_SCRIPT_H
 #include "shiny/core.h"
+#include "shiny/state.h"
 #include <memory>
 
 struct lua_State;
@@ -23,6 +24,13 @@ public:
     int module_ref = -2; // LUA_NOREF, without requiring Lua headers in the public API.
     std::size_t memory_used = 0;
     int instruction_budget = 0;
+    int phase = 0; // 0 load/init, 1 update, 2 draw.
+    ScValue state{ScValue::Object{}}, pending_state{ScValue::Object{}}, project{ScValue::Object{}};
+    ScValue scratch;
+    ScValue objects{ScValue::Array{}};
+    bool has_pending_state = false, checking = false, warned_missing_glyph = false;
+    std::string save_directory;
+    std::map<std::string, ScValue> memory_saves;
 
 private:
     struct LuaCloser { void operator()(lua_State *state) const noexcept; };

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bundle a built ShinyCore executable, Lantern, documentation, and licenses."""
+"""Bundle a built ShinyCore executable, an authored game, documentation, and licenses."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def executable(path: Path, contents: str | None = None) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def preflight(binary: Path, destination: Path, make_zip: bool, with_network: bool = False) -> Path:
+def preflight(binary: Path, destination: Path, make_zip: bool, with_network: bool = False, custom: bool = False) -> Path:
     archive = Path(str(destination) + ".zip")
     for path in (destination, archive) if make_zip else (destination,):
         if os.path.lexists(path):
@@ -55,7 +55,7 @@ def preflight(binary: Path, destination: Path, make_zip: bool, with_network: boo
     if not binary.is_file():
         raise OSError(f"engine executable is missing: {binary}")
     files = ["LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md"]
-    directories = ["examples/lantern", "licenses"]
+    directories = ["licenses"] + ([] if custom else ["examples/lantern"])
     if with_network:
         files += ["docs/networking.md", "examples/duet/main.lua", "licenses/enet.txt"]
         directories += ["examples/duet"]
@@ -77,15 +77,16 @@ def preflight(binary: Path, destination: Path, make_zip: bool, with_network: boo
             raise OSError(f"destination must be outside packaged source directory: {source}")
     if not any((ROOT / "licenses").iterdir()):
         raise OSError("licenses/ is empty; include the dependency license texts before packaging")
-    if not (ROOT / "examples" / "lantern" / "main.lua").is_file():
+    if not custom and not (ROOT / "examples" / "lantern" / "main.lua").is_file():
         raise OSError("Lantern's main.lua is missing")
     return archive
 
 
-def copy_resources(destination: Path, with_network: bool = False) -> None:
+def copy_resources(destination: Path, with_network: bool = False, custom: bool = False) -> None:
     (destination / "examples").mkdir(parents=True)
     ignored = shutil.ignore_patterns(".DS_Store", "__pycache__", "*.pyc")
-    shutil.copytree(ROOT / "examples" / "lantern", destination / "examples" / "lantern", ignore=ignored)
+    if not custom:
+        shutil.copytree(ROOT / "examples" / "lantern", destination / "examples" / "lantern", ignore=ignored)
     if with_network:
         shutil.copytree(ROOT / "examples" / "duet", destination / "examples" / "duet", ignore=ignored)
     shutil.copytree(ROOT / "licenses", destination / "licenses", ignore=ignored)
@@ -99,8 +100,15 @@ def copy_resources(destination: Path, with_network: bool = False) -> None:
 
 
 def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
-            with_network: bool = False) -> tuple[Path, Path | None]:
-    archive = preflight(binary, destination, make_zip, with_network)
+            with_network: bool = False, project: Path | None = None) -> tuple[Path, Path | None]:
+    archive = preflight(binary, destination, make_zip, with_network, project is not None)
+    if project is not None:
+        project = project.resolve()
+        checked = subprocess.run([str(binary), "--check-all", str(project)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        if checked.returncode:
+            raise OSError("game validation failed: " + checked.stderr)
+        if destination.resolve().is_relative_to(project):
+            raise OSError("package destination must be outside the authored game")
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.mkdir()
     archive_created = False
@@ -116,10 +124,10 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             executable(destination / "run-lantern.command", MAC_COMMAND)
             info = {
                 "CFBundleName": "ShinyCore",
-                "CFBundleDisplayName": "ShinyCore — Lantern",
-                "CFBundleIdentifier": "dev.shinycore.lantern",
-                "CFBundleVersion": "0.1.0",
-                "CFBundleShortVersionString": "0.1.0",
+                "CFBundleDisplayName": project.name if project else "ShinyCore — Lantern",
+                "CFBundleIdentifier": "dev.shinycore.game" if project else "dev.shinycore.lantern",
+                "CFBundleVersion": "0.2.0",
+                "CFBundleShortVersionString": "0.2.0",
                 "CFBundlePackageType": "APPL",
                 "CFBundleExecutable": "launch",
                 "NSHighResolutionCapable": True,
@@ -137,7 +145,19 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             else:
                 executable(destination / "run-lantern.sh", UNIX_LAUNCH)
                 launch_hint = "Run ./run-lantern.sh to play."
-        copy_resources(resources, with_network)
+        copy_resources(resources, with_network, project is not None)
+        if project is not None:
+            shutil.copytree(project, resources / "game", ignore=shutil.ignore_patterns(".git", "build*", "__pycache__", ".cache", "saves", "*.pyc"))
+            if system == "Darwin":
+                executable(macos / "launch", MAC_LAUNCH.replace("examples/lantern", "game"))
+                (destination / "run-lantern.command").rename(destination / "run-game.command")
+            elif system == "Windows":
+                (destination / "run-lantern.bat").unlink()
+                (destination / "run-game.bat").write_text(WINDOWS_LAUNCH.replace("examples\\lantern", "game"), encoding="utf-8")
+            else:
+                (destination / "run-lantern.sh").unlink()
+                executable(destination / "run-game.sh", UNIX_LAUNCH.replace("examples/lantern", "game"))
+            launch_hint = "Launch the bundled game with " + ("ShinyCore.app" if system == "Darwin" else "run-game.bat" if system == "Windows" else "run-game.sh") + "."
         shutil.copy2(binary, copied_binary)
         executable(copied_binary)
         strip_tool = shutil.which("strip") if strip and system != "Windows" else None
@@ -150,8 +170,8 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
         relative_binary = copied_binary.relative_to(destination).as_posix()
         if system != "Windows":
             relative_binary = "./" + relative_binary
-        relative_project = (resources / "examples" / "lantern").relative_to(destination).as_posix()
-        readme = f'''ShinyCore / Lantern
+        relative_project = (resources / "game" if project else resources / "examples" / "lantern").relative_to(destination).as_posix()
+        readme = f'''ShinyCore / {project.name if project else 'Lantern'}
 
 {launch_hint}
 Built on {system} for {platform.machine()}; this package contains that platform's executable.
@@ -161,13 +181,13 @@ Controls: A/D or arrows move, Space/Z jumps, E/X interacts, Esc quits.
 F1 stats, F2 hitboxes, F3 lighting, F5 reload, P pause, O single step.
 
 From this package directory, validate the included game:
-  "{relative_binary}" --check "{relative_project}"
+  "{relative_binary}" --check-all "{relative_project}"
 Or run the same simulation without a window:
-  "{relative_binary}" --headless "{relative_project}" --frames 430 --replay "{relative_project}/replays/tour.txt"
+  "{relative_binary}" --headless "{relative_project}" --frames 180
 
 Game source, assets, API documentation, and all dependency license notices are
 beside the examples directory at {resources.relative_to(destination).as_posix()}.
-No source checkout or current working directory is required to launch Lantern.
+The launchers work independently of the source checkout and working directory.
 '''
         if with_network:
             duet = (resources / "examples" / "duet").relative_to(destination).as_posix()
@@ -194,12 +214,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-strip", action="store_true", help="preserve all symbols in the copied executable")
     parser.add_argument("--no-zip", action="store_true", help="create only the runnable folder")
     parser.add_argument("--with-network-examples", action="store_true", help="include DUET and network docs; requires a network-enabled executable")
+    parser.add_argument("--project", type=Path, help="validate and bundle an authored game with its own launcher")
     args = parser.parse_args(argv)
     binary = Path(args.binary).expanduser().resolve()
     destination = Path(os.path.abspath(os.path.expanduser(args.destination)))
     try:
         copied_binary, archive = package(binary, destination, strip=not args.no_strip,
-                                        make_zip=not args.no_zip, with_network=args.with_network_examples)
+                                        make_zip=not args.no_zip, with_network=args.with_network_examples, project=args.project)
     except (OSError, zipfile.BadZipFile) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

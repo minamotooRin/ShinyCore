@@ -1,83 +1,61 @@
 # Architecture and contracts
 
-ShinyCore separates simulation, scripting, presentation, and an optional network transport under one host. There is no required editor or generated scene state.
+ShinyCore owns one simulation world per room, one Lua VM per runtime, and one native backend per host. There is no ECS, plugin framework or generated editor scene database.
 
-```text
-game/main.lua, rooms/*.lua, PNG assets
-             │ 22 explicit sc.* functions
-             ▼
-shiny_script (Lua 5.4) ───────► shiny_core (C++23, no heap or platform calls)
-             ▲                        │ world + presentation commands
-             │                        ▼
-          host CLI ─────────────► native renderer (raylib)
-             │
-             └── headless replay, JSON snapshot, diagnostics
-```
+## Ownership and fixed update
 
-## Simulation ownership
+`shiny_core` owns fixed entity/particle pools and one exclusively owned Box2D world. Map layers and native solver storage allocate within explicit limits. `shiny_script` owns validated project data, the Lua boundary and checkpoint operations. `shiny_text` supplies the same UTF-8 layout and font metrics to headless and graphical execution. The raylib backend owns textures, fonts, streams and sound voices.
 
-`src/core.cpp` owns fixed-capacity `std::array` storage and advances only when `sc_step()` is called. Lua owns authored game rules. The renderer reads world state, owns GPU/audio resources, and never advances simulation or consumes simulation randomness. The host owns scene loading and the event loop.
+Each tick applies input, invokes `update(1/60)`, synchronizes authored body changes, steps Box2D with four substeps, updates logical audio/particles/camera, and increments scene time. It then prepares any requested room and calls drawing. `grounded`, `support` and contacts describe the preceding completed step. Raycasts and joint creation synchronize pending bodies early without advancing time.
 
-Each fixed tick runs:
+The real-time loop caps catch-up at eight steps. Bounded graphical runs advance one simulation step per displayed frame; headless uses the same updates and draws with alpha zero. The renderer pixel-snaps the latest state. Draw cannot mutate engine state or first-load modules; Lua-local side effects cannot be prevented generally.
 
-1. Clear the previous tick's audio commands and apply one input snapshot.
-2. Call `update(1/60)`. `grounded` is the preceding tick's physics result.
-3. Integrate dynamic entities, sweep X then Y against tiles, update particles and camera, increment tick.
-4. Submit audio in a graphical run. Apply any deferred scene request by constructing a fresh candidate world and VM.
-5. Call `draw(alpha)` once per displayed frame; headless execution calls it once per tick with alpha zero.
+## Bodies and handles
 
-The live loop caps catch-up at eight steps and discards excess whole steps after a stall. Short input edges are retained until a fixed update consumes them. Bounded graphical runs (`--frames`) deliberately advance exactly one simulation tick per displayed frame, making automated graphical replays comparable with headless output. The renderer pixel-snaps the newest state; it does not interpolate sprite positions. `alpha` is available for authored visual effects and always lies in `[0,1]`.
+Pixels use +Y down, angles use radians, and Box2D uses 32 authored pixels per meter internally. Force and impulse inputs scale correspondingly; density is in solver mass per square meter. Bodies may be static, kinematic or dynamic, with boxes, circles, longer-axis capsules, convex polygons or 1..4 compound shapes. Polygons require 3..8 distinct convex points. Materials and filters are shared across compound shapes.
 
-The host also calls `draw(0)` during initial validation. Render callbacks must keep Lua state unchanged. Engine mutation is rejected in `draw`; Lua-local mutation cannot be generally prevented. Randomness for simulation comes from `sc.random`, never wall-clock time or rendering.
+Entity positions locate the unrotated bounds' top-left; rotation is about the center. `sc.get` copies body data; `sc.set` validates before replacing the entity. Shape/material/filter changes recreate the body and destroy attached joints at the next sync. `body=false` removes it. Legacy `dynamic=true` creates a dynamic box with zero friction. Legacy static artwork remains bodyless. `solid=false` disables collision filtering.
 
-## C++ ownership and errors
+ASCII solid runs are merged to avoid contact seams. Tiled collision geometry is compiled into the same solver, not a second collision engine. Map virtual boundaries are solid. One-way platforms use prior bounds and relative vertical velocity; use unrotated top-face geometry. `drop` temporarily disables their contacts. Lua implements coyote time, jump buffering and moving-platform velocity inheritance; Workshop supplies an editable controller.
 
-Engine translation units use C++23. Lua, raylib, and ENet retain their C builds. CMake enables both languages and verifies that the C++ compiler and standard library provide `std::expected`. The migration keeps version `0.1.0`, the Lua game API, scene format, and replay semantics. The C11 implementation remains available at `v0.1.0-c11` and `release/c11` for comparison.
+Contacts are sorted by a/b/phase. Terrain has ID 0. Solid contacts carry normals from a to b, sensors emit begin/end edges with zero normals; destroyed shapes may not produce end events. Limits are 64 contacts per body and 1024 collected records per step, with explicit failures. `overlap` and `physics.query` use authored AABBs, while `physics.ray` uses actual solver shapes. Joints expose distance, revolute and local-vertical prismatic constraints, without motors in 0.2.
 
-The host owns each `Runtime` through `std::unique_ptr`. The world and script live at stable addresses: Lua's allocator and extraspace borrow the script's address, and the script borrows its world's address. Both `Runtime` and `ScScript` disable copying and moving. Transfer ownership of the runtime pointer, keeping its objects in place. `ScScript` privately owns the VM through a `std::unique_ptr` with a Lua deleter; its public raw Lua pointer is only an observer. World lifetime must extend through VM teardown.
+Entity/joint IDs use slot plus generation; audio IDs use six slot bits. IDs are room-local and must not be stored as persistent game references. Generations have finite rollover limits. Use stable authored names in saves and recreate references in init. The world hash contains explicit logical fields including compound geometry, not padding, addresses, solver caches, joints, resources or arbitrary Lua locals; audio is exposed separately in snapshots. It is diagnostic evidence, not a complete future-state identity.
 
-Scene construction and CLI operations return `std::expected<T, Error>`, where an error carries a diagnostic code and message. Validation completes before a candidate replaces the active runtime. Ordinary failures propagate to JSON diagnostics, while an outer exception boundary handles allocation and unexpected standard-library failures. RAII releases the VM and graphics session during early returns and exception unwinding.
+## Lua and failure boundaries
 
-The renderer wraps images, textures, render targets, and sounds in move-only owners. The texture cache and sound slots use fixed `std::array` storage. Cleanup unloads sounds before the audio device and textures and targets before the window. Borrowed handles expire on owner reset; native owners must not be copied or reset with `memset`. Destructors release resources without throwing.
+A runtime and its script cannot move: Lua's allocator/extraspace borrow stable addresses. The host transfers a unique runtime pointer. Native owners are move-only and release resources before their devices. Expected loading failures use `std::expected`; outer exception guards report diagnostics.
 
-CLI arguments are viewed through `std::span`; replay records use `std::vector`. Fixed simulation storage and stable iteration remain explicit. The host uses `std::chrono::steady_clock` with absolute deadlines and `std::this_thread::sleep_until` for real-time pacing. These ownership and container choices improve maintenance; performance and size claims require measurements with comparable build configurations.
+Lua is built as C and errors use longjmp. No C++ owning local may survive a potentially raising Lua operation. Native data conversion uses raw non-allocating reads and bounded stack checks, then pushes from script-owned values. All registered engine callbacks have exception guards, while native network operations retain their explicit expected-result boundary. Destructors and C solver callbacks must not throw.
 
-## Entity and collision contracts
+Modules resolve `game.controller` to project-local `game/controller.lua`, share the VM's allocation/instruction budget, cache their returned value and reject cycles. Native/process/file modules and arbitrary load APIs are absent. Paths are lexical project-relative checks; symlinks and hostile native resource parsers are not isolated.
 
-Entity IDs contain an 8-bit slot and a 24-bit generation. Destroying a slot invalidates outstanding handles; exhausted capacity fails explicitly. Generation rollover after 16,777,215 reuses of a single slot is a theoretical aliasing limit. IDs are scoped to one scene; do not retain them across scene transitions.
+Function tables drive both registration and `--api`; tests compare names and writable/read-only fields with `docs/api.lua`. Network functions use the same approach with their two captured upvalues. Unknown configuration fields and invalid authored types/ranges should fail explicitly.
 
-Dynamic entities integrate velocity and `world.gravity * entity.gravity`. With `solid=true`, they collide against the map. Static entities are artwork or overlap targets; they do not become solid obstacles for other entities. `sc.overlap` is an AABB query and does not automatically resolve collisions.
+## State and transactional rooms
 
-Tiles are `.` (empty), `#` (solid), `=` (one-way, downward crossings only). Virtual map boundaries are solid. Sweeps inspect crossed grid cells rather than taking one discrete move, so fast bodies cannot skip a thin wall. There is no general depenetration: initial spawns and teleports should be in free space. One-way platforms do not implement a drop-through action. Broad-phase entity physics, slope contacts and moving-platform attachment are separate future work.
+`sc.state` is an ordered plain-data object with independent copies on read. Dense arrays, string-key objects, UTF-8 strings, finite numbers and booleans are supported; nil deletes a key. Empty Lua tables represent objects. Metatables, cycles, sparse/mixed arrays and JSON null are rejected. Serialized state is bounded to 256 KiB and depth 16.
 
-## Script boundary
+A scene request inherits explicit state unless a replacement is supplied. The host constructs a new world and VM, runs load/init/initial draw, validates physics and declared assets, and prepares GPU resources before swapping ownership. Graphics failure retains the old runtime/cache and reports the diagnostic; headless failure exits nonzero. Viewport dimensions must match the live window. F5 follows the same process and retains explicit state. Module caches and Lua locals restart.
 
-Scenes return plain data tables with optional callbacks. Unknown configuration keys error rather than silently falling back. Config and entity patches may not have metatables. `sc.get` returns a snapshot; `sc.set` validates a patch before replacing the entity. Public Lua calls reject invalid types, non-finite numbers, stale IDs and out-of-range values.
+Only persistent music voices carry across rooms/F5; other voices expire. Candidate init may create new voices within the remaining capacity. The renderer retains matching persistent handles and replaces other resources after preparation succeeds.
 
-Only selected base, table, string, math and utf8 functionality is available. File/process/module loading and `math.random` are absent. `pcall`/`xpcall` cannot suppress the callback budget; `__gc` finalizers are disabled because Lua does not run instruction hooks inside them. VM allocation is limited to 16 MiB. C-library operations and image decoding are not a hard wall-time sandbox. Paths are checked lexically; symlinks are not isolated. Run projects you trust.
+## Checkpoints
 
-Lua is compiled as C and reports errors through `longjmp` inside its protected-call boundary. C++ callback frames must not keep objects with nontrivial destructors alive across a Lua operation that can raise an error, including allocation. Use scalars, pointers, and trivial data inside that boundary; end an owning C++ scope before reporting an error with `lua_error` or `luaL_error`. Host-side RAII remains outside the protected Lua call. C++ exceptions must not escape through Lua or other C callbacks.
+`project.id` scopes saves. Records contain format=1, project, data_version, scene and state. `write` runs only in update, writes a sibling temporary file, flushes/closes it and atomically replaces the target. This protects the previous file from ordinary write/rename failures; POSIX power-loss durability and simultaneous writers to one slot are not promised.
 
-## Rendering and resources
+`load` validates a complete candidate, rejects future versions and optionally calls the module named by project.migrate with `(oldVersion,newVersion,state)`. Engine mutation is disabled during migration module loading and execution. The returned state passes the same type/UTF-8/depth/size checks. Successful loading requests room reconstruction; no VM locals, entities, solver caches, audio position or animation time are restored automatically.
 
-The backend uses three native-resolution render targets: scene color, light field and final composite. Point lights build 128-ray triangle fans with tile-grid DDA occlusion. Ambient plus additive illumination is multiplied into scene color; particles, HUD and debug overlays follow. The output scales by an integer with nearest-neighbor sampling and letterboxing. Light occlusion uses solid tiles only, not sprites or one-way platforms. This is a compact approximate lighting model, without normal maps, bloom, fluid simulation or indirect lighting.
+Graphical defaults: LOCALAPPDATA/ShinyCore on Windows, ~/Library/Application Support/ShinyCore on macOS, XDG_DATA_HOME/shinycore or ~/.local/share/shinycore on Linux. Headless defaults to up to 16 in-memory slots; `--save-dir` opts into disk. Check modes invoke no updates and disable save operations. `--check-all` validates the entry and each declared room with empty state.
 
-All entities draw after the map, in stable ascending `layer` order. Custom world-space draw commands follow entities and receive lighting; screen commands follow the light composite. `sc.message` displays a persistent upper-left HUD message. The default bitmap font is designed for ASCII at 10 pixels or integer multiples; rendering smaller sizes loses glyph detail. Supply ASCII UI in this version.
+## Resources and presentation
 
-Asset paths resolve against the project root, independent of the shell working directory when an absolute project path is supplied. GPU textures cache by relative path and unload on scene reload/close. Frame selection is zero-based, row-major; atlas dimensions must be divisible by frame dimensions. Graphical scene preflight decodes initial assets without a GPU before swapping the world. Newly introduced runtime assets are checked when rendered; their failures stop with a diagnostic.
+Tiled support is finite orthogonal, square equal-size tiles, right-down ordering, integer GID arrays, tile/object layers and one convex collision polygon per tile. Inline and external tilesets, spacing/margins, H/V/diagonal flips, visibility/opacity and tile-layer pixel offsets are supported. Unsupported compression/encoding, groups, images layers, parallax, tint, templates, rotated collision objects and hex rotation bits fail. Object records are copied to Lua for factories; they do not spawn native entities automatically. See Workshop for the editor workflow.
 
-F5 reload constructs and validates a candidate. Failure preserves the old VM/world/cache. Success resets scene state and its assets. A deferred scene-transition failure exits nonzero after preserving the old world in memory until cleanup. No incremental Lua state migration is promised.
+Resources declare image, WAV sound, Ogg Vorbis music, or standalone TTF/OTF font paths. Header structure/duration and font metrics validate without devices; graphical builds additionally decode images/audio and validate atlas rectangles. Text uses declared glyph repertoires plus ASCII, tries fallback fonts in name order and warns once per room when replacing a missing glyph with ?. Layout uses codepoint wrapping and optional alignment; no kerning, shaping, bidi or IME is provided.
 
-## Replay and state evidence
+Audio has a deterministic logical clock even when muted/headless, 32 SFX voices and two music streams, pause/loop/pitch/volume/fades, and generation-checked handles. Pause freezes clock and fades. The native backend decodes sounds and streams music; device playback timing is not an exact simulation clock.
 
-Replay frames are global to the process; scene ticks reset on scene entry. A held action remains held across a transition without emitting a new press. Each scene restarts from the requested host seed. Same binary, platform, seed, project and input produce reproducible simulation; cross-architecture bitwise floating-point equivalence is not promised.
+Rendering uses scene/light/composite targets, integer scaling, nearest-neighbor textures, layers and particles. Tiled layers interleave with entity layers; custom world drawing follows entities and screen drawing follows lighting. Light occlusion remains an approximate ASCII-grid DDA; it does not reflect Tiled or dynamic-body geometry. Default sc.message/debug text uses the ASCII font; multilingual authored UI uses sc.text.
 
-The hash serializes explicit logical world fields rather than struct padding or addresses. It excludes transient draw and tone queues; it includes entity generations, map edits, active particles, input, RNG, camera and authored presentation attributes. Arbitrary Lua locals are absent. Snapshots are evidence and test output, not a complete checkpoint format or a save/load contract.
-
-## Extending the engine
-
-`shiny_net` owns native UDP endpoints through pinned ENet, independent of the core, Lua, and graphics. It is absent unless `SHINY_NETWORK=ON`. `src/net_lua.cpp` exposes this transport as VM-owned session userdata; it shares the script mutation guard and closes sockets on collection or VM teardown. Connection IDs are endpoint-local and distinct from entity IDs. Game protocols, authority, input validation, and snapshot smoothing belong in game scripts; `examples/duet` demonstrates these choices. See [networking.md](networking.md).
-
-The headless host's `--realtime` option uses a monotonic deadline to pace fixed ticks at 60 Hz. Ordinary headless execution remains unpaced. Network packet arrival is external input and is not captured by the input replay or state hash; reproducibility claims apply to simulations without live network input.
-
-Keep game-specific rules in the game directory. Add a core primitive only for behavior that should be shared across projects. A new public function requires validation in `src/script.cpp`, the same function's entry in its registration metadata, Lua annotations in `docs/api.lua`, and a behavior-focused test. Preserve the headless build and provide explicit diagnostics for unsupported behavior. Avoid introducing graphics headers into `shiny/core.h` or `shiny/script.h`.
+Optional ENet transport remains separate from the solver and game protocol; see networking.md. Platform acceptance and sanitizer availability are recorded in verification.md.

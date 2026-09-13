@@ -109,7 +109,7 @@ class CliWorkflow(unittest.TestCase):
         self.assertIn("memory", self.tagged(archive))
         keeper = self.tagged(archive)["keeper"]
         self.assertAlmostEqual(keeper["x"], 63, places=3)
-        self.assertAlmostEqual(keeper["y"], 166, places=3)
+        self.assertAlmostEqual(keeper["y"], 166, delta=0.05)  # Box2D contact tolerance, pixels.
         self.assertIs(keeper["grounded"], True)
         self.assertLess(archive["tick"], archive["frames"])
         returned = self.tour(480)

@@ -13,20 +13,27 @@ jobs:
             graphics: 'OFF'
             network: 'ON'
           - os: windows-latest
-            graphics: 'OFF'
+            graphics: 'ON'
             network: 'ON'
           - os: macos-latest
             graphics: 'ON'
             network: 'ON'
+          - os: ubuntu-latest
+            graphics: 'ON'
+            network: 'OFF'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - if: runner.os == 'Linux' && matrix.graphics == 'ON'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb
       - run: cmake -S . -B build -DSHINY_GRAPHICS=${{ matrix.graphics }} -DSHINY_NETWORK=${{ matrix.network }} -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --config Release --parallel
       - run: ctest --test-dir build -C Release --output-on-failure
+      - if: runner.os == 'Linux' && matrix.graphics == 'ON'
+        run: xvfb-run -a ./build/shiny examples/workshop --mute --frames 90 --capture workshop.png
   sanitizers:
     runs-on: ubuntu-latest
     steps:

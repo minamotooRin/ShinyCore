@@ -1,4 +1,5 @@
 #include "shiny/core.h"
+#include "shiny/physics.h"
 
 #include <algorithm>
 #include <bit>
@@ -9,8 +10,7 @@
 #include <optional>
 #include <span>
 
-/* The core owns no heap memory and advances only through explicit fixed ticks.
- * Collision is against the tile map; entity/entity overlap is a game decision. */
+/* Fixed-capacity entities own a single Box2D world; only fixed ticks advance it. */
 static constexpr float SC_VALUE_LIMIT = 1000000.0f;
 static constexpr std::uint32_t SC_GENERATION_MASK = 0x00ffffffu;
 static_assert(SC_MAX_ENTITIES == 256, "entity handles reserve eight bits for the pool slot");
@@ -45,7 +45,7 @@ void sc_world_init(ScWorld *world, std::uint32_t seed) {
 }
 
 std::uint32_t sc_spawn(ScWorld *world, const ScEntity *entity) {
-    if (!world || !entity_valid(entity)) return 0;
+    if (!world || !entity_valid(entity) || !sc_physics_body_valid(*entity)) return 0;
     for (std::size_t i = 0; i < world->entities.size(); ++i) {
         if (world->entities[i].alive) continue;
         /* Copy first: callers may pass an entity in this world's own pool. */
@@ -94,7 +94,7 @@ std::uint32_t sc_find(const ScWorld *world, const char *tag) {
 
 void sc_input(ScWorld *world, std::uint32_t held) {
     if (!world) return;
-    held &= SC_LEFT | SC_RIGHT | SC_UP | SC_DOWN | SC_JUMP | SC_ACTION;
+    held &= SC_LEFT | SC_RIGHT | SC_UP | SC_DOWN | SC_JUMP | SC_INTERACT;
     world->pressed = held & ~world->held;
     world->released = world->held & ~held;
     world->held = held;
@@ -113,151 +113,6 @@ bool sc_overlap(const ScEntity *a, const ScEntity *b) {
            static_cast<double>(a->x) + a->w > b->x &&
            static_cast<double>(a->y) < static_cast<double>(b->y) + b->h &&
            static_cast<double>(a->y) + a->h > b->y;
-}
-
-/* Conversions to tile indices happen only after clipping to valid map extents.
- * Neither an extreme velocity nor a malformed public struct can produce an
- * out-of-range floating-to-integer cast or an unbounded collision loop. */
-struct CellRange { int first{}, last{}; };
-
-static std::optional<CellRange> cell_range(double start, double end, int tile_size, int count) {
-    double extent = static_cast<double>(tile_size) * count;
-    if (end <= 0 || start >= extent || end <= start) return std::nullopt;
-    double low = std::floor(std::fmax(0, start) / tile_size);
-    double high = std::ceil(std::fmin(extent, end) / tile_size) - 1;
-    const int first = low >= count ? count - 1 : static_cast<int>(low);
-    const int last = high >= count ? count - 1 : static_cast<int>(std::fmax(0, high));
-    if (first > last) return std::nullopt;
-    return CellRange{first, last};
-}
-
-static double contact_epsilon(double position) {
-    return std::fmax(0.000001, std::fabs(position) * std::numeric_limits<float>::epsilon());
-}
-
-static void move_horizontal(const ScMap *map, ScEntity *entity, double dx) {
-    double extent = static_cast<double>(map->width) * map->tile_size;
-    double maximum = std::fmax(0, extent - entity->w);
-    double old_x = entity->x;
-    double next_x = std::fmax(0, std::fmin(maximum, old_x + dx));
-    bool blocked = next_x != old_x + dx;
-    double epsilon = contact_epsilon(old_x + entity->w);
-    const auto rows = cell_range(entity->y, static_cast<double>(entity->y) + entity->h,
-                                map->tile_size, map->height);
-    const auto columns = dx > 0
-        ? cell_range(old_x + entity->w - epsilon,
-                     next_x + entity->w + epsilon, map->tile_size, map->width)
-        : cell_range(next_x - epsilon, old_x + epsilon, map->tile_size, map->width);
-    if (dx != 0 && rows && columns) {
-        for (int row = rows->first; row <= rows->last; ++row) {
-            for (int col = columns->first; col <= columns->last; ++col) {
-                if (map->tiles[static_cast<std::size_t>(row * map->width + col)] != '#') continue;
-                double left = static_cast<double>(col) * map->tile_size;
-                double right = left + map->tile_size;
-                if (dx > 0 && left >= old_x + entity->w - epsilon &&
-                    left <= next_x + entity->w) {
-                    next_x = left - entity->w;
-                    blocked = true;
-                } else if (dx < 0 && right <= old_x + epsilon && right >= next_x) {
-                    next_x = right;
-                    blocked = true;
-                }
-            }
-        }
-    }
-    entity->x = clamp_float(next_x, 0, maximum);
-    if (blocked) entity->vx = 0;
-}
-
-static void move_vertical(const ScMap *map, ScEntity *entity, double dy) {
-    double extent = static_cast<double>(map->height) * map->tile_size;
-    double maximum = std::fmax(0, extent - entity->h);
-    double old_y = entity->y;
-    double next_y = std::fmax(0, std::fmin(maximum, old_y + dy));
-    bool blocked = next_y != old_y + dy;
-    double epsilon = contact_epsilon(old_y + entity->h);
-    const auto columns = cell_range(entity->x, static_cast<double>(entity->x) + entity->w,
-                                   map->tile_size, map->width);
-    const auto rows = dy > 0
-        ? cell_range(old_y + entity->h - epsilon,
-                     next_y + entity->h + epsilon, map->tile_size, map->height)
-        : cell_range(next_y - epsilon, old_y + epsilon, map->tile_size, map->height);
-    if (dy != 0 && columns && rows) {
-        for (int row = rows->first; row <= rows->last; ++row) {
-            for (int col = columns->first; col <= columns->last; ++col) {
-                char tile = map->tiles[static_cast<std::size_t>(row * map->width + col)];
-                double top = static_cast<double>(row) * map->tile_size;
-                double bottom = top + map->tile_size;
-                if ((tile == '#' || tile == '=') && dy > 0 &&
-                    top >= old_y + entity->h - epsilon && top <= next_y + entity->h) {
-                    next_y = top - entity->h;
-                    blocked = true;
-                } else if (tile == '#' && dy < 0 &&
-                           bottom <= old_y + epsilon && bottom >= next_y) {
-                    next_y = bottom;
-                    blocked = true;
-                }
-            }
-        }
-    }
-    entity->y = clamp_float(next_y, 0, maximum);
-    if (blocked) {
-        if (dy > 0) entity->grounded = true;
-        entity->vy = 0;
-    }
-}
-
-static bool supported(const ScMap *map, const ScEntity *entity) {
-    if (entity->vy < 0) return false;
-    double bottom = static_cast<double>(entity->y) + entity->h;
-    double epsilon = contact_epsilon(bottom);
-    double extent = static_cast<double>(map->height) * map->tile_size;
-    if (bottom >= extent - epsilon) return true;
-    const auto columns = cell_range(entity->x, static_cast<double>(entity->x) + entity->w,
-                                    map->tile_size, map->width);
-    const auto rows = cell_range(bottom - epsilon, bottom + epsilon,
-                                 map->tile_size, map->height);
-    if (!columns || !rows) return false;
-    for (int row = rows->first; row <= rows->last; ++row) {
-        if (std::fabs(bottom - static_cast<double>(row) * map->tile_size) > epsilon) continue;
-        for (int col = columns->first; col <= columns->last; ++col) {
-            char tile = map->tiles[static_cast<std::size_t>(row * map->width + col)];
-            if (tile == '#' || tile == '=') return true;
-        }
-    }
-    return false;
-}
-
-static void step_entity(ScWorld *world, ScEntity *entity, bool valid_map) {
-    if (!entity->alive) return;
-    entity->grounded = false;
-    if (!entity->dynamic) return;
-    if (!entity_valid(entity)) {
-        entity->vx = entity->vy = 0;
-        return;
-    }
-    double gravity = std::isfinite(world->gravity) ? world->gravity : 0;
-    entity->vy = clamp_float(static_cast<double>(entity->vy) + gravity * entity->gravity * SC_DT,
-                             -SC_VALUE_LIMIT, SC_VALUE_LIMIT);
-    if (!entity->solid) {
-        entity->x = clamp_float(static_cast<double>(entity->x) + static_cast<double>(entity->vx) * SC_DT,
-                                 -SC_VALUE_LIMIT, SC_VALUE_LIMIT);
-        entity->y = clamp_float(static_cast<double>(entity->y) + static_cast<double>(entity->vy) * SC_DT,
-                                 -SC_VALUE_LIMIT, SC_VALUE_LIMIT);
-        return;
-    }
-    if (!valid_map) {
-        entity->vx = entity->vy = 0;
-        return;
-    }
-    /* Recover explicit teleports outside the map before sweeping movement. */
-    entity->x = clamp_float(entity->x, 0,
-        std::fmax(0, static_cast<double>(world->map.width) * world->map.tile_size - entity->w));
-    entity->y = clamp_float(entity->y, 0,
-        std::fmax(0, static_cast<double>(world->map.height) * world->map.tile_size - entity->h));
-    move_horizontal(&world->map, entity, static_cast<double>(entity->vx) * SC_DT);
-    move_vertical(&world->map, entity, static_cast<double>(entity->vy) * SC_DT);
-    entity->grounded = entity->grounded || supported(&world->map, entity);
 }
 
 std::uint32_t sc_random_u32(ScWorld *world) {
@@ -350,8 +205,19 @@ static void step_camera(ScWorld *world, bool valid_map) {
 void sc_step(ScWorld *world) {
     if (!world) return;
     bool valid_map = map_valid(&world->map);
-    for (auto &entity : world->entities)
-        step_entity(world, &entity, valid_map);
+    sc_physics_step(world);
+    for(auto& voice:world->audio) if(voice.alive&&!voice.paused) {
+        if(voice.fade>0) {
+            float part=std::min(1.0f,SC_DT/voice.fade);
+            voice.volume+=(voice.target_volume-voice.volume)*part;
+            voice.fade=std::max(0.0f,voice.fade-SC_DT);
+            if(voice.stopping&&voice.fade==0) voice.alive=false;
+        }
+        voice.position+=SC_DT*voice.pitch;
+        if(voice.duration>0&&voice.position>=voice.duration) {
+            if(voice.loop) voice.position=std::fmod(voice.position,voice.duration); else voice.alive=false;
+        }
+    }
     step_particles(world);
     step_camera(world, valid_map);
     ++world->tick;
@@ -423,6 +289,23 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
         hash_u32(&hash, static_cast<std::uint32_t>(entity->frame_w));
         hash_u32(&hash, static_cast<std::uint32_t>(entity->frame_h));
         hash_u32(&hash, static_cast<std::uint32_t>(entity->layer));
+        hash_u32(&hash,static_cast<uint32_t>(entity->body_type)); hash_u32(&hash,static_cast<uint32_t>(entity->shape));
+        hash_float(&hash,entity->angle); hash_float(&hash,entity->angular_velocity);
+        hash_float(&hash,entity->density); hash_float(&hash,entity->friction); hash_float(&hash,entity->restitution);
+        hash_float(&hash,entity->drop_time); hash_float(&hash,entity->normal_x); hash_float(&hash,entity->normal_y);
+        hash_u32(&hash,entity->category); hash_u32(&hash,entity->mask); hash_u32(&hash,entity->support);
+        hash_byte(&hash,entity->sensor); hash_byte(&hash,entity->bullet); hash_byte(&hash,entity->fixed_rotation);
+        hash_byte(&hash,entity->one_way); hash_byte(&hash,entity->flip_x); hash_byte(&hash,entity->flip_y);
+        hash_u32(&hash,static_cast<uint32_t>(entity->vertex_count));
+        for(int j=0;j<entity->vertex_count*2;++j) hash_float(&hash,entity->vertices[static_cast<size_t>(j)]);
+        hash_u32(&hash,static_cast<uint32_t>(entity->shape_count));
+        for(int j=0;j<entity->shape_count;++j) {
+            const auto& shape=entity->shapes[static_cast<size_t>(j)];
+            hash_u32(&hash,static_cast<uint32_t>(shape.kind));
+            hash_float(&hash,shape.x); hash_float(&hash,shape.y); hash_float(&hash,shape.w); hash_float(&hash,shape.h);
+            hash_u32(&hash,static_cast<uint32_t>(shape.vertex_count));
+            for(int k=0;k<shape.vertex_count*2;++k) hash_float(&hash,shape.vertices[static_cast<size_t>(k)]);
+        }
     }
     for (const auto &slot : world->particles) {
         const ScParticle *particle = &slot;
@@ -444,5 +327,11 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
     hash_u32(&hash, static_cast<std::uint32_t>(world->view_height));
     hash_string(&hash, world->title);
     hash_string(&hash, world->message);
+    for(const auto& layer:world->layers) {
+        hash_string(&hash,std::span(layer.name.data(),layer.name.size()));
+        hash_float(&hash,layer.opacity); hash_float(&hash,layer.x); hash_float(&hash,layer.y); hash_byte(&hash,layer.visible);
+        hash_u32(&hash,static_cast<uint32_t>(layer.order));
+        for(auto cell:layer.cells) hash_u32(&hash,cell);
+    }
     return hash;
 }

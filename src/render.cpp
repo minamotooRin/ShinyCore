@@ -1,5 +1,7 @@
 #include "shiny/render.h"
 #include "shiny/script.h"
+#include "shiny/project.h"
+#include "shiny/text.h"
 #include "raylib.h"
 #include "rlgl.h"
 #include <math.h>
@@ -7,6 +9,9 @@
 #include <array>
 #include <utility>
 #include <vector>
+#include <map>
+#include <exception>
+#include <stdexcept>
 #include <string.h>
 
 namespace {
@@ -36,12 +41,19 @@ public:
 using TextureOwner=Owned<Texture2D,IsTextureValid,UnloadTexture>;
 using TargetOwner=Owned<RenderTexture2D,IsRenderTextureValid,UnloadRenderTexture>;
 using SoundOwner=Owned<Sound,IsSoundValid,UnloadSound>;
+using WaveOwner=Owned<Wave,IsWaveValid,UnloadWave>;
 using ImageOwner=Owned<Image,IsImageValid,UnloadImage>;
+using FontOwner=Owned<Font,IsFontValid,UnloadFont>;
+using MusicOwner=Owned<Music,IsMusicValid,UnloadMusicStream>;
+struct NativeVoice { uint32_t id{}; SoundOwner sound; MusicOwner music; bool paused{}; };
+struct NativeFont { std::string name; FontOwner font; };
 struct Asset { char path[128]{}; TextureOwner texture; };
 struct Backend final {
     TargetOwner scene, light, final;
     std::array<Asset,TEXTURE_CAPACITY> assets;
     std::array<SoundOwner,TONE_VOICES> sounds;
+    std::array<NativeVoice,34> audio_voices;
+    std::vector<NativeFont> fonts;
     std::array<bool,512> pressed_keys{};
     std::size_t asset_count{},voice{};
     int width{},height{};
@@ -54,6 +66,8 @@ struct Backend final {
     void close() noexcept {
         // Devices must outlive the resources released through them.
         for (auto& sound:sounds) sound.reset();
+        for(auto& item:audio_voices) { item.sound.reset(); item.music.reset(); item.id=0; }
+        fonts.clear();
         for (auto& asset:assets) { asset.texture.reset(); asset.path[0]='\0'; }
         final.reset();light.reset();scene.reset();
         if (audio) CloseAudioDevice();
@@ -77,29 +91,36 @@ static void raylib_log(int level,const char *format,va_list args) {
     if (level>=LOG_WARNING) { fputs("[raylib] ",stderr); vfprintf(stderr,format,args); fputc('\n',stderr); }
 }
 bool sc_render_validate_assets(const ScWorld *world,const char *root,char *error,size_t error_size) {
-    struct { const char *path; int width,height; } infos[TEXTURE_CAPACITY];
-    int count=0;
     SetTraceLogCallback(raylib_log); SetTraceLogLevel(LOG_WARNING);
-    for (std::size_t i=0;i<SC_MAX_ENTITIES;i++) {
-        const ScEntity *e=&world->entities[i];
-        if (!e->alive || !e->sprite[0]) continue;
-        int info=0;
-        while (info<count && strcmp(infos[info].path,e->sprite)) info++;
-        if (info==count) {
-            if (count==TEXTURE_CAPACITY) { snprintf(error,error_size,"texture capacity exceeded (%d)",TEXTURE_CAPACITY); return false; }
-            char path[SC_PATH_MAX*2]; snprintf(path,sizeof(path),"%s/%s",root,e->sprite);
-            ImageOwner image{LoadImage(path)};
-            if (!image) { snprintf(error,error_size,"cannot decode texture: %s",path); return false; }
-            infos[info].path=e->sprite; infos[info].width=image.get().width; infos[info].height=image.get().height;
-            count++;
+    try {
+        std::map<std::string,std::pair<int,int>> infos;
+        auto load=[&](const std::string& path) -> std::pair<int,int> {
+            if(auto it=infos.find(path);it!=infos.end()) return it->second;
+            if(infos.size()==TEXTURE_CAPACITY) throw std::runtime_error("texture capacity exceeded (64)");
+            ImageOwner image{LoadImage((std::string(root)+"/"+path).c_str())};
+            if(!image||image.get().width>8192||image.get().height>8192) throw std::runtime_error("cannot decode bounded texture: "+path);
+            return infos.emplace(path,std::pair{image.get().width,image.get().height}).first->second;
+        };
+        for(const auto& e:world->entities) {
+            if(!e.alive||!e.sprite[0]) continue;
+            auto [width,height]=load(e.sprite);
+            int fw=e.frame_w?e.frame_w:width,fh=e.frame_h?e.frame_h:height;
+            if(fw<1||fh<1||width%fw||height%fh||e.frame<0||e.frame>=(width/fw)*(height/fh))
+                throw std::runtime_error("invalid sprite frame or grid: "+std::string(e.sprite));
         }
-        int width=infos[info].width,height=infos[info].height;
-        int fw=e->frame_w?e->frame_w:width,fh=e->frame_h?e->frame_h:height;
-        if (width<1 || height<1 || width>8192 || height>8192 || fw<1 || fh<1 || width%fw || height%fh || e->frame<0 || e->frame>=(width/fw)*(height/fh)) {
-            snprintf(error,error_size,"invalid sprite frame %d or grid %dx%d for %s (%dx%d)",e->frame,fw,fh,e->sprite,width,height); return false;
+        for(const auto& g:world->tile_graphics) {
+            auto [width,height]=load(g.image);
+            if(g.x<0||g.y<0||g.x+g.w>width||g.y+g.h>height) throw std::runtime_error("tileset grid exceeds image: "+g.image);
         }
-    }
-    return true;
+        for(const auto& r:world->resources) {
+            if(r.type=="image") load(r.path);
+            if(r.type=="sound"||r.type=="music") {
+                WaveOwner wave{LoadWave((std::string(root)+"/"+r.path).c_str())};
+                if(!wave) throw std::runtime_error("cannot decode audio: "+r.path);
+            }
+        }
+        return true;
+    } catch(const std::exception& e) { snprintf(error,error_size,"%s",e.what()); return false; }
 }
 static Texture2D *texture(const char *relative) {
     for (std::size_t i=0;i<backend.asset_count;i++) if (!strcmp(backend.assets[i].path,relative)) return backend.assets[i].texture.ptr();
@@ -125,6 +146,8 @@ static Texture2D *texture(const char *relative) {
 void sc_render_reload_assets(void) {
     for (auto& asset:backend.assets) { asset.texture.reset(); asset.path[0]='\0'; }
     backend.asset_count=0; backend.error[0]='\0';
+    backend.fonts.clear();
+    for(auto& voice:backend.audio_voices) { voice.sound.reset(); voice.music.reset(); voice.id=0; }
 }
 const char *sc_render_error(void) { return backend.error; }
 bool sc_render_open(const ScWorld *world,const char *root,bool audio,char *error,size_t error_size) {
@@ -172,7 +195,7 @@ uint32_t sc_render_pressed_input(void) {
     if (key_pressed(KEY_UP)||key_pressed(KEY_W)) mask|=SC_UP;
     if (key_pressed(KEY_DOWN)||key_pressed(KEY_S)) mask|=SC_DOWN;
     if (key_pressed(KEY_SPACE)||key_pressed(KEY_Z)) mask|=SC_JUMP;
-    if (key_pressed(KEY_E)||key_pressed(KEY_X)) mask|=SC_ACTION;
+    if (key_pressed(KEY_E)||key_pressed(KEY_X)) mask|=SC_INTERACT;
     return mask;
 }
 uint32_t sc_render_input(void) {
@@ -182,7 +205,7 @@ uint32_t sc_render_input(void) {
     if (IsKeyDown(KEY_UP)||IsKeyDown(KEY_W)) mask|=SC_UP;
     if (IsKeyDown(KEY_DOWN)||IsKeyDown(KEY_S)) mask|=SC_DOWN;
     if (IsKeyDown(KEY_SPACE)||IsKeyDown(KEY_Z)) mask|=SC_JUMP;
-    if (IsKeyDown(KEY_E)||IsKeyDown(KEY_X)) mask|=SC_ACTION;
+    if (IsKeyDown(KEY_E)||IsKeyDown(KEY_X)) mask|=SC_INTERACT;
     if (IsGamepadAvailable(0)) {
         float x=GetGamepadAxisMovement(0,GAMEPAD_AXIS_LEFT_X);
         if (x<-.25f || IsGamepadButtonDown(0,GAMEPAD_BUTTON_LEFT_FACE_LEFT)) mask|=SC_LEFT;
@@ -190,9 +213,60 @@ uint32_t sc_render_input(void) {
         if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_LEFT_FACE_UP)) mask|=SC_UP;
         if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_LEFT_FACE_DOWN)) mask|=SC_DOWN;
         if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) mask|=SC_JUMP;
-        if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) mask|=SC_ACTION;
+        if (IsGamepadButtonDown(0,GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) mask|=SC_INTERACT;
     }
     return mask;
+}
+static Font font_asset(const ScResource* resource) {
+    if(!resource) return GetFontDefault();
+    for(auto& item:backend.fonts) if(item.name==resource->name) return item.font.get();
+    std::vector<int> codes; for(const auto& glyph:resource->glyphs) codes.push_back(glyph.codepoint);
+    std::string path=std::string(backend.root)+"/"+resource->path;
+    NativeFont item; item.name=resource->name;
+    item.font.reset(LoadFontEx(path.c_str(),resource->size,codes.data(),static_cast<int>(codes.size())));
+    if(!item.font) { snprintf(backend.error,sizeof backend.error,"cannot load font: %s",path.c_str()); return GetFontDefault(); }
+    SetTextureFilter(item.font.get().texture,TEXTURE_FILTER_POINT);
+    backend.fonts.push_back(std::move(item)); return backend.fonts.back().font.get();
+}
+bool sc_render_prepare_assets(const ScWorld* world,char* error,size_t error_size) {
+    try {
+        std::array<Asset,TEXTURE_CAPACITY> assets;
+        std::vector<NativeFont> fonts;
+        size_t count=0;
+        auto prepare=[&](const char* path) {
+            if(!*path) return true;
+            for(size_t i=0;i<count;++i) if(!strcmp(assets[i].path,path)) return true;
+            if(count==assets.size()) { snprintf(error,error_size,"texture capacity exceeded (64)"); return false; }
+            std::string full=std::string(backend.root)+"/"+path;
+            ImageOwner image{LoadImage(full.c_str())};
+            if(!image||image.get().width>8192||image.get().height>8192) { snprintf(error,error_size,"invalid texture: %s",path); return false; }
+            auto& asset=assets[count]; asset.texture.reset(LoadTextureFromImage(image.get()));
+            if(!asset.texture) { snprintf(error,error_size,"cannot upload texture: %s",path); return false; }
+            snprintf(asset.path,sizeof asset.path,"%s",path); SetTextureFilter(asset.texture.get(),TEXTURE_FILTER_POINT); ++count; return true;
+        };
+        for(const auto& entity:world->entities) if(entity.alive&&!prepare(entity.sprite)) return false;
+        for(const auto& graphic:world->tile_graphics) if(!prepare(graphic.image.c_str())) return false;
+        for(const auto& resource:world->resources) {
+            if(resource.type=="image"&&!prepare(resource.path.c_str())) return false;
+            if(resource.type!="font") continue;
+            std::vector<int> codes; for(const auto& glyph:resource.glyphs) codes.push_back(glyph.codepoint);
+            NativeFont item; item.name=resource.name;
+            std::string path=std::string(backend.root)+"/"+resource.path;
+            item.font.reset(LoadFontEx(path.c_str(),resource.size,codes.data(),static_cast<int>(codes.size())));
+            if(!item.font) { snprintf(error,error_size,"cannot prepare font: %s",resource.path.c_str()); return false; }
+            SetTextureFilter(item.font.get().texture,TEXTURE_FILTER_POINT); fonts.push_back(std::move(item));
+        }
+        backend.assets=std::move(assets); backend.asset_count=count; backend.fonts=std::move(fonts);
+        for(size_t i=0;i<world->audio.size();++i) if(!world->audio[i].persistent||world->audio[i].id!=backend.audio_voices[i].id) {
+            auto& voice=backend.audio_voices[i]; voice.sound.reset(); voice.music.reset(); voice.id=0;
+        }
+        backend.error[0]=0;
+        return true;
+    } catch(const std::exception& e) { snprintf(error,error_size,"resource preparation: %s",e.what()); return false; }
+}
+static void text_draw(const ScWorld* world,const ScDraw& draw,float x,float y) {
+    auto layout=sc_text_layout(world,draw.text,draw.h,draw.font,draw.wrap,draw.align);
+    for(const auto& letter:layout.letters) DrawTextCodepoint(font_asset(letter.font),letter.codepoint,{x+letter.x,y+letter.y},draw.h,rgba(draw.color));
 }
 static void draw_commands(const ScWorld *world,bool screen,float cx,float cy) {
     for (std::size_t i=0;i<static_cast<std::size_t>(world->draw_count);i++) {
@@ -200,7 +274,7 @@ static void draw_commands(const ScWorld *world,bool screen,float cx,float cy) {
         float x=floorf(d->x-(screen?0:cx)), y=floorf(d->y-(screen?0:cy));
         if (d->kind==SC_DRAW_RECT) DrawRectangleRec(Rectangle{x,y,d->w,d->h},rgba(d->color));
         else if (d->kind==SC_DRAW_CIRCLE) DrawCircleV(Vector2{x,y},d->w,rgba(d->color));
-        else if (d->kind==SC_DRAW_TEXT) DrawTextEx(GetFontDefault(),d->text,Vector2{x,y},d->h,1,rgba(d->color));
+        else if (d->kind==SC_DRAW_TEXT) text_draw(world,*d,x,y);
     }
 }
 static void draw_map(const ScWorld *world,float cx,float cy) {
@@ -231,6 +305,30 @@ static void draw_map(const ScWorld *world,float cx,float cy) {
         if (sc_tile(world,x-1,y)=='.') DrawRectangle(sx,sy,1,tile,shade(accent,.65f));
     }
 }
+static void draw_layer(const ScWorld* world,const ScLayer& layer,float cx,float cy) {
+    if(!layer.visible) return;
+    float tile=static_cast<float>(world->map.tile_size);
+    for(size_t i=0;i<layer.cells.size();++i) {
+        uint32_t gid=layer.cells[i]; if(!gid) continue;
+        auto* graphic=sc_tile_graphic(world,gid); if(!graphic) continue;
+        float x=static_cast<float>(i%static_cast<size_t>(world->map.width))*tile+layer.x-cx;
+        float y=static_cast<float>(i/static_cast<size_t>(world->map.width))*tile+layer.y-cy;
+        if(x+tile<0||y+tile<0||x>static_cast<float>(backend.width)||y>static_cast<float>(backend.height)) continue;
+        auto* asset=texture(graphic->image.c_str()); if(!asset) continue;
+        rlSetTexture(asset->id); rlBegin(RL_QUADS); rlColor4ub(255,255,255,static_cast<unsigned char>(layer.opacity*255));
+        const float corners[4][2]={{0,0},{0,1},{1,1},{1,0}};
+        for(const auto& corner:corners) {
+            float u=corner[0],v=corner[1];
+            if(gid&0x80000000u) u=1-u;
+            if(gid&0x40000000u) v=1-v;
+            if(gid&0x20000000u) std::swap(u,v);
+            rlTexCoord2f((static_cast<float>(graphic->x)+u*static_cast<float>(graphic->w))/static_cast<float>(asset->width),
+                        (static_cast<float>(graphic->y)+v*static_cast<float>(graphic->h))/static_cast<float>(asset->height));
+            rlVertex2f(floorf(x)+corner[0]*tile,floorf(y)+corner[1]*tile);
+        }
+        rlEnd(); rlSetTexture(0);
+    }
+}
 static void draw_entities(const ScWorld *world,float cx,float cy) {
     std::array<std::size_t,SC_MAX_ENTITIES> order{}; std::size_t count=0;
     for (std::size_t i=0;i<SC_MAX_ENTITIES;i++) if (world->entities[i].alive) {
@@ -238,8 +336,10 @@ static void draw_entities(const ScWorld *world,float cx,float cy) {
         while (j>0 && world->entities[order[j-1]].layer>world->entities[i].layer) { order[j]=order[j-1]; j--; }
         order[j]=i; count++;
     }
+    size_t map_layer=0;
     for (std::size_t i=0;i<count;i++) {
         const ScEntity *e=&world->entities[order[i]];
+        while(map_layer<world->layers.size()&&world->layers[map_layer].order<=e->layer) draw_layer(world,world->layers[map_layer++],cx,cy);
         float x=floorf(e->x-cx),y=floorf(e->y-cy);
         if (x+e->w<0||y+e->h<0||x>(float)backend.width||y>(float)backend.height) continue;
         if (e->sprite[0]) {
@@ -251,9 +351,24 @@ static void draw_entities(const ScWorld *world,float cx,float cy) {
                 continue;
             }
             Rectangle source={(float)((e->frame%columns)*fw),(float)((e->frame/columns)*fh),(float)fw,(float)fh};
-            DrawTexturePro(*asset,source,Rectangle{x,y,e->w,e->h},Vector2{0,0},0,rgba(e->color));
-        } else DrawRectangleRec(Rectangle{x,y,e->w,e->h},rgba(e->color));
+            if(e->flip_x) source.width=-source.width;
+            if(e->flip_y) source.height=-source.height;
+            DrawTexturePro(*asset,source,Rectangle{x+e->w/2,y+e->h/2,e->w,e->h},Vector2{e->w/2,e->h/2},e->angle*180/PI_F,rgba(e->color));
+        } else if(e->shape==3&&e->vertex_count>=3) {
+            Vector2 points[8];
+            for(int j=0;j<e->vertex_count;++j) {
+                float px=e->vertices[2*j]-e->w/2,py=e->vertices[2*j+1]-e->h/2;
+                points[j]={x+e->w/2+px*cosf(e->angle)-py*sinf(e->angle),y+e->h/2+px*sinf(e->angle)+py*cosf(e->angle)};
+            }
+            for(int j=1;j<e->vertex_count-1;++j) {
+                auto a=points[0],b=points[j],c=points[j+1];
+                if((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)>0) std::swap(b,c);
+                DrawTriangle(a,b,c,rgba(e->color));
+            }
+        } else if(e->shape==1) DrawCircleV({x+e->w/2,y+e->h/2},fminf(e->w,e->h)/2,rgba(e->color));
+        else DrawRectanglePro(Rectangle{x+e->w/2,y+e->h/2,e->w,e->h},Vector2{e->w/2,e->h/2},e->angle*180/PI_F,rgba(e->color));
     }
+    while(map_layer<world->layers.size()) draw_layer(world,world->layers[map_layer++],cx,cy);
 }
 /* Grid DDA gives each light a shadow silhouette, without a second physics world. */
 static float ray_distance(const ScWorld *w,float x,float y,float dx,float dy,float radius) {
@@ -310,6 +425,33 @@ static void draw_lights(const ScWorld *world,float cx,float cy) {
 }
 void sc_render_audio(const ScWorld *world) {
     if (!backend.audio) return;
+    for(size_t i=0;i<world->audio.size();++i) {
+        const auto& v=world->audio[i]; auto& native=backend.audio_voices[i];
+        if(!v.alive) { native.sound.reset(); native.music.reset(); native.id=0; continue; }
+        if(native.id!=v.id) {
+            native.sound.reset(); native.music.reset(); native.id=v.id; native.paused=false;
+            std::string path=std::string(backend.root)+"/"+v.path;
+            if(v.music) {
+                native.music.reset(LoadMusicStream(path.c_str()));
+                if(native.music) { native.music.ptr()->looping=v.loop; PlayMusicStream(native.music.get()); if(v.position>0) SeekMusicStream(native.music.get(),v.position); }
+            } else { native.sound.reset(LoadSound(path.c_str())); if(native.sound) PlaySound(native.sound.get()); }
+            if(!native.music&&!native.sound) snprintf(backend.error,sizeof backend.error,"cannot decode audio: %s",v.path);
+        }
+        if(native.music) {
+            native.music.ptr()->looping=v.loop;
+            SetMusicVolume(native.music.get(),v.volume); SetMusicPitch(native.music.get(),v.pitch);
+            if(v.paused&&!native.paused) PauseMusicStream(native.music.get());
+            if(!v.paused&&native.paused) ResumeMusicStream(native.music.get());
+            if(!v.paused) UpdateMusicStream(native.music.get());
+        }
+        if(native.sound) {
+            SetSoundVolume(native.sound.get(),v.volume); SetSoundPitch(native.sound.get(),v.pitch);
+            if(v.paused&&!native.paused) PauseSound(native.sound.get());
+            if(!v.paused&&native.paused) ResumeSound(native.sound.get());
+            if(v.loop&&!v.paused&&!IsSoundPlaying(native.sound.get())) PlaySound(native.sound.get());
+        }
+        native.paused=v.paused;
+    }
     for (std::size_t i=0;i<static_cast<std::size_t>(world->tone_count);i++) {
         ScTone tone=world->tones[i];
         unsigned int count=(unsigned int)(tone.duration*44100);
@@ -335,7 +477,8 @@ void sc_render_frame(ScWorld *world,float alpha,const char *error,bool paused) {
     float cx=floorf(world->camera_x),cy=floorf(world->camera_y);
     BeginTextureMode(backend.scene.get());
     ClearBackground(rgba(world->map.background));
-    draw_map(world,cx,cy); draw_entities(world,cx,cy); draw_commands(world,false,cx,cy);
+    if(world->layers.empty()) draw_map(world,cx,cy);
+    draw_entities(world,cx,cy); draw_commands(world,false,cx,cy);
     EndTextureMode();
     if (backend.lighting) draw_lights(world,cx,cy);
     BeginTextureMode(backend.final.get());

@@ -7,6 +7,8 @@ bool sc_render_open(const ScWorld *world, const char *root, bool audio, char *er
 bool sc_render_validate_assets(const ScWorld *world, const char *root, char *error, size_t error_size);
 void sc_render_close(void);
 void sc_render_reload_assets(void);
+/* Prepare GPU assets before a scene swap; failure keeps the active cache. */
+bool sc_render_prepare_assets(const ScWorld*,char* error,size_t error_size);
 const char *sc_render_error(void);
 bool sc_render_should_close(void);
 float sc_render_delta(void);

@@ -11,12 +11,14 @@ import shlex
 import shutil
 import subprocess
 import sys
+import uuid
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 SCENE = '''-- Start with one room and one controller. The public API is in .luarc.json.
-local player
+local Controller = require("game.controller")
+local player, controller
 
 local function make_map()
     local rows = {}
@@ -42,19 +44,25 @@ return {
     },
     entities = {
         {tag = "player", x = 32, y = 178, w = 8, h = 14,
-         dynamic = true, solid = true, gravity = 1,
+         body = {type="dynamic", friction=0, fixed_rotation=true}, gravity = 1,
          color = "#F9D98B", glow = 64},
     },
     init = function()
         player = sc.find("player")
         sc.camera(player)
+        controller = Controller.new(player)
+        sc.state.set("visits", (sc.state.get("visits") or 0) + 1)
     end,
     update = function(dt)
-        local p = sc.get(player)
-        local axis = (sc.down("right") and 1 or 0) - (sc.down("left") and 1 or 0)
-        local vy = p.vy
-        if sc.pressed("jump") and p.grounded then vy = -240 end
-        sc.set(player, {vx = axis * 96, vy = vy})
+        Controller.update(controller, dt)
+        if sc.pressed("action") then
+            if sc.get(player).x > 300 then sc.scene("rooms/second.lua")
+            else assert(sc.save.write("checkpoint")) end
+        end
+        if sc.pressed("up") then
+            local ok, error = sc.save.load("checkpoint")
+            if not ok then sc.log(error) end
+        end
     end,
     draw = function(alpha)
         -- Drawing reads state and queues visuals; it never advances the game.
@@ -105,7 +113,7 @@ The `.luarc.json` file links that same API for Lua Language Server completion.
 - `sc.get()` returns a copy; apply changes with `sc.set(id, patch)`.
 - Update simulation state only in `init()` or `update(dt)`. `dt` is always 1/60.
 - Keep `draw(alpha)` free of side effects, including changes to Lua locals.
-- Use `sc.random()` for seeded randomness. `require` and file/process I/O are unavailable.
+- Use `sc.random()` for seeded randomness. project-local `require` is available; file/process I/O is unavailable.
 - Spawn in empty space. `#` tiles are solid and `=` tiles are one-way platforms.
 - Preserve artwork and unrelated changes. Add a replay when changing game behavior.
 - Run these checks from this project's directory, then visually inspect rendering changes:
@@ -125,7 +133,7 @@ the commands above if that configuration was built after project creation.
 
 An editable room, a small player, and two one-way platforms. Move with A/D or
 the arrow keys, and jump with Space or Z. Edit `main.lua` to build your game.
-There are no external assets or Lua module dependencies.
+The game/controller.lua module is ordinary editable Lua. Press E to save, UP to load, or E at the right side to enter the second room.
 
 From this directory, after building ShinyCore:
 
@@ -151,6 +159,13 @@ in the engine checkout. The resulting executable is normally
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.mkdir()  # Exclusive creation also catches a concurrent existing path.
     try:
+        (destination / "game").mkdir()
+        (destination / "rooms").mkdir()
+        shutil.copy2(ROOT / "examples/workshop/game/controller.lua", destination / "game/controller.lua")
+        shutil.copy2(ROOT / "examples/workshop/game/animation.lua", destination / "game/animation.lua")
+        project_id = "game." + uuid.uuid4().hex
+        (destination / "project.lua").write_text('return {id="' + project_id + '", data_version=1, rooms={"main.lua", "rooms/second.lua"}}\n', encoding="utf-8")
+        (destination / "rooms/second.lua").write_text('return {gravity=0, init=function() sc.message("SECOND ROOM / E TO RETURN") end, update=function() if sc.pressed("action") then sc.scene("main.lua") end end}\n', encoding="utf-8")
         for name, contents in {
             "main.lua": SCENE,
             "smoke.replay": REPLAY,

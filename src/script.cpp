@@ -1,4 +1,11 @@
+#include "script_api.h"
 #include "shiny/script.h"
+#include "shiny/script_data.h"
+#include "shiny/script_physics.h"
+#include "shiny/project.h"
+#include "shiny/script_audio.h"
+#include "shiny/text.h"
+#include "shiny/physics.h"
 #ifdef SC_HAS_NETWORK
 #include "shiny/net_lua.h"
 #endif
@@ -64,7 +71,7 @@ static int draw_phase(lua_State *L) {
 }
 
 static void require_mutable(lua_State *L) {
-    if (draw_phase(L)) luaL_error(L, "simulation mutation is forbidden in draw(); use init() or update()");
+    if (draw_phase(L)||script_of(L)->phase>=2) luaL_error(L, "simulation mutation is forbidden in draw() or migration; use init() or update()");
 }
 
 #ifdef SC_HAS_NETWORK
@@ -210,7 +217,7 @@ static void color_field(lua_State *L, int index, const char *name, uint32_t *out
 
 static const char *const entity_keys[] = {
     "tag", "x", "y", "w", "h", "vx", "vy", "dynamic", "solid", "gravity", "color", "glow",
-    "sprite", "frame", "frame_w", "frame_h", "layer", nullptr
+    "sprite", "frame", "frame_w", "frame_h", "layer", "body", "angle", "angular_velocity", "flip_x", "flip_y", nullptr
 };
 
 static void entity_patch(lua_State *L, int index, ScEntity *entity) {
@@ -228,10 +235,18 @@ static void entity_patch(lua_State *L, int index, ScEntity *entity) {
     color_field(L, index, "color", &entity->color);
     string_field(L, index, "tag", entity->tag, sizeof entity->tag);
     string_field(L, index, "sprite", entity->sprite, sizeof entity->sprite);
+    for(const auto& resource:script_of(L)->world->resources) if(resource.type=="image"&&resource.name==entity->sprite) {
+        std::snprintf(entity->sprite,sizeof entity->sprite,"%s",resource.path.c_str()); break;
+    }
     int_field(L, index, "frame", &entity->frame, 0, 65535);
     int_field(L, index, "frame_w", &entity->frame_w, 0, 4096);
     int_field(L, index, "frame_h", &entity->frame_h, 0, 4096);
     int_field(L, index, "layer", &entity->layer, -32768, 32767);
+    float_field(L,index,"angle",&entity->angle,-1000000,1000000);
+    float_field(L,index,"angular_velocity",&entity->angular_velocity,-1000,1000);
+    bool_field(L,index,"flip_x",&entity->flip_x); bool_field(L,index,"flip_y",&entity->flip_y);
+    sc_script_body_patch(L,index,entity);
+    if(!sc_physics_body_valid(*entity)) luaL_error(L,"invalid body: polygons require 3..8 distinct convex vertices");
     if (*entity->sprite && !sc_script_validate_path(entity->sprite))
         luaL_error(L, "sprite must be a project-relative path without '.' or '..' segments");
     if ((entity->frame_w == 0) != (entity->frame_h == 0))
@@ -299,6 +314,7 @@ static int api_get(lua_State *L) {
     char color[10];
     std::snprintf(color, sizeof color, "#%08x", entity->color);
     lua_pushstring(L, color); lua_setfield(L, -2, "color");
+    sc_script_body_push(L,entity);
     return 1;
 }
 
@@ -322,6 +338,24 @@ static int api_find(lua_State *L) {
     uint32_t id = sc_find(script_of(L)->world, string_at(L, 1, 47, true));
     if (id) lua_pushinteger(L, id); else lua_pushnil(L);
     return 1;
+}
+
+static int api_objects(lua_State* L) { sc_lua_push(L,script_of(L)->objects); return 1; }
+static int api_map(lua_State* L) {
+    arg_count(L,3,4); auto* w=script_of(L)->world;
+    const char* name=string_at(L,1,128,true); ScLayer* layer=nullptr;
+    for(auto& item:w->layers) if(item.name==name) layer=&item;
+    if(!layer) return luaL_error(L,"unknown map layer: %s",name);
+    int x=static_cast<int>(integer_at(L,2,0,w->map.width-1)),y=static_cast<int>(integer_at(L,3,0,w->map.height-1));
+    auto& cell=layer->cells[static_cast<size_t>(y*w->map.width+x)];
+    if(lua_gettop(L)==4) {
+        require_mutable(L); auto gid=static_cast<uint32_t>(integer_at(L,4,0,UINT32_MAX));
+        if(gid&&!sc_tile_graphic(w,gid)) return luaL_error(L,"unknown map GID");
+        auto old=cell; cell=gid; bool ok=false;
+        { auto result=sc_project_tiles(w); ok=result.has_value(); }
+        if(!ok) { cell=old; return luaL_error(L,"map collider capacity or geometry error"); }
+    }
+    lua_pushinteger(L,cell); return 1;
 }
 
 static int api_overlap(lua_State *L) {
@@ -433,12 +467,24 @@ static int api_message(lua_State *L) {
 }
 
 static int api_scene(lua_State *L) {
-    arg_count(L, 1, 1); require_mutable(L);
+    arg_count(L, 1, 2); require_mutable(L);
     const char *path = string_at(L, 1, SC_PATH_MAX - 1, true);
     size_t length = std::strlen(path);
     if (!sc_script_validate_path(path) || length < 5 || std::strcmp(path + length - 4, ".lua"))
         return luaL_error(L, "scene path must be a project-relative .lua file without '.' or '..' segments");
-    std::memcpy(script_of(L)->pending_scene, path, length + 1); return 0;
+    auto* s=script_of(L);
+    if (lua_gettop(L)==2) {
+        bool ok=false;
+        {
+            auto value=sc_lua_read(L,2);
+            if(value && std::holds_alternative<ScValue::Object>(value->data)) {
+                auto checked=sc_state_validate(*value);
+                if(checked) { s->pending_state=std::move(*checked); s->has_pending_state=true; ok=true; }
+            }
+        }
+        if(!ok) return luaL_error(L,"scene state must be a bounded plain object");
+    } else s->has_pending_state=false;
+    std::memcpy(s->pending_scene, path, length + 1); return 0;
 }
 
 static ScDraw *push_draw(lua_State *L, ScDraw draw, int screen_index) {
@@ -469,14 +515,42 @@ static int api_circle(lua_State *L) {
     draw.color = color_at(L, 4); push_draw(L, draw, 5); return 0;
 }
 
+static void validate_text(lua_State* L,const char* text,const char* font) {
+    auto* script=script_of(L); bool valid=false,found=!*font,missing=false;
+    {
+        valid=sc_utf8(text).has_value();
+        for(const auto& resource:script->world->resources) if(resource.name==font&&resource.type=="font") found=true;
+        if(valid&&found) missing=sc_text_layout(script->world,text,16,font).missing;
+    }
+    if(!valid) luaL_error(L,"text must be valid UTF-8");
+    if(!found) luaL_error(L,"unknown font resource: %s",font);
+    if(missing&&!script->warned_missing_glyph) {
+        std::fputs("[shiny] missing text glyph; using '?'. Declare characters in a project font resource.\n",stderr);
+        script->warned_missing_glyph=true;
+    }
+}
 static int api_text(lua_State *L) {
-    arg_count(L, 5, 6);
+    arg_count(L, 5, 7);
     ScDraw draw{}; draw.kind = SC_DRAW_TEXT;
     const char *text = string_at(L, 1, sizeof draw.text - 1, false);
     std::memcpy(draw.text, text, std::strlen(text) + 1);
     draw.x = number_at(L, 2, -1000000, 1000000); draw.y = number_at(L, 3, -1000000, 1000000);
     draw.h = number_at(L, 4, 1, 512); draw.color = color_at(L, 5);
+    if(!lua_isnoneornil(L,7)) {
+        static const char* const keys[]={"font","wrap","align",nullptr}; strict_keys(L,7,keys,"text options");
+        string_field(L,7,"font",draw.font,sizeof draw.font); float_field(L,7,"wrap",&draw.wrap,0,4096);
+        int_field(L,7,"align",&draw.align,0,2);
+    }
+    validate_text(L,draw.text,draw.font);
     push_draw(L, draw, 6); return 0;
+}
+static int api_measure(lua_State* L) {
+    arg_count(L,2,4); const char* text=string_at(L,1,4096,false); float size=number_at(L,2,1,512);
+    const char* font=!lua_isnoneornil(L,3)?string_at(L,3,127,false):"";
+    float wrap=!lua_isnoneornil(L,4)?number_at(L,4,0,4096):0,width=0,height=0;
+    validate_text(L,text,font);
+    { auto layout=sc_text_layout(script_of(L)->world,text,size,font,wrap); width=layout.width; height=layout.height; }
+    lua_pushnumber(L,width); lua_pushnumber(L,height); return 2;
 }
 
 static int api_tick(lua_State *L) {
@@ -517,30 +591,32 @@ static int guarded_setmetatable(lua_State *L) {
     return lua_gettop(L);
 }
 
-struct ApiEntry { const char *name; lua_CFunction function; const char *signature; const char *description; };
-static const ApiEntry api[] = {
-    {"spawn", api_spawn, "spawn(entity) -> id", "Create an entity; unspecified fields use defaults."},
-    {"get", api_get, "get(id) -> entity", "Return a copy with read-only id and grounded fields."},
-    {"set", api_set, "set(id, patch)", "Atomically apply writable fields; invalid IDs or fields raise errors."},
-    {"destroy", api_destroy, "destroy(id) -> true", "Destroy a live generation-checked entity."},
-    {"find", api_find, "find(tag) -> id|nil", "Find the first living entity with an exact tag."},
-    {"overlap", api_overlap, "overlap(a, b) -> boolean", "Test axis-aligned entity bounds."},
-    {"down", api_down, "down(action) -> boolean", "Read held input."},
-    {"pressed", api_pressed, "pressed(action) -> boolean", "Read this tick's press edge."},
-    {"released", api_released, "released(action) -> boolean", "Read this tick's release edge."},
-    {"tile", api_tile, "tile(x, y [, char]) -> char", "Read or write a zero-based map cell; outside reads return #."},
-    {"random", api_random, "random([min, max]) -> number", "Seeded randomness: [0,1), inclusive integer bounds, or float range."},
-    {"emit", api_emit, "emit(x, y, count, color [, speed, life])", "Emit at most 1024 bounded particles; defaults speed30 life0.5."},
-    {"tone", api_tone, "tone(frequency [, duration, volume])", "Queue a synthesized tone; defaults duration0.1 volume0.2."},
-    {"camera", api_camera, "camera(id) | camera(x, y)", "Follow an entity or set the world-space top-left view position."},
-    {"message", api_message, "message(text)", "Set the persistent HUD message (191 UTF-8 bytes maximum)."},
-    {"scene", api_scene, "scene(relative_lua_path)", "Request a transactional scene switch after this callback."},
-    {"rect", api_rect, "rect(x, y, w, h, color [, screen])", "Queue a filled rectangle during draw; screen defaults false."},
-    {"circle", api_circle, "circle(x, y, radius, color [, screen])", "Queue a filled circle during draw."},
-    {"text", api_text, "text(text, x, y, size, color [, screen])", "Queue text during draw; size is pixel height."},
-    {"tick", api_tick, "tick() -> integer", "Return completed fixed simulation steps."},
-    {"time", api_time, "time() -> number", "Return fixed simulation time in seconds."},
-    {"log", api_log, "log(text)", "Write diagnostics to stderr, preserving headless JSON on stdout."},
+static const ScLuaApi api[] = {
+    {"measure",sc_lua_guard<api_measure>,"measure(text,size[,font,wrap]) -> width,height","Measure UTF-8 text using declared CPU font metrics."},
+    {"map",sc_lua_guard<api_map>,"map(layer,x,y[,gid]) -> gid","Read or replace a Tiled layer cell."},
+    {"objects",sc_lua_guard<api_objects>,"objects() -> array","Copy authored Tiled objects for Lua factories."},
+    {"spawn", sc_lua_guard<api_spawn>, "spawn(entity) -> id", "Create an entity; unspecified fields use defaults."},
+    {"get", sc_lua_guard<api_get>, "get(id) -> entity", "Return a copy with read-only id and grounded fields."},
+    {"set", sc_lua_guard<api_set>, "set(id, patch)", "Atomically apply writable fields; invalid IDs or fields raise errors."},
+    {"destroy", sc_lua_guard<api_destroy>, "destroy(id) -> true", "Destroy a live generation-checked entity."},
+    {"find", sc_lua_guard<api_find>, "find(tag) -> id|nil", "Find the first living entity with an exact tag."},
+    {"overlap", sc_lua_guard<api_overlap>, "overlap(a, b) -> boolean", "Test axis-aligned entity bounds."},
+    {"down", sc_lua_guard<api_down>, "down(action) -> boolean", "Read held input."},
+    {"pressed", sc_lua_guard<api_pressed>, "pressed(action) -> boolean", "Read this tick's press edge."},
+    {"released", sc_lua_guard<api_released>, "released(action) -> boolean", "Read this tick's release edge."},
+    {"tile", sc_lua_guard<api_tile>, "tile(x, y [, char]) -> char", "Read or write a zero-based map cell; outside reads return #."},
+    {"random", sc_lua_guard<api_random>, "random([min, max]) -> number", "Seeded randomness: [0,1), inclusive integer bounds, or float range."},
+    {"emit", sc_lua_guard<api_emit>, "emit(x, y, count, color [, speed, life])", "Emit at most 1024 bounded particles; defaults speed30 life0.5."},
+    {"tone", sc_lua_guard<api_tone>, "tone(frequency [, duration, volume])", "Queue a synthesized tone; defaults duration0.1 volume0.2."},
+    {"camera", sc_lua_guard<api_camera>, "camera(id) | camera(x, y)", "Follow an entity or set the world-space top-left view position."},
+    {"message", sc_lua_guard<api_message>, "message(text)", "Set the persistent HUD message (191 UTF-8 bytes maximum)."},
+    {"scene", sc_lua_guard<api_scene>, "scene(relative_lua_path[,state])", "Request a transactional scene switch after this callback."},
+    {"rect", sc_lua_guard<api_rect>, "rect(x, y, w, h, color [, screen])", "Queue a filled rectangle during draw; screen defaults false."},
+    {"circle", sc_lua_guard<api_circle>, "circle(x, y, radius, color [, screen])", "Queue a filled circle during draw."},
+    {"text", sc_lua_guard<api_text>, "text(text, x, y, size, color [, screen, options])", "Queue UTF-8 text (511 bytes) during draw; options font, wrap=0 (0..4096), align=0 (0 left/1 center/2 right)."},
+    {"tick", sc_lua_guard<api_tick>, "tick() -> integer", "Return completed fixed simulation steps."},
+    {"time", sc_lua_guard<api_time>, "time() -> number", "Return fixed simulation time in seconds."},
+    {"log", sc_lua_guard<api_log>, "log(text)", "Write diagnostics to stderr, preserving headless JSON on stdout."},
     {nullptr, nullptr, nullptr, nullptr}
 };
 
@@ -588,7 +664,17 @@ static void load_scene(lua_State *L, int index) {
     float_field(L, index, "gravity", &world->gravity, -1000000, 1000000);
     float_field(L, index, "ambient", &world->ambient, 0, 1);
     lua_getfield(L, index, "map");
-    if (!lua_isnil(L, -1)) load_map(L, lua_gettop(L), &world->map);
+    if(lua_type(L,-1)==LUA_TSTRING) {
+        auto* s=script_of(L); const char* path=string_at(L,-1,SC_PATH_MAX-1,true);
+        if(!sc_script_validate_path(path)) luaL_error(L,"invalid map path");
+        bool ok=false;
+        {
+            auto result=sc_project_map(world,s->root,path);
+            if(result) { s->objects=std::move(*result); ok=true; }
+            else std::snprintf(s->error,sizeof s->error,"%s",result.error().c_str());
+        }
+        if(!ok) luaL_error(L,"map: %s",s->error);
+    } else if (!lua_isnil(L, -1)) load_map(L, lua_gettop(L), &world->map);
     lua_pop(L, 1);
     lua_getfield(L, index, "entities");
     if (!lua_isnil(L, -1)) {
@@ -625,20 +711,18 @@ static int bootstrap(lua_State *L) {
     const char *protected_names[] = {"pcall", "xpcall"};
     for (size_t i = 0; i < 2; ++i) {
         lua_getglobal(L, protected_names[i]);
-        lua_pushcclosure(L, guarded_protected_call, 1);
+        lua_pushcclosure(L,sc_lua_guard<guarded_protected_call>, 1);
         lua_setglobal(L, protected_names[i]);
     }
     lua_getglobal(L, "setmetatable");
-    lua_pushcclosure(L, guarded_setmetatable, 1); lua_setglobal(L, "setmetatable");
+    lua_pushcclosure(L,sc_lua_guard<guarded_setmetatable>, 1); lua_setglobal(L, "setmetatable");
     lua_pushboolean(L, false); lua_rawsetp(L, LUA_REGISTRYINDEX, &draw_phase_key);
     lua_getglobal(L, "math");
     lua_pushnil(L); lua_setfield(L, -2, "random");
     lua_pushnil(L); lua_setfield(L, -2, "randomseed"); lua_pop(L, 1);
-    lua_pushcfunction(L, api_log); lua_setglobal(L, "print");
+    lua_pushcfunction(L,sc_lua_guard<api_log>); lua_setglobal(L, "print");
     lua_newtable(L);
-    for (const ApiEntry *entry = api; entry->name; ++entry) {
-        lua_pushcfunction(L, entry->function); lua_setfield(L, -2, entry->name);
-    }
+    sc_api_register(L,api);
 #ifdef SC_HAS_NETWORK
     sc_net_lua_register(L, network_mutation_guard);
 #else
@@ -646,8 +730,24 @@ static int bootstrap(lua_State *L) {
     lua_pushboolean(L, false); lua_setfield(L, -2, "available");
     lua_setfield(L, -2, "net");
 #endif
+    sc_script_data_register(L);
+    sc_script_physics_register(L);
+    sc_script_audio_register(L);
     lua_setglobal(L, "sc");
+    sc_script_project_load(L);
     ScScript *script = script_of(L);
+    bool resources_ok=false;
+    {
+        auto result=sc_project_resources(script->world,script->project,script->root);
+        resources_ok=result.has_value();
+        if(!result) std::snprintf(script->error,SC_ERROR_MAX,"%s",result.error().c_str());
+        if(!std::strcmp(script->entry,"__project_entry__.lua")) {
+            auto entry=script->project.get("entry");
+            std::snprintf(script->entry,SC_PATH_MAX,"%s",entry?entry->text().c_str():"main.lua");
+        }
+    }
+    if(!resources_ok) return luaL_error(L,"resources: %s",script->error);
+    if(!sc_script_validate_path(script->entry)) return luaL_error(L,"invalid project entry");
     char path[SC_PATH_MAX * 2];
     if (std::snprintf(path, sizeof path, "%s/%s", script->root, script->entry) >= static_cast<int>(sizeof path))
         return luaL_error(L, "scene path is too long");
@@ -662,7 +762,7 @@ static int bootstrap(lua_State *L) {
 static bool protected_call(ScScript *script, int arguments) {
     lua_State *L = script->lua;
     int function_index = lua_gettop(L) - arguments;
-    lua_pushcfunction(L, traceback);
+    lua_pushcfunction(L,sc_lua_guard<traceback>);
     lua_insert(L, function_index);
     script->instruction_budget = SC_LUA_INSTRUCTIONS;
     lua_sethook(L, instruction_hook, LUA_MASKCOUNT, SC_HOOK_INTERVAL);
@@ -694,13 +794,15 @@ static bool callback(ScScript *script, int callback_id, bool has_argument, float
     if (!script || !script->lua) return false;
     lua_State *L = script->lua;
     script->error[0] = 0;
+    script->phase=callback_id;
     /* This registry key already exists before callbacks; the write does not allocate. */
     lua_pushboolean(L, drawing); lua_rawsetp(L, LUA_REGISTRYINDEX, &draw_phase_key);
-    lua_pushcfunction(L, callback_dispatch);
+    lua_pushcfunction(L,sc_lua_guard<callback_dispatch>);
     lua_pushinteger(L, callback_id);
     if (has_argument) lua_pushnumber(L, argument);
     bool ok = protected_call(script, has_argument ? 2 : 1);
     lua_pushboolean(L, false); lua_rawsetp(L, LUA_REGISTRYINDEX, &draw_phase_key);
+    script->phase=0;
     return ok;
 }
 
@@ -720,6 +822,7 @@ bool sc_script_open(ScScript *script, ScWorld *world, const char *root, const ch
     script->root[0] = script->entry[0] = script->pending_scene[0] = script->error[0] = '\0';
     script->memory_used = 0;
     script->instruction_budget = 0;
+    script->phase=0;
     if (!valid) {
         std::snprintf(script->error, sizeof script->error, "invalid project root or scene path"); return false;
     }
@@ -764,7 +867,7 @@ bool sc_script_draw(ScScript *script, float alpha) {
 
 void sc_script_describe(void) {
     std::printf("{\"engine\":\"ShinyCore\",\"version\":\"%s\",\"language\":\"Lua 5.4\",\"fixed_hz\":60,", SC_VERSION);
-    std::printf("\"limits\":{\"entities\":256,\"tiles\":16384,\"particles\":1024,\"draws\":512,\"tones_per_tick\":32,\"lua_memory_bytes\":16777216,\"instructions_per_callback\":1000000},");
+    std::printf("\"limits\":{\"entities\":256,\"tiles\":16384,\"particles\":1024,\"draws\":512,\"tones_per_tick\":32,\"sound_voices\":32,\"music_streams\":2,\"state_bytes\":262144,\"state_depth\":16,\"layers\":16,\"compound_shapes\":4,\"joints\":256,\"lua_memory_bytes\":16777216,\"instructions_per_callback\":1000000},");
     std::printf("\"actions\":[\"left\",\"right\",\"up\",\"down\",\"jump\",\"action\"],");
 #ifdef SC_HAS_NETWORK
     std::printf("\"network\":{\"available\":true,\"transport\":\"ENet 1.3.18\",\"max_peers\":32,\"max_payload\":1200,\"max_sessions\":4},");
@@ -774,13 +877,14 @@ void sc_script_describe(void) {
     std::printf("\"scene_fields\":[\"title\",\"width\",\"height\",\"gravity\",\"ambient\",\"map\",\"entities\",\"init\",\"update\",\"draw\"],");
     std::printf("\"entity_fields\":[");
     for (size_t i = 0; entity_keys[i]; ++i) std::printf("%s\"%s\"", i ? "," : "", entity_keys[i]);
-    std::printf("],\"entity_readonly_fields\":[\"id\",\"grounded\"],\"map_fields\":[\"tile_size\",\"rows\",\"color\",\"accent\",\"background\"],");
+    std::printf("],\"entity_readonly_fields\":[\"id\",\"grounded\",\"support\",\"normal_x\",\"normal_y\"],\"map_fields\":[\"tile_size\",\"rows\",\"color\",\"accent\",\"background\"],");
     std::printf("\"colors\":\"#RRGGBB or #RRGGBBAA\",\"coordinates\":\"pixels; map cells are zero-based; positive y points down\",\"functions\":[");
-    for (const ApiEntry *entry = api; entry->name; ++entry)
-        std::printf("%s{\"name\":\"sc.%s\",\"signature\":\"%s\",\"description\":\"%s\"}",
-               entry == api ? "" : ",", entry->name, entry->signature, entry->description);
+    sc_api_describe(api,"sc.",false);
 #ifdef SC_HAS_NETWORK
     sc_net_lua_describe();
 #endif
+    sc_script_data_describe();
+    sc_script_physics_describe();
+    sc_script_audio_describe();
     std::printf("]}\n");
 }

@@ -1,0 +1,10 @@
+# Save, then exercise movement, jump and load.
+0 0
+10 32
+11 0
+30 2
+60 18
+61 2
+170 0
+190 4
+191 0

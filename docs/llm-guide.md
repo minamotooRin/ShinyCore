@@ -1,104 +1,40 @@
-# Programming ShinyCore with an LLM
+# 用 Agent 开发 ShinyCore 游戏
 
-Give the model the public API, a working scene, and a command that checks its
-changes. Keep one behavior change small enough to verify with a deterministic
-input recording.
+目标是让每次修改都能在文本、回放与原生画面中被检查。先读项目的 AGENTS.md、project.lua 和引擎 docs/api.lua；再运行 `shiny --api` 获取当前二进制真正提供的接口。
 
-ShinyCore's native implementation uses C++23; game rules use Lua scene tables
-and `sc.*` functions. Most game tasks only need Lua and assets. A native engine
-change requires a compiler and standard library with `std::expected`.
+## 一次完整的迭代
 
-## A short working loop
+1. 使用 `python tools/new_game.py 新目录` 创建项目，或修改已有项目中的最小相关模块。
+2. 在 project.lua 声明入口、rooms 和资源。每个房间要能在空 sc.state 下初始化；默认值属于游戏脚本。
+3. 运行 `shiny --check-all 项目目录`，覆盖配置、模块、init、初始 draw、物理几何和资源预检。
+4. 运行 `shiny --headless 项目目录 --frames 180 --seed 42 --replay smoke.replay`。断言位置、接触、状态和场景行为，不只比较哈希。
+5. 修改画面后运行原生程序，并通过 `--frames 90 --capture 截图绝对路径.png` 检查结果。
+6. 使用 `tools/package.py 引擎程序 新包目录 --project 项目目录`，移动包后再运行验证。
 
-From the repository root:
+检查模式不运行 update。条件加载、存档恢复和后续房间分支需要回放覆盖。无窗口构建不验证 GPU/声音输出；图形构建的 --check 会额外解码图片与音频，但仍不创建窗口。
 
-```sh
-./build/shiny --api
-./build/shiny --check examples/lantern
-./build/shiny --headless examples/lantern --frames 430 \
-  --replay examples/lantern/replays/tour.txt --snapshot /tmp/lantern.json
-./build/shiny examples/lantern
-```
+## 数据和模块
 
-The API command describes the Lua interface in JSON. The check command validates
-the entry scene, runs initialization and an initial draw, and checks referenced
-sprite paths; it does not prove that every
-gameplay branch or every destination scene works. The headless run exercises
-the same fixed-step update and collision code as the windowed game. Inspect
-the JSON snapshot and process exit status, then inspect the rendered result
-for visual changes. A successful headless run alone does not verify layout,
-artwork, sound, or whether the game feels good to play.
+`require("game.controller")` 加载项目内 Lua 文件并缓存。不要使用文件 I/O、外部模块或动态执行字符串。先在文件顶部加载依赖，draw 只读取已经准备好的状态。
 
-An input recording contains `frame mask` pairs. Frames start at zero and remain
-global across room transitions. Each mask stays held until the next entry:
-left `1`, right `2`, up `4`, down `8`, jump `16`, action `32`. Add bits to hold
-multiple actions. For example, `120 18` holds right and jump from frame 120;
-`145 2` releases jump at frame 145 while continuing right.
+`sc.get(id)` 是快照，必须用 `sc.set(id,{vx=90})` 提交。配置字段、数值、路径和句柄必须正确；不要捕获并忽略引擎报错以掩盖拼写错误。原生操作失败返回 nil,error 的接口应当明确处理。
 
-## Keep game rules in Lua
+局部 Lua 表用于当前房间逻辑；跨房间数据使用 `sc.state.set/get`，例如金币、任务标记和稳定的对象名称。不要把 entity/audio/joint ID 存入持久数据。F5 重建当前房间而保留显式状态；init 应基于已有数据重建世界。
 
-A project has `main.lua`, optional additional scene files, and project-relative
-assets. Each scene returns one table with optional `init()`, `update(dt)`, and
-`draw(alpha)` callbacks. Use the Lantern scene as an executable schema example.
-`#` map cells are solid, `=` cells are one-way platforms, and `.` cells are air.
+存档是显式数据加房间入口。磁盘测试必须指定临时 `--save-dir`，避免依赖真实用户存档。增加 data_version 后提供 project.migrate 模块，返回新的纯数据对象；失败不得改变活动状态。使用独立进程测试保存后的重新启动恢复。
 
-- Put configuration and authored world data in the returned scene table.
-- Create and locate entities in `init`; retain their IDs in local variables.
-- Change velocity, inspect overlap, handle input, and request transitions in
-  `update`. Its `dt` is always 1/60 second. Physics advances after the callback.
-- Put only rendering commands and reads in `draw`. Do not modify game state or
-  draw random numbers there. Rendering may run more or less often than updates.
-- `sc.get(id)` returns a copy. Change an entity with `sc.set(id, {vx = 90})`;
-  editing the returned table does not change the world.
-- `grounded` describes the preceding physics step. Keep jump buffering and
-  coyote time in the controller, as the sample does.
-- `gravity = 1` on an entity uses scene gravity; `gravity = 0` disables it.
-- IDs belong to a scene. After destroying an entity, stop using its ID.
-  `sc.scene("rooms/archive.lua")` defers a complete scene replacement.
-- Use `sc.random()` and an explicit CLI seed for reproducibility. Lua file I/O,
-  native modules, `require`, and `dofile` are unavailable. Scenes are self-contained.
-- Keep asset paths relative to the project root, including in nested scene files.
+## 物理与地图
 
-The core is intentionally small: axis-aligned bodies, a tile grid, sprite frame
-rectangles, particles, generated tones, and a queued immediate drawing API.
-Build gameplay abstractions when the game needs them; first look for an existing
-primitive instead of adding engine systems for a single mechanic.
+新项目显式使用 body.type。实体默认是 artwork，旧 dynamic 只是兼容写法。body=false 移除身体。Box2D 有接触容差；落地位置断言使用合理容差，行为回归检查可达性、接地和支撑关系。
 
-## A useful task prompt
+Controller 和 Animation 是可编辑的普通 Lua 模块，没有隐藏的控制器类型。移动平台的 support 和速度由脚本使用；不要把跳跃手感塞回 C++。凸多边形需 3..8 个点；复合身体最多 4 个形状；重建身体会销毁关联关节。
 
-> Work in `examples/lantern/main.lua`. Read `./build/shiny --api` and the current
-> scene before changing code. Add a pressure plate that opens a nearby gate
-> while the keeper overlaps it. Keep the existing movement controller and
-> assets. Use `sc.get`, `sc.set`, and `sc.overlap`; do not add native APIs. Add an input
-> recording that demonstrates the plate opening and closing. Run the scene
-> check and a headless replay; inspect the snapshot. Report the changed files,
-> observed behavior, and the checks you actually ran.
+Tiled 直接编辑 .tmj/.tsj 文件，设置 tile 的 collision 为 solid 或 one_way。只使用支持的子集，详见 Workshop README。对象层由 `sc.objects()` 返回原始记录，由 Lua 工厂决定生成哪些实体。
 
-For a rendering change, add a windowed screenshot to that request. For a new
-room, explicitly exercise the transition into and out of it. For randomness,
-run the same recording and seed twice and compare results before claiming
-determinism. Cross-platform bit-identical floating point is not a promise.
+## 资源与发行
 
-## When a native change is needed
+project.resources 集中声明 PNG、WAV、Ogg Vorbis 与字体；字体 characters 列出需要的字符，并保留许可证。中英文布局使用 sc.measure 与 sc.text 的 font/wrap/align，复杂文字塑形不在 0.2 范围内。
 
-This section requires a source checkout. A runnable package includes the Lua
-examples and API guide, but does not include native sources or repository tools.
+资源路径相对于项目，使用正斜线，最多 127 字节。新增依赖保持版本和校验固定，不在游戏运行时联网获取素材。发行包只面向构建系统和架构；可选网络需单独开启并验证双进程交通。
 
-Read `AGENTS.md` and `docs/architecture.md`, then locate the owning `.cpp` module.
-Keep fixed-step simulation in `src/core.cpp`, Lua validation in `src/script.cpp`,
-and platform resources in `src/main.cpp` or `src/render.cpp`. Preserve bounded
-world storage, stable iteration, and explicit error results. Use RAII for native
-resources and exclusive ownership for a world plus its VM; their addresses must
-remain stable while Lua borrows them.
-
-The Lua C API is a special boundary: an error can `longjmp` past callback-local
-destructors. Do not introduce an owning C++ object that stays alive across a
-potentially raising Lua call. Put such work outside the protected callback or
-finish its scope before reporting the Lua error. Update the Lua annotations and
-API metadata when a public game contract changes. An ownership refactor should
-preserve existing projects and replay behavior.
-
-The C11 baseline remains at `v0.1.0-c11`; the README includes separate-worktree
-commands and links to `tools/compare_engines.py`. Compare the same project,
-seed, and recording before claiming equivalent behavior. Use matched build
-options and actual measurements for performance or binary-size comparisons.
+保留用户已有修改，不自动提交/推送。测试失败先缩小触发条件；不要把旧验证记录当作新版本证据。hash 不包含任意 Lua 局部状态、关节和求解器缓存，不可当作完整存档。

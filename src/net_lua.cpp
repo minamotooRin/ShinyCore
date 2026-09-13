@@ -1,4 +1,5 @@
 #include "shiny/net_lua.h"
+#include "script_api.h"
 #include "shiny/net.h"
 
 extern "C" {
@@ -264,19 +265,19 @@ struct NetEntry {
 };
 
 static const NetEntry constructors[] = {
-    {"host", net_host, "sc.net.host(bind_ipv4, port[, max_peers=8]) -> session|nil, error", "Bind numeric IPv4; port 0 selects a free port. Maximum 4 live sessions per VM and 32 peers per host; forbidden in draw."},
-    {"join", net_join, "sc.net.join(ipv4, port) -> session|nil, error", "Start an asynchronous IPv4 connection; poll both endpoints until connect. Forbidden in draw."},
+    {"host", sc_lua_guard<net_host>, "sc.net.host(bind_ipv4, port[, max_peers=8]) -> session|nil, error", "Bind numeric IPv4; port 0 selects a free port. Maximum 4 live sessions per VM and 32 peers per host; forbidden in draw."},
+    {"join", sc_lua_guard<net_join>, "sc.net.join(ipv4, port) -> session|nil, error", "Start an asynchronous IPv4 connection; poll both endpoints until connect. Forbidden in draw."},
     {NULL, NULL, NULL, NULL}
 };
 
 static const NetEntry methods[] = {
-    {"poll", session_poll, "session:poll() -> event|nil, error", "Service networking without waiting; event type is connect, receive or disconnect, with local peer ID. Forbidden in draw."},
-    {"send", session_send, "session:send(peer, data[, channel='reliable']) -> true|nil, error", "Queue 0..1200 binary bytes; reliable is ordered, state is unreliable sequenced. Peer 0 broadcasts; forbidden in draw."},
-    {"flush", session_flush, "session:flush() -> true|nil, error", "Send queued outgoing packets without waiting; forbidden in draw."},
-    {"disconnect", session_disconnect, "session:disconnect(peer[, reason=0]) -> true|nil, error", "Begin graceful disconnect; keep polling for disconnect. Forbidden in draw."},
-    {"close", session_close, "session:close()", "Immediately release the socket and pending packets; idempotent, also performed on collection or VM close. Forbidden in draw."},
-    {"port", session_port, "session:port() -> integer|nil, error", "Read the local UDP port; a closed session returns nil and an error."},
-    {"rtt", session_rtt, "session:rtt(peer) -> integer|nil, error", "Read round-trip milliseconds for a connected local peer ID."},
+    {"poll", sc_lua_guard<session_poll>, "session:poll() -> event|nil, error", "Service networking without waiting; event type is connect, receive or disconnect, with local peer ID. Forbidden in draw."},
+    {"send", sc_lua_guard<session_send>, "session:send(peer, data[, channel='reliable']) -> true|nil, error", "Queue 0..1200 binary bytes; reliable is ordered, state is unreliable sequenced. Peer 0 broadcasts; forbidden in draw."},
+    {"flush", sc_lua_guard<session_flush>, "session:flush() -> true|nil, error", "Send queued outgoing packets without waiting; forbidden in draw."},
+    {"disconnect", sc_lua_guard<session_disconnect>, "session:disconnect(peer[, reason=0]) -> true|nil, error", "Begin graceful disconnect; keep polling for disconnect. Forbidden in draw."},
+    {"close", sc_lua_guard<session_close>, "session:close()", "Immediately release the socket and pending packets; idempotent, also performed on collection or VM close. Forbidden in draw."},
+    {"port", sc_lua_guard<session_port>, "session:port() -> integer|nil, error", "Read the local UDP port; a closed session returns nil and an error."},
+    {"rtt", sc_lua_guard<session_rtt>, "session:rtt(peer) -> integer|nil, error", "Read round-trip milliseconds for a connected local peer ID."},
     {NULL, NULL, NULL, NULL}
 };
 
@@ -304,7 +305,7 @@ void sc_net_lua_register(lua_State *L, lua_CFunction guard) {
     }
     int context = lua_gettop(L);
     luaL_newmetatable(L, SESSION_TYPE);
-    lua_pushcfunction(L, session_gc);
+    lua_pushcfunction(L, sc_lua_guard<session_gc>);
     lua_setfield(L, -2, "__gc");
     lua_pushliteral(L, "network session");
     lua_setfield(L, -2, "__metatable");

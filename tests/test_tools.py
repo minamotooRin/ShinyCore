@@ -61,7 +61,7 @@ class ToolTests(unittest.TestCase):
         self.cli(ROOT / "tools" / "new_game.py", destination)
         self.assertEqual(
             {path.name for path in destination.iterdir()},
-            {"main.lua", "smoke.replay", "README.md", "AGENTS.md", ".luarc.json"},
+            {"main.lua", "project.lua", "game", "rooms", "smoke.replay", "README.md", "AGENTS.md", ".luarc.json"},
         )
         config = json.loads((destination / ".luarc.json").read_text(encoding="utf-8"))
         self.assertEqual(config["runtime.version"], "Lua 5.4")
@@ -178,6 +178,23 @@ class ToolTests(unittest.TestCase):
                                 cwd=self.base, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["ok"])
+
+    def test_custom_game_package_relocates_without_stock_example(self) -> None:
+        if BINARY is None:
+            self.skipTest("requires a real engine")
+        destination = self.base / "custom package"
+        self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", ROOT / "examples/workshop", "--no-strip", "--no-zip")
+        relocated = self.base / "moved custom package"
+        shutil.move(str(destination), relocated)
+        binary, resources = layout(relocated)
+        self.assertFalse((resources / "examples/lantern").exists())
+        self.assertTrue((resources / "game/assets/OFL.txt").is_file())
+        result = subprocess.run([str(binary), "--headless", str(resources / "game"), "--frames", "200",
+                                 "--replay", str(resources / "game/replays/smoke.txt"), "--save-dir", str(self.base / "saved game")],
+                                cwd=self.base, capture_output=True, text=True, encoding="utf-8", timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["ok"])
+        self.assertTrue((self.base / "saved game/shiny.workshop/checkpoint.json").is_file())
 
 
 if __name__ == "__main__":

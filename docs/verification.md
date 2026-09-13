@@ -1,105 +1,51 @@
-# 验证与 C11 / C++23 对照
+# ShinyCore 0.2 验证记录
 
-验证日期：2026-09-12。环境：macOS arm64、AppleClang 21、CMake 4.3.1。
-这些是本机实测，不代表 Windows/Linux 已运行验收，也不是跨平台体积上限。
+日期：2026-09-13 至 2026-09-14。环境：Windows x64、WinLibs GCC 16.1（UCRT/POSIX）、CMake 4.4.3、Ninja、Release。以下为本次本机结果；[0.1 迁移历史](verification-v0.1.md) 独立保留，不能代替本次验收。
 
-## 保存的版本
-
-- `v0.1.0-c11`（`b8016f9`）：从本任务迁移前的源码和变更记录恢复并重新以 C11 编译的完整基线，含可选网络。不是 C++ 兼容模式。
-- `release/c11`：同一 C11 源码，额外提交 `6164042` 只纠正两处宿主语言描述并记录修正。原始标签未移动。
-- `main`、`feature/cpp23`、`v0.1.0-cpp23`：现代 C++23 交付版本。第三方库保留 C 编译；游戏 API 和场景格式继续使用 0.1.0。
-
-C11 已在仓库旁的 `ShinyCore-C11` 独立 worktree 构建；当前仓库的
-`build/shiny` 是 C++23。查看 `git worktree list` 确认实际目录。
-生成的程序、ZIP、截图和日志不进入源码 Git，分别保留在 `build*/`、
-`dist/` 和 `artifacts/`；可以按下文命令重新生成。
-
-## 自动验证
+## 构建与测试
 
 | 配置 | 结果 |
 | --- | --- |
-| C11，Release，图形 ON、网络 ON | 8 / 8 CTest 组通过 |
-| C++23，Release，图形 ON、网络 OFF | 5 / 5 CTest 组通过 |
-| C++23，Release，图形 OFF、网络 ON | 8 / 8 CTest 组通过 |
-| C++23，Debug + ASan/UBSan，图形 OFF、网络 ON | 8 / 8 CTest 组通过 |
-| C++23，Release，图形 ON、网络 ON | 构建及原生客机与无窗口主机通信通过 |
-| C++23，剥离符号后的联机交付包 | 4 / 4 双进程网络集成测试通过 |
+| 图形 ON、网络 OFF，build-dev | 6/6 CTest 组通过 |
+| 图形 OFF、网络 ON，build-headless-v02 | 9/9 CTest 组通过，包括真实双进程 UDP |
+| 自有 C++ 编译警告 | 两套构建日志未出现 warning/error；第三方 CMake 弃用提示另计 |
+| 图形与无窗口状态对照 | Workshop 90 帧 JSON 相同，hash=9bc159ce561aabde |
+| ASan/UBSan | 未执行：当前 MinGW 链接缺少 lasan/lubsan，本机未安装 WSL |
+| macOS/Linux 原生运行 | 本轮未执行；CI 保留平台矩阵及 Linux sanitizer 任务，尚未触发远端运行 |
 
-现代核心测试执行 40,709 个显式检查，在 Release 的 `NDEBUG` 下仍然有效。
-覆盖默认初始化、代际 ID、容量、输入边沿、实心/单向瓦片、高速扫掠、
-粒子、相机、随机数和逻辑字段哈希。Lua 测试覆盖配置、补丁原子性、
-失效句柄、非法数值、内存与指令预算、绘制保护和 VM 生命周期。
+核心测试 40,271 个显式检查。新增 features.py 共 23 个行为测试，覆盖模块缓存/循环、绘制限制、原子状态更新、跨房间数据、磁盘重启恢复、最大状态深度、迁移错误/内存限制、存档写入失败、身体推挤/复合形状/非法补丁、斜坡上行接地、移动平台、穿透平台、传感器、查询与关节、音频句柄/暂停/淡出/持久音乐、UTF-8 测量、Tiled 拒绝不支持配置、Lua 动画及 API 注解同步。
 
-CLI 集成测试 9 项、脚手架/打包测试 5 项，另有真实时间节奏测试。
-实际引擎验证了新项目创建、现有目录保护、移至其他目录后的包启动、
-JSON 错误和 LANTERN 房间回放，没有使用跳过真实程序的替代结果。
-网络测试使用真实 UDP 和两个进程；详细覆盖与限制见 [networking.md](networking.md)。
+原有 9 项 CLI 集成与 6 项工具测试通过；保留 Lantern 原始素材与 430/480 帧房间往返路线。Box2D 接触位置有小间隙，原落地断言调整为 0.05 像素容差；没有把旧碰撞轨迹视为 0.2 数值契约。
 
-ShinyCore 自有 C++ 源码在启用 `-Wall -Wextra -Wpedantic -Wconversion -Wshadow`
-的最终构建中没有编译警告。第三方 raylib 的 CMake/OpenGL 弃用提示仍存在。
-CI 已配置 Linux、Windows、macOS 及网络开关，但尚未在远端运行。
+网络开启构建通过 core/script/net/net_lua/features/integration/tools/realtime/network_integration。网络测试实际创建套接字和两个进程，验证握手、消息、资源释放与错误路径。
 
-## 行为一致性
+## 原生画面、资源和重载
 
-`tools/compare_engines.py` 用同一份 LANTERN 项目、seed 42、480 帧
-`tour.txt` 分别运行两版，每个程序重复两次。结果：
+- 已查看 Workshop 原生截图：中文标题/提示、图块地面、单向平台、移动平台、角色、箱子和斜坡。截图发现三角形顶点绕序导致剔除，修正后重新截图确认。
+- 在测试项目副本中损坏 keeper.png，按 F5 后显示资源错误面板，旧世界与已上传纹理继续显示；恢复文件，再次 F5 成功。
+- 重载结束的快照中 visits=2：失败候选未提交状态，成功候选继承旧状态并重新 init。
+- 图形预检执行 WAV/OGG 解码，原生运行完成设备初始化和播放调用；音频句柄、暂停与淡出由无窗口测试断言。不以主观听感或样本级同步作为已验证结论。
+- 产物位于 artifacts/workshop-v02.png、artifacts/packaged-workshop.png；回放和重载日志在 .cache/。
 
-- 两版各自可重复；22 个基础 Lua 函数相同。
-- 全部输出游戏状态字段一致，`changed_state_fields` 为空。
-- 最终状态 hash 均为 `65cc73c66b3ad78f`。
-- 网络 OFF 的原生构建与网络 ON 的无窗口构建都分别完成了 C11/C++23 对照。
-- 对比工具实测会拒绝不同种子造成的状态变化，并对不存在的程序给出明确失败。
+## 发行包
 
-现代原生与无窗口模式也运行了同一 430 帧路线，JSON 逐项一致：
-场景为记忆室，111 个实体，keeper 位于 `(63, 166)` 且接地，
-hash 为 `38e92d73367837a3`。
+Windows MinGW Release 静态链接 GCC 运行库并剥离符号。图形程序约 4.31 MB，无窗口网络程序约 2.62 MB；Workshop ZIP 约 1.89 MB。这是当前平台与配置的实测，不是跨平台体积上限，也不是与动态运行库的 0.1 基线直接性能比较。
 
-这验证了本机、该项目和回放覆盖的行为。hash 不包含任意 Lua 局部变量，
-并非完整存档；浮点跨架构一致性和实时网络输入的可重复性不在承诺范围。
+自定义包带独立 run-game.bat、Lua 模块、两个房间、图集、WAV/OGG、字体、API/Agent 文档及完整许可，不附带 Lantern。已复制到独立目录、从项目外启动，并把 PATH 限制为 Windows 系统目录：--check-all、200 帧回放/磁盘存档和 90 帧原生截图均通过。PE 导入表只列出 Windows/UCRT 系统库，没有 libgcc/libstdc++/libwinpthread DLL 依赖。
 
-## 体积
-
-相同工具链和 CPU，Release、静态依赖、图形 ON、网络 OFF：
-
-| 测量对象 | C11 | C++23 | C++23 增量 |
-| --- | ---: | ---: | ---: |
-| 未剥离符号的程序 | 1,770,056 B | 1,816,120 B | 46,064 B |
-| macOS `strip -x` 后程序 | 1,708,216 B | 1,748,856 B | 40,640 B |
-
-后者增加约 2.38%。网络 ON 的 C++23 原生程序为 1,875,736 B，
-同样剥离后为 1,805,144 B。打包同时包含游戏、文档和许可，ZIP 大小
-还会随文档内容变化，不能当作可执行文件大小。
-
-未测量运行速度，因此不宣称 C++23 比 C11 更快。迁移的直接收益是
-固定容量标准容器、独占所有权、RAII 资源释放和 `std::expected` 错误传播。
-
-## 原生与交付验收
-
-- 检查了真实原生截图：洞穴、精灵图集、点光源/遮挡、粒子、HUD，以及收集后进入的记忆室。
-- 直接启动并操作 C++23 的 macOS `.app`，验证快速 F1/P 按键；修复了原生事件轮询间短按可能丢失的问题。
-- 在交付包副本中临时损坏 PNG 后按 F5，错误面板出现，旧世界和纹理保留；恢复原始字节后再次 F5 成功。交付素材已恢复并核对。
-- C++23 联机版原生客机与无窗口主机完成握手、远程输入与主机位置回传，菜单和联网截图已检查。
-- 保留 `dist/ShinyCore-C11`、`dist/ShinyCore-Cpp23`、`dist/ShinyCore-Cpp23-Network` 及各自 ZIP；后两者默认双击启动 LANTERN，网络包还包含 DUET。
-
-只验证了音频设备初始化和合成声音调用路径，没有把主观听感当作自动测试结果。
-目前是可用的 0.1 桌面内核；编辑器、完整存档、复杂物理、音频文件 API、
-多语言字体及主机平台导出等尚未实现，见 [README](../README.md)。
-
-## 重现命令
+## 复现
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSHINY_NETWORK=OFF
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-
-cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug \
-  -DSHINY_GRAPHICS=OFF -DSHINY_NETWORK=ON -DSHINY_SANITIZERS=ON
-cmake --build build-asan --parallel
-ctest --test-dir build-asan --output-on-failure
-
-# C11 worktree 必须先按 README 独立构建；两个程序使用相同功能开关。
-python3 tools/compare_engines.py ../ShinyCore-C11/build/shiny build/shiny
-
-./build/shiny examples/lantern --mute --frames 430 --seed 42 \
-  --replay examples/lantern/replays/tour.txt --capture /tmp/shiny-archive.png
+cmake -S . -B build-dev -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release
+cmake --build build-dev --parallel
+ctest --test-dir build-dev --output-on-failure
+cmake -S . -B build-headless-v02 -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release -DSHINY_GRAPHICS=OFF -DSHINY_NETWORK=ON
+cmake --build build-headless-v02 --parallel
+ctest --test-dir build-headless-v02 --output-on-failure
+./build-dev/shiny examples/workshop --frames 90 --capture /absolute/path/workshop.png
+python tools/package.py build-dev/shiny 新的发行目录 --project examples/workshop
 ```
+
+Windows 程序后缀为 .exe；使用 Visual Studio 时改用独立构建目录及 --config Release。在具备运行库的 Linux 环境使用 SHINY_SANITIZERS=ON；该选项也覆盖 Lua、Box2D、yyjson 和字体实现。配置会明确拒绝缺少 ASan/UBSan 的工具链。
+
+范围限制：检查点仅恢复显式数据并重建房间；hash 不涵盖任意 Lua 局部变量、关节或求解器缓存。跨架构浮点一致性、复杂文字塑形、主机平台、并发写同一存档槽和 POSIX 掉电持久性均不作保证。图形发行流程不含商店签名或公证。

@@ -98,7 +98,7 @@ static void test_api(ScScript *script, ScWorld *world) {
         "entities={{tag='initial',x=4,y=8,dynamic=true,color='#ff001188'}},"
         "init=function(...) "
         " assert(select('#',...)==0); assert(io==nil and os==nil and package==nil and debug==nil);"
-        " assert(load==nil and dofile==nil and loadfile==nil and require==nil);"
+        " assert(load==nil and dofile==nil and loadfile==nil and type(require)=='function');"
         " assert(math.random==nil and math.randomseed==nil);"
         " id=sc.find('initial'); assert(id and sc.find('missing')==nil);"
         " local e=sc.get(id); assert(e.color=='#ff001188' and e.gravity==1 and e.w==8);"
