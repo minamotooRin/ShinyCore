@@ -52,9 +52,16 @@ void ScInputBuffer::push(const ScDeviceInput& sample) {
     auto previous=sc_device_actions(pending), held=sc_device_actions(next);
     auto low=next; low.keys&=~next.key_pressed; low.buttons&=~next.button_pressed;
     auto remaining=sc_device_actions(low);
-    auto short_press=pulses(next)&~remaining;
-    action_pressed|=(held&~previous)|short_press;
-    action_released|=(previous&~remaining)|(short_press&~held);
+    auto short_press=pulses(next)&~previous;
+    // A change of source within one sample is not evidence of an action gap.
+    // Only an observed release/repress of the same held control can retrigger it.
+    ScDeviceInput repeated;
+    repeated.connected=next.connected;
+    repeated.keys=pending.keys & next.keys & next.key_pressed & next.key_released;
+    repeated.buttons=pending.buttons & next.buttons & next.button_pressed & next.button_released;
+    auto retrigger=sc_device_actions(repeated)&~remaining;
+    action_pressed|=(held&~previous)|short_press|retrigger;
+    action_released|=(previous&~held)|(short_press&~held)|retrigger;
     next.key_pressed|=pending.key_pressed; next.key_released|=pending.key_released;
     next.button_pressed|=pending.button_pressed; next.button_released|=pending.button_released;
     pending=next;

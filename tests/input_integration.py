@@ -88,6 +88,26 @@ end}''')
         path=self.replay([event(keys=["space"]),event(1,keys=["space"],key_pressed=["space"],key_released=["space"])])
         self.invoke("--frames",2,"--replay",path)
 
+    def test_source_handover_does_not_repeat_actions(self):
+        self.source('''return {update=function()
+ local t=sc.tick()
+ assert(sc.down('jump'))
+ assert(sc.pressed('jump')==(t==0 or t==3))
+ assert(sc.released('jump')==(t==3))
+end}''')
+        path=self.replay([event(keys=["space"]),event(1,connected=True,buttons=["south"]),
+                          event(2,keys=["space"]),event(3,keys=["space"],
+                          key_pressed=["space"],key_released=["space"])])
+        self.invoke("--frames",4,"--replay",path)
+
+    def test_underflow_axes_have_canonical_zero(self):
+        path=self.replay([event(connected=True,axes=dict(left_x=0))])
+        neutral=self.invoke("--frames",1,"--replay",path)
+        path=self.replay([event(connected=True,axes=dict(left_x=-1e-100))])
+        self.assertEqual(neutral,self.invoke("--frames",1,"--replay",path))
+        path=self.replay([event(axes=dict(left_x=-1e-100))])
+        self.assertIn("disconnected gamepad",self.invoke("--frames",1,"--replay",path,ok=False))
+
     def test_scene_inherits_held_without_press(self):
         self.source("return {update=function() assert(sc.key_pressed('a')); sc.scene('next.lua') end}")
         self.source('''return {init=function()

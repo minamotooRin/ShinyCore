@@ -56,6 +56,7 @@ struct Backend final {
     std::array<NativeVoice,34> audio_voices;
     std::vector<NativeFont> fonts;
     std::array<bool,512> pressed_keys{};
+    std::bitset<512> sampled_keys{};
     std::size_t asset_count{},voice{};
     int width{},height{};
     bool debug_keys{};
@@ -76,7 +77,7 @@ struct Backend final {
         if (audio) CloseAudioDevice();
         if (open) CloseWindow();
         audio=open=stats=hitboxes=debug_keys=false; lighting=true; gamepad={};
-        asset_count=voice=0; width=height=0; root[0]=error[0]='\0';pressed_keys.fill(false);
+        asset_count=voice=0; width=height=0; root[0]=error[0]='\0';pressed_keys.fill(false);sampled_keys.reset();
     }
 } backend;
 } // namespace
@@ -200,13 +201,17 @@ ScDeviceInput sc_render_sample_input() {
     std::array<bool,4> available{};
     for(std::size_t i=0;i<available.size();++i) available[i]=IsGamepadAvailable(static_cast<int>(i));
     int pad=backend.gamepad.sample(available);
-    if(!IsWindowFocused()) return input;
+    if(!IsWindowFocused()) { backend.sampled_keys.reset(); return input; }
     for(const auto& key:SC_KEYS) {
         auto id=static_cast<std::size_t>(key.id);
         input.keys[id]=IsKeyDown(key.id);
         input.key_pressed[id]=backend.pressed_keys[id]||IsKeyPressed(key.id);
-        input.key_released[id]=IsKeyReleased(key.id);
+        // GLFW queues fresh presses, not auto-repeat. A queued press on a key
+        // held at the last sample proves an intervening release, even when the
+        // frame's final held state hides it from IsKeyReleased().
+        input.key_released[id]=IsKeyReleased(key.id)||(backend.pressed_keys[id]&&backend.sampled_keys[id]);
     }
+    backend.sampled_keys=input.keys;
     if(pad<0) return input;
     input.connected=true;
     constexpr int buttons[]={

@@ -1,5 +1,7 @@
 # ShinyCore 0.2 验证记录
 
+以下记录为输入扩展合入前的 0.2 基线验收。输入整合后的完整测试、审查修正与原生验证见 [输入扩展整合审查](input-verification.md)。
+
 日期：2026-09-13 至 2026-09-14。环境：Windows x64、WinLibs GCC 16.1（UCRT/POSIX）、CMake 4.4.3、Ninja、Release。以下为本次本机结果；[0.1 迁移历史](verification-v0.1.md) 独立保留，不能代替本次验收。
 
 ## 构建与测试

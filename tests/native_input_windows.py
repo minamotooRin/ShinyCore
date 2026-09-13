@@ -90,6 +90,9 @@ def run(binary,root,debug=False,replay=False):
                 tap(hwnd,code)
                 assert process.poll() is None, 'default host shortcut unexpectedly terminated game'
             key(hwnd,0x41,True); time.sleep(.08)
+            for _ in range(5):
+                key(hwnd,0x41,False); key(hwnd,0x41,True); time.sleep(.08)
+            key(hwnd,0x41,True); time.sleep(.08) # Repeated down is not a fresh press.
             user.SendMessageW(hwnd,0x8,0,0) # WM_KILLFOCUS should synthesize release.
             time.sleep(.08)
             user.SendMessageW(hwnd,0x7,0,0)
@@ -112,8 +115,9 @@ def run(binary,root,debug=False,replay=False):
         else:
             assert state['inits']==1,state
             for name in ('escape','p','o','f1','f2','f3','f5','f12','a'):
-                assert state.get(name)==1, state
-                assert state.get(name+'_released')==1, state
+                count=6 if name=='a' else 1
+                assert state.get(name)==count, state
+                assert state.get(name+'_released')==count, state
         return dict(debug=debug,replay=replay,frames=result['frames'],state=state)
     finally:
         if process.poll() is None:

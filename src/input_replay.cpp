@@ -59,7 +59,9 @@ ScResult<ScDeviceReplayEvent> sc_device_replay_event(const ScValue& value) {
             fields(*axes,{"left_x","left_y","right_x","right_y","left_trigger","right_trigger"});
             for(const auto& axis:SC_AXES) if(auto val=axes->get(axis.name)) {
                 auto n=numeric(*val,axis.id<4?-1:0,1);
-                in.axes[static_cast<std::size_t>(axis.id)]=n==0?0:static_cast<float>(n);
+                if(!in.connected && n!=0) throw std::runtime_error("disconnected gamepad must be neutral");
+                float axis_value=static_cast<float>(n);
+                in.axes[static_cast<std::size_t>(axis.id)]=axis_value==0?0:axis_value;
             }
         }
         if(!in.connected) {

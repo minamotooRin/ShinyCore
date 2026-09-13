@@ -73,6 +73,19 @@ int main() {
     tap.keys.reset(); buffer.push(tap); buffer.consume(&w);
     CHECK(w.held==SC_JUMP&&!w.pressed&&!w.released); // Overlapping sources between ticks.
     buffer.push({}); buffer.consume(&w);
+    // An atomic sample can hand the action to another source without a sampled gap.
+    tap={}; tap.keys.set(space); buffer.push(tap); buffer.consume(&w);
+    tap.keys.reset(); tap.connected=true; tap.buttons=1u<<6;
+    buffer.push(tap); buffer.consume(&w);
+    CHECK(w.held==SC_JUMP&&!w.pressed&&!w.released);
+    tap.connected=false; tap.buttons=0; tap.keys.set(space);
+    buffer.push(tap); buffer.consume(&w);
+    CHECK(w.held==SC_JUMP&&!w.pressed&&!w.released);
+    // An explicitly observed release/repress still produces both action edges.
+    tap.key_pressed.set(space); tap.key_released.set(space);
+    buffer.push(tap); buffer.consume(&w);
+    CHECK(w.held==SC_JUMP&&w.pressed==SC_JUMP&&w.released==SC_JUMP);
+    buffer.push({}); buffer.consume(&w);
     // Deadzone boundaries and all axis endpoints, including positive-zero neutral.
     ScDeviceInput axes; axes.connected=true;
     for(const auto& axis:SC_AXES) {

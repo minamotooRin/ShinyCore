@@ -69,7 +69,9 @@ deadzone. The argument must be finite, in `[0,1)`, and representable below 1 as 
   clearing already consumed edges. Buffered, unconsumed live events survive.
 - Legacy actions OR keyboard and gamepad sources. Left-stick X/Y crosses
   `-0.25/+0.25` to provide directions; this threshold is independent of the
-  configurable direct-axis deadzone. Existing arrow/WASD, Space/Z, E/X, D-pad,
+  configurable direct-axis deadzone. Handing an action between sources in one
+  sample does not create an extra action edge; an observed release/repress of
+  the same held control can retrigger it. Existing arrow/WASD, Space/Z, E/X, D-pad,
   south/east bindings remain intact.
 - By default, all keys belong to the game and the close button exits the host.
   Explicit `--debug-keys` restores F1 stats, F2 bounds, F3 lighting, F5 reload,
