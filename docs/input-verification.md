@@ -28,7 +28,7 @@
 
 原生测试仅向自身创建的子进程窗口发送消息，不注入全局键盘事件，不操作其他应用窗口。它验证原生回调、采样和宿主路径，不代替物理键盘或手柄测试。未检测到可用手柄，实机按钮、摇杆、扳机和拔插仍未验收。
 
-ASan/UBSan 仍未执行：现有 MinGW 缺少运行库，本机没有 WSL；既有 Linux sanitizer CI 保留并覆盖新增输入测试。未宣称跨平台或跨架构浮点一致性。依赖使用本机已获取的固定版本源码的独立副本，通过 FETCHCONTENT_SOURCE_DIR_* 配置；没有修改依赖源码或复用其他任务的构建输出。
+本次输入审查时尚未执行 ASan/UBSan：当时 GCC/MinGW 缺少运行库，本机没有 WSL。后续已使用 LLVM-MinGW 完成本机检测，见[补充记录](sanitizer-verification.md)；既有 Linux sanitizer CI 保留并覆盖新增输入测试。未宣称跨平台或跨架构浮点一致性。输入审查的依赖使用本机已获取的固定版本源码的独立副本，通过 FETCHCONTENT_SOURCE_DIR_* 配置；没有修改依赖源码或复用其他任务的构建输出。
 
 验证日志在各构建目录的 Testing/Temporary。截图与 JSON 证据保存在审查工作区的 artifacts/input-review/：input.png、workshop.png、input.json、workshop.json、lantern-430.json 和 native-windows.json。
 

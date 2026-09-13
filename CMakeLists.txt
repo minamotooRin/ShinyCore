@@ -107,6 +107,7 @@ if(SHINY_NETWORK)
     URL https://github.com/lsalzman/enet/archive/refs/tags/v1.3.18.tar.gz
     URL_HASH SHA256=28603c895f9ed24a846478180ee72c7376b39b4bb1287b73877e5eae7d96b0dd)
   FetchContent_MakeAvailable(enet)
+  include(cmake/enet-offset.cmake)
   if(WIN32)
     target_link_libraries(enet winmm ws2_32)
   endif()

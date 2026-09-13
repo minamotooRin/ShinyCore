@@ -43,4 +43,10 @@ ctest --test-dir build --output-on-failure
 
 Use `-DSHINY_GRAPHICS=OFF` for a machine without graphics development dependencies. For changes affecting visuals, additionally capture and inspect actual native output with `--frames N --capture /absolute/path.png`; a successful headless test does not validate pixels. For changes to native ownership, pointer lifetimes, or the C/Lua boundary, run a headless sanitizer build using `-DSHINY_SANITIZERS=ON`.
 
+On Windows, use LLVM-MinGW for ASan/UBSan in a separate build directory; keep its
+`bin` on PATH for the sanitizer DLL and symbolizer. Set `ASAN_OPTIONS=halt_on_error=1`
+and `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1`. See
+`docs/sanitizer-verification.md` for the verified 22.1.8 workflow. Missing GCC
+sanitizer libraries do not imply that Windows needs WSL for these checks.
+
 Do not claim platform compatibility, saved-state restoration, Lua-local state hashing, or arbitrary graphics feature coverage beyond what was validated. With --debug-keys, F5 resets the current room but inherits explicit sc.state. Checkpoints restore authored data and rebuild the room, not VM/solver state. Keep docs synchronized and record material limits honestly. Missing local sanitizer runtimes must be reported; maintain the Linux sanitizer CI job.

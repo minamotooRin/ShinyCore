@@ -15,7 +15,9 @@ ctest --test-dir build --output-on-failure
 ./build/shiny examples/workshop
 ```
 
-Windows 可使用现代 MSVC，或 GCC/MinGW + Ninja。Visual Studio 多配置构建使用 `cmake --build build --config Release`，程序在 `build/Release/shiny.exe`。更换编译器时使用新的构建目录。Linux 图形构建需要 GLFW 对应的 OpenGL/X11 开发库，CI 提供安装配置。
+Windows 可使用现代 MSVC、GCC/MinGW，或 LLVM-MinGW + Ninja。Visual Studio 多配置构建使用 `cmake --build build --config Release`，程序在 `build/Release/shiny.exe`。更换编译器时使用新的构建目录。Linux 图形构建需要 GLFW 对应的 OpenGL/X11 开发库，CI 提供安装配置。
+
+Windows 已使用 LLVM-MinGW 22.1.8 实测 ASan/UBSan；[检测结果与复现命令](docs/sanitizer-verification.md)包含运行库 PATH 和遇错退出设置。
 
 Workshop 展示中文 UI、Tiled 图层、箱子、斜坡、移动平台、Lua 动画和存档。A/D 移动，Space 跳跃，Down+Space 穿透单向平台，E 保存，Up 读取，走到右端切换房间。原创 Lantern 和可选联机示例 Duet 仍保留。
 

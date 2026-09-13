@@ -16,6 +16,11 @@ ShinyCore sources and original LANTERN assets are MIT licensed. Dependencies are
 
 The collected notices retain the original source comments for miniaudio, dr audio decoders, stb libraries, QOI/QOA, jar audio loaders, glad, compression utilities and platform helpers. Some are optional features in the pinned dependency rather than public ShinyCore APIs. Original license alternatives are preserved. ShinyCore does not include or license any Animal Well code, artwork or music.
 
+For ENet 1.3.18, `cmake/enet-offset.cmake` generates a copy of `protocol.c`
+with its three null-pointer header-offset expressions replaced by standard
+`offsetof`. This avoids undefined behavior detected by UBSan without changing
+the wire format. The downloaded archive and source tree remain unchanged.
+
 Archive SHA-256 values:
 
 ```text

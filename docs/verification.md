@@ -12,7 +12,7 @@
 | 图形 OFF、网络 ON，build-headless-v02 | 9/9 CTest 组通过，包括真实双进程 UDP |
 | 自有 C++ 编译警告 | 两套构建日志未出现 warning/error；第三方 CMake 弃用提示另计 |
 | 图形与无窗口状态对照 | Workshop 90 帧 JSON 相同，hash=9bc159ce561aabde |
-| ASan/UBSan | 未执行：当前 MinGW 链接缺少 lasan/lubsan，本机未安装 WSL |
+| ASan/UBSan | 基线验收时 GCC/MinGW 缺少运行库；后续 LLVM-MinGW 本机验证已完成，见[补充记录](sanitizer-verification.md) |
 | macOS/Linux 原生运行 | 本轮未执行；CI 保留平台矩阵及 Linux sanitizer 任务，尚未触发远端运行 |
 
 核心测试 40,271 个显式检查。新增 features.py 共 23 个行为测试，覆盖模块缓存/循环、绘制限制、原子状态更新、跨房间数据、磁盘重启恢复、最大状态深度、迁移错误/内存限制、存档写入失败、身体推挤/复合形状/非法补丁、斜坡上行接地、移动平台、穿透平台、传感器、查询与关节、音频句柄/暂停/淡出/持久音乐、UTF-8 测量、Tiled 拒绝不支持配置、Lua 动画及 API 注解同步。

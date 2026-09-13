@@ -36,6 +36,9 @@ jobs:
         run: xvfb-run -a ./build/shiny examples/workshop --mute --frames 90 --capture workshop.png
   sanitizers:
     runs-on: ubuntu-latest
+    env:
+      ASAN_OPTIONS: halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DSHINY_GRAPHICS=OFF -DSHINY_NETWORK=ON -DSHINY_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug

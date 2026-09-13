@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <type_traits>
 
 /* Deliberately independent of assert(): Release builds must execute checks. */
@@ -54,7 +55,8 @@ static void test_cpp_value_initialization(void) {
     static_assert(!std::is_copy_constructible_v<ScWorld>);
     static_assert(std::is_same_v<decltype(ScWorld::entities), std::array<ScEntity, SC_MAX_ENTITIES>>);
     // Bare default initialization must be safe, including every bounded pool.
-    ScWorld world;
+    const auto storage = std::unique_ptr<ScWorld>(new ScWorld);
+    auto& world = *storage;
     CHECK(world.rng == SC_DEFAULT_SEED);
     CHECK(world.map.width == 48 && world.map.height == 27 && world.map.tile_size == 8);
     CHECK(world.gravity == 600 && world.ambient == 0.4f);
@@ -75,13 +77,15 @@ static void test_cpp_value_initialization(void) {
     CHECK(sc_state_hash(&world) == UINT64_C(0x2987410a525336f8));
     sc_world_init(&world, 42);
     CHECK(sc_state_hash(&world) == UINT64_C(0x8e7afd2936df5550));
-    ScWorld copy; copy.map = world.map;
+    const auto copy_storage = std::unique_ptr<ScWorld>(new ScWorld);
+    auto& copy = *copy_storage; copy.map = world.map;
     copy.map.tiles[1] = '#';
     CHECK(world.map.tiles[1] == '.' && copy.map.tiles[1] == '#');
 }
 
 static void test_initialization_and_input(void) {
-    ScWorld world{};
+    const auto storage = std::make_unique<ScWorld>();
+    auto& world = *storage;
     sc_world_init(&world, 0);
     CHECK(world.rng != 0);
     CHECK(world.view_width == 384 && world.view_height == 216);
@@ -104,7 +108,8 @@ static void test_initialization_and_input(void) {
 }
 
 static void test_handles_and_capacity(void) {
-    ScWorld world{};
+    const auto storage = std::make_unique<ScWorld>();
+    auto& world = *storage;
     fixture(&world);
     ScEntity prototype = body(8, 8);
     std::strcpy(prototype.tag, "player");
@@ -137,7 +142,8 @@ static void test_handles_and_capacity(void) {
 }
 
 static void test_spawn_validation(void) {
-    ScWorld world{};
+    const auto storage = std::make_unique<ScWorld>();
+    auto& world = *storage;
     fixture(&world);
     ScEntity prototype = body(8, 8);
     prototype.x = NAN;
@@ -177,7 +183,8 @@ static void test_spawn_validation(void) {
 
 
 static void test_particles_and_random(void) {
-    ScWorld world{}, other{};
+    const auto storage = std::make_unique<ScWorld>(), other_storage = std::make_unique<ScWorld>();
+    auto& world = *storage; auto& other = *other_storage;
     fixture(&world); fixture(&other);
     CHECK(sc_random_u32(&world) == UINT32_C(3336926330));
     CHECK(sc_random_u32(&other) == UINT32_C(3336926330));
@@ -211,7 +218,8 @@ static void test_particles_and_random(void) {
 
 
 static void test_deterministic_simulation(void) {
-    ScWorld world{}, other{};
+    const auto storage = std::make_unique<ScWorld>(), other_storage = std::make_unique<ScWorld>();
+    auto& world = *storage; auto& other = *other_storage;
     fixture(&world); fixture(&other);
     row(&world, 10, '#'); row(&other, 10, '#');
     ScEntity prototype = body(8, 8);
@@ -240,7 +248,8 @@ static void test_deterministic_simulation(void) {
 }
 
 static void test_logical_hash(void) {
-    ScWorld world{}, other{};
+    const auto storage = std::make_unique<ScWorld>(), other_storage = std::make_unique<ScWorld>();
+    auto& world = *storage; auto& other = *other_storage;
     fixture(&world);
     ScEntity prototype = body(8, 8);
     std::uint32_t id = sc_spawn(&world, &prototype);
@@ -273,7 +282,8 @@ static void test_logical_hash(void) {
 }
 
 static void test_hash_ignores_presentation_queues(void) {
-    ScWorld world{}, other{};
+    const auto storage = std::make_unique<ScWorld>(), other_storage = std::make_unique<ScWorld>();
+    auto& world = *storage; auto& other = *other_storage;
     fixture(&world);
     ScEntity prototype = body(8, 8);
     auto id=sc_spawn(&world, &prototype); CHECK(id != 0);
