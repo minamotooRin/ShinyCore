@@ -1,0 +1,48 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {"major": 3, "minor": 24, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "SHINY_SANITIZERS": "OFF",
+        "SHINY_GRAPHICS": "ON",
+        "SHINY_NETWORK": "OFF",
+        "SHINY_STREAMING": "OFF",
+        "SHINY_ADVANCED_RENDER": "OFF",
+        "SHINY_DEVTOOLS": "OFF"
+      }
+    },
+    {"name": "lightweight", "inherits": "base", "displayName": "Lightweight desktop"},
+    {
+      "name": "full",
+      "inherits": "base",
+      "displayName": "All requested modules (check --api for implemented capabilities)",
+      "cacheVariables": {
+        "SHINY_NETWORK": "ON", "SHINY_STREAMING": "ON",
+        "SHINY_ADVANCED_RENDER": "ON", "SHINY_DEVTOOLS": "ON"
+      }
+    },
+    {
+      "name": "headless",
+      "inherits": "full",
+      "displayName": "Headless validation",
+      "cacheVariables": {"SHINY_GRAPHICS": "OFF", "SHINY_ADVANCED_RENDER": "OFF"}
+    }
+  ],
+  "buildPresets": [
+    {"name": "lightweight", "configurePreset": "lightweight"},
+    {"name": "full", "configurePreset": "full"},
+    {"name": "headless", "configurePreset": "headless"}
+  ],
+  "testPresets": [
+    {"name": "lightweight", "configurePreset": "lightweight", "output": {"outputOnFailure": true}},
+    {"name": "full", "configurePreset": "full", "output": {"outputOnFailure": true}},
+    {"name": "headless", "configurePreset": "headless", "output": {"outputOnFailure": true}}
+  ]
+}

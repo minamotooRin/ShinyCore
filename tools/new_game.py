@@ -129,7 +129,7 @@ The `.luarc.json` file links that same API for Lua Language Server completion.
 ```
 
 The engine binary is built separately in its checkout. If the engine is moved,
-update its absolute paths here and in `.luarc.json`.
+update the executable commands here; SDK paths in `.luarc.json` remain relative.
 On Windows, Visual Studio builds normally place the executable in
 `build/Release/shiny.exe` after `cmake --build build --config Release`; adjust
 the commands above if that configuration was built after project creation.
@@ -158,12 +158,20 @@ in the engine checkout. The resulting executable is normally
     config = {
         "runtime.version": "Lua 5.4",
         "diagnostics.globals": ["sc"],
-        "workspace.library": [str(api)],
+        "workspace.library": ["docs/api.lua", "lib/shiny"],
         "workspace.checkThirdParty": False,
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.mkdir()  # Exclusive creation also catches a concurrent existing path.
     try:
+        (destination / "docs").mkdir()
+        shutil.copy2(api, destination / "docs/api.lua")
+        shutil.copy2(guide, destination / "docs/llm-guide.md")
+        shutil.copy2(ROOT / "docs/input.md", destination / "docs/input.md")
+        shutil.copytree(ROOT / "lua/shiny", destination / "lib/shiny")
+        # All SDK references are project-relative; only the separately built executable has a host path.
+        agents = agents.replace(str(api), "docs/api.lua").replace(str(guide), "docs/llm-guide.md").replace(str(ROOT / "docs/input.md"), "docs/input.md")
+        readme = readme.replace(str(api), "docs/api.lua")
         (destination / "game").mkdir()
         (destination / "rooms").mkdir()
         shutil.copy2(ROOT / "examples/workshop/game/controller.lua", destination / "game/controller.lua")

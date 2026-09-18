@@ -2,10 +2,10 @@
 
 Read `README.md`, `docs/architecture.md`, and `docs/api.lua` before changing contracts. The user-facing goal is a small, clear native 2D engine that LLMs can program and verify through text.
 
-- Engine core: `src/core.cpp` and `src/physics.cpp`, public contract `include/shiny/core.h`; one owned Box2D world, no graphics or Lua dependencies.
-- Script boundary: `src/script.cpp`, contract `include/shiny/script.h`; validate all authored input and synchronize Lua annotations plus API metadata.
-- Optional network: `src/net.cpp` / `include/shiny/net.h` own ENet transport; `src/net_lua.cpp` owns Lua sessions. Default OFF; no socket dependencies in core. Keep game protocols in `examples/duet` or the owning game. Validate both ON and OFF builds, actual two-process traffic, and native resource cleanup. Never let Lua longjmp skip a C++ destructor, or let a native exception unwind through Lua.
-- Host and backend: `src/main.cpp`, `src/render.cpp`. Platform effects belong here; simulation behavior must work headlessly.
+- Engine core: `src/core/core.cpp` and `src/physics/physics.cpp`, public contract `include/shiny/core.h`; one owned Box2D world, no graphics or Lua dependencies.
+- Script boundary: `src/script/script.cpp`, contract `include/shiny/script.h`; validate all authored input and synchronize Lua annotations plus API metadata.
+- Optional network: `src/net/net.cpp` / `include/shiny/net.h` own ENet transport; `src/script/net_lua.cpp` owns Lua sessions. Default OFF; no socket dependencies in core. Keep game protocols in `examples/duet` or the owning game. Validate both ON and OFF builds, actual two-process traffic, and native resource cleanup. Never let Lua longjmp skip a C++ destructor, or let a native exception unwind through Lua.
+- Host and backend: `src/runtime/main.cpp`, `src/render/render.cpp`. Platform effects belong here; simulation behavior must work headlessly.
 - Authored games: `examples/workshop/` demonstrates 0.2; `examples/lantern/` retains the original tour. Keep controllers and animation in Lua, preserve original assets.
 - Tests use explicit checks that run under `NDEBUG`. Do not replace them with disabled Release assertions.
 - Do not edit fetched dependencies in `build*/_deps`; versions and checksums live in CMake.
@@ -13,7 +13,7 @@ Read `README.md`, `docs/architecture.md`, and `docs/api.lua` before changing con
 
 Engine code uses C++23; third-party dependencies retain their C builds. Use a
 compiler and standard library that implement `std::expected`. Preserve explicit
-ownership: fixed simulation storage uses `std::array`, runtime ownership is
+ownership: fixed simulation storage is allocated once from project capacities, runtime ownership is
 exclusive, native resources release through RAII, and expected failures return
 data for CLI diagnostics. Do not copy or move a runtime or script whose address
 is borrowed by Lua. Give every new abstraction a concrete owner and purpose.
@@ -29,7 +29,7 @@ corrections only. C++23 lives on `main`, with `feature/cpp23` and `v0.1.0-cpp23`
 preserving the migration delivery. Inspect `git worktree list` before adding a comparison
 checkout, and never overwrite an existing checkout or reuse its build directory
 for a different implementation. Those tags preserve 0.1; current development is
-0.2 with Box2D and explicit checkpoint state. Do not reuse 0.1 size or behavior
+the complete-edition development branch with Box2D and explicit checkpoint state. Do not reuse 0.1 size or behavior
 claims as 0.2 evidence; physics trajectories may change.
 
 Normal verification:

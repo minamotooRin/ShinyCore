@@ -1,6 +1,7 @@
 #ifndef SHINY_RENDER_H
 #define SHINY_RENDER_H
 #include "shiny/core.h"
+#include "shiny/settings.h"
 
 bool sc_render_open(const ScWorld *world, const char *root, bool audio, char *error, size_t error_size);
 /* CPU-only asset preflight; does not create a window, audio device, or GPU context. */
@@ -21,4 +22,5 @@ bool sc_render_step_requested(void);
 void sc_render_frame(ScWorld *world, float alpha, const char *error, bool paused);
 void sc_render_audio(const ScWorld *world);
 bool sc_render_capture(const char *path);
+ScResult<void> sc_render_settings(const ScSettings&);
 #endif

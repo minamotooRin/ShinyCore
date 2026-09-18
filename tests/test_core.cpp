@@ -53,7 +53,7 @@ static void row(ScWorld *world, int y, char tile) {
 static void test_cpp_value_initialization(void) {
     static_assert(std::is_aggregate_v<ScWorld>);
     static_assert(!std::is_copy_constructible_v<ScWorld>);
-    static_assert(std::is_same_v<decltype(ScWorld::entities), std::array<ScEntity, SC_MAX_ENTITIES>>);
+    static_assert(std::is_same_v<decltype(ScWorld::entities), std::vector<ScEntity>>);
     // Bare default initialization must be safe, including every bounded pool.
     const auto storage = std::unique_ptr<ScWorld>(new ScWorld);
     auto& world = *storage;
@@ -68,15 +68,15 @@ static void test_cpp_value_initialization(void) {
         return !entity.alive && entity.id == 0 && entity.x == 0 && entity.w == 0;
     }));
     CHECK(std::ranges::all_of(world.particles, [](const ScParticle &particle) { return particle.life == 0; }));
-    // Golden logical-field hash includes the neutral device input snapshot.
-    CHECK(sc_state_hash(&world) == UINT64_C(0x2987410a525336f8));
+    const auto initial_hash=sc_state_hash(&world);
+    CHECK(initial_hash==UINT64_C(0xa7af6fde908ba48e));
     world.map.tiles[1] = '#';
     world.held = SC_JUMP;
     world.tick = 42;
     sc_world_init(&world, 0);
-    CHECK(sc_state_hash(&world) == UINT64_C(0x2987410a525336f8));
+    CHECK(sc_state_hash(&world) == initial_hash);
     sc_world_init(&world, 42);
-    CHECK(sc_state_hash(&world) == UINT64_C(0x8e7afd2936df5550));
+    CHECK(sc_state_hash(&world) == UINT64_C(0xcb80873b01a7ed7e));
     const auto copy_storage = std::unique_ptr<ScWorld>(new ScWorld);
     auto& copy = *copy_storage; copy.map = world.map;
     copy.map.tiles[1] = '#';
@@ -113,7 +113,7 @@ static void test_handles_and_capacity(void) {
     fixture(&world);
     ScEntity prototype = body(8, 8);
     std::strcpy(prototype.tag, "player");
-    std::uint32_t first = sc_spawn(&world, &prototype);
+    ScEntityId first = sc_spawn(&world, &prototype);
     CHECK(first != 0 && sc_entity(&world, first) != nullptr);
     CHECK(sc_find(&world, "player") == first);
     CHECK(sc_find(&world, "missing") == 0 && sc_find(&world, "") == 0);
@@ -121,10 +121,10 @@ static void test_handles_and_capacity(void) {
     CHECK(sc_destroy(&world, first));
     CHECK(world.camera_target == 0);
     CHECK(sc_entity(&world, first) == nullptr && !sc_destroy(&world, first));
-    std::uint32_t second = sc_spawn(&world, &prototype);
+    ScEntityId second = sc_spawn(&world, &prototype);
     CHECK(second != first && second != 0);
     CHECK(sc_entity(&world, first) == nullptr && sc_entity(&world, second) != nullptr);
-    std::array<std::uint32_t, SC_MAX_ENTITIES> ids{};
+    std::array<ScEntityId, SC_MAX_ENTITIES> ids{};
     ids[0] = second;
     for (std::size_t i = 1; i < ids.size(); ++i) {
         ids[i] = sc_spawn(&world, &prototype);
@@ -135,7 +135,7 @@ static void test_handles_and_capacity(void) {
     CHECK(sc_entity(&world, 0) == nullptr && sc_entity(&world, 255) == nullptr);
     CHECK(sc_entity(&world, UINT32_MAX) == nullptr);
     CHECK(sc_destroy(&world, ids[123]));
-    std::uint32_t recycled = sc_spawn(&world, &prototype);
+    ScEntityId recycled = sc_spawn(&world, &prototype);
     CHECK(recycled != 0 && recycled != ids[123]);
     CHECK(sc_entity(&world, ids[123]) == nullptr);
     CHECK(sc_spawn(&world, &prototype) == 0);
@@ -168,7 +168,7 @@ static void test_spawn_validation(void) {
     prototype = body(8, 8);
     std::ranges::fill(prototype.tag, 'a');
     std::ranges::fill(prototype.sprite, 's');
-    std::uint32_t id = sc_spawn(&world, &prototype);
+    ScEntityId id = sc_spawn(&world, &prototype);
     CHECK(id != 0);
     ScEntity *entity = sc_entity(&world, id);
     CHECK(entity->tag[sizeof(entity->tag) - 1] == '\0');
@@ -224,8 +224,8 @@ static void test_deterministic_simulation(void) {
     row(&world, 10, '#'); row(&other, 10, '#');
     ScEntity prototype = body(8, 8);
     prototype.vx = 72;
-    std::uint32_t id = sc_spawn(&world, &prototype);
-    std::uint32_t other_id = sc_spawn(&other, &prototype);
+    ScEntityId id = sc_spawn(&world, &prototype);
+    ScEntityId other_id = sc_spawn(&other, &prototype);
     CHECK(id != 0 && id == other_id);
     world.camera_target = other.camera_target = id;
     for (int tick = 0; tick < 600; ++tick) {
@@ -252,7 +252,7 @@ static void test_logical_hash(void) {
     auto& world = *storage; auto& other = *other_storage;
     fixture(&world);
     ScEntity prototype = body(8, 8);
-    std::uint32_t id = sc_spawn(&world, &prototype);
+    ScEntityId id = sc_spawn(&world, &prototype);
     CHECK(id != 0);
     world.draw_count = 1;
     world.draws[0].kind = SC_DRAW_TEXT;
@@ -271,7 +271,7 @@ static void test_logical_hash(void) {
     CHECK(sc_state_hash(&world) == sc_state_hash(&other));
     other.map.tiles[10] = '#';
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));
-    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id); other.entities[id & 255u].vx = 1;
+    fixture(&other); CHECK(sc_spawn(&other, &prototype) == id); other.entities[sc_entity_slot(id)].vx = 1;
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));
     fixture(&other); CHECK(sc_spawn(&other, &prototype) == id); other.generations[42]++;
     CHECK(sc_state_hash(&world) != sc_state_hash(&other));

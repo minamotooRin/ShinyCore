@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import platform
@@ -45,6 +46,8 @@ class ToolTests(unittest.TestCase):
         return result
 
     def fixture_checkout(self) -> tuple[Path, Path]:
+        if BINARY is None:
+            self.skipTest("package validation requires a real engine; pass its path")
         root = self.base / "engine fixture"
         for directory in ("tools", "docs", "licenses", "examples/lantern/replays", "examples/input"):
             (root / directory).mkdir(parents=True, exist_ok=True)
@@ -53,8 +56,8 @@ class ToolTests(unittest.TestCase):
             (root / name).write_text(f"fixture {name}\n", encoding="utf-8")
         (root / "examples" / "lantern" / "main.lua").write_text("return {}\n", encoding="utf-8")
         (root / "examples" / "input" / "main.lua").write_text("return {}\n", encoding="utf-8")
-        binary = root / "shiny"
-        binary.write_bytes(b"fixture executable, copied without stripping\n")
+        binary = root / BINARY.name
+        shutil.copy2(BINARY, binary)
         return root, binary
 
     def test_new_game_creates_complete_project_and_refuses_overwrite(self) -> None:
@@ -62,12 +65,12 @@ class ToolTests(unittest.TestCase):
         self.cli(ROOT / "tools" / "new_game.py", destination)
         self.assertEqual(
             {path.name for path in destination.iterdir()},
-            {"main.lua", "project.lua", "game", "rooms", "smoke.replay", "README.md", "AGENTS.md", ".luarc.json"},
+            {"main.lua", "project.lua", "game", "rooms", "smoke.replay", "README.md", "AGENTS.md", ".luarc.json", "lib", "docs"},
         )
         config = json.loads((destination / ".luarc.json").read_text(encoding="utf-8"))
         self.assertEqual(config["runtime.version"], "Lua 5.4")
-        self.assertEqual(config["workspace.library"], [str(ROOT / "docs" / "api.lua")])
-        self.assertIn(str(ROOT / "docs" / "api.lua"), (destination / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertEqual(config["workspace.library"], ["docs/api.lua", "lib/shiny"])
+        self.assertIn("docs/api.lua", (destination / "AGENTS.md").read_text(encoding="utf-8"))
         (destination / "main.lua").write_text("user changes must survive", encoding="utf-8")
         self.cli(ROOT / "tools" / "new_game.py", destination, ok=False)
         self.assertEqual((destination / "main.lua").read_text(encoding="utf-8"), "user changes must survive")
@@ -87,6 +90,13 @@ class ToolTests(unittest.TestCase):
         self.cli(root / "tools" / "package.py", binary, destination, "--no-strip")
         packaged_binary, resources = layout(destination)
         self.assertEqual(packaged_binary.read_bytes(), binary.read_bytes())
+        report = json.loads((destination / "package-report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["bytes"]["engine"], binary.stat().st_size)
+        self.assertEqual(report["total_bytes"], sum(item["bytes"] for item in report["files"]))
+        for item in report["files"]:
+            data = (destination / item["path"]).read_bytes()
+            self.assertEqual(len(data), item["bytes"])
+            self.assertEqual(hashlib.sha256(data).hexdigest(), item["sha256"])
         for name in ("LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "docs/input.md", "licenses/Lua.txt", "examples/lantern/main.lua", "examples/input/main.lua"):
             self.assertEqual((resources / name).read_bytes(), (root / name).read_bytes())
         if os.name != "nt":
@@ -196,6 +206,26 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["ok"])
         self.assertTrue((self.base / "saved game/shiny.workshop/checkpoint.json").is_file())
+
+    def test_package_symbols_and_unavailable_required_modules(self) -> None:
+        if BINARY is None:
+            self.skipTest("requires a real engine")
+        project = self.base / "requirements"
+        project.mkdir()
+        (project / "main.lua").write_text('return {}', encoding="utf-8")
+        (project / "project.lua").write_text('return {modules={"advanced_render"}}', encoding="utf-8")
+        destination = self.base / "mismatch"
+        result = self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", project, ok=False)
+        self.assertIn("advanced_render", result.stderr)
+        self.assertFalse(destination.exists())
+        (project / "project.lua").write_text('return {modules={"settings"}}', encoding="utf-8")
+        symbols = self.base / "game.pdb"
+        symbols.write_bytes(b"standalone symbol fixture")
+        self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", project,
+                 "--symbols", symbols, "--no-strip", "--no-zip")
+        report = json.loads((destination / "package-report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["bytes"]["debug_symbols"], symbols.stat().st_size)
+        self.assertEqual((destination / "debug-symbols/game.pdb").read_bytes(), symbols.read_bytes())
 
 
 if __name__ == "__main__":

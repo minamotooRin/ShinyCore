@@ -156,14 +156,14 @@ static void test_limits(ScScript *script, ScWorld *world) {
         "instruction budget exceeded");
     expect_bad(script, world, "local s=string.rep('x',20*1024*1024); return {}", "memory");
     expect_bad(script, world,
-        "return {init=function() for i=1,257 do sc.spawn({}) end end}", "capacity exhausted");
+        "return {init=function() for i=1,4097 do sc.spawn({}) end end}", "capacity exhausted");
     CHECK(open_source(script, world, "return {update=function() while true do end end}"));
     CHECK(!sc_script_update(script)); CHECK(strstr(script->error, "instruction budget exceeded"));
     CHECK(strstr(script->error, "main.lua")); sc_script_close(script);
     CHECK(open_source(script, world, "return {draw=function() sc.spawn({}) end}"));
     CHECK(!sc_script_draw(script, 0)); CHECK(strstr(script->error, "forbidden in draw")); sc_script_close(script);
     CHECK(open_source(script, world,
-        "return {draw=function() for i=1,513 do sc.rect(0,0,1,1,'#ffffff') end end}"));
+        "return {draw=function() for i=1,4097 do sc.rect(0,0,1,1,'#ffffff') end end}"));
     CHECK(!sc_script_draw(script, 0)); CHECK(strstr(script->error, "capacity exhausted")); sc_script_close(script);
     expect_bad(script, world,
         "local t=setmetatable({}, {__gc=function() while true do end end}); return {}", "__gc finalizers are disabled");

@@ -190,22 +190,63 @@ end}''')
         walker=next(e for e in x['entities'] if e['tag']=='walker')
         self.assertTrue(walker['grounded']);self.assertGreater(x['state']['uphill'],40)
 
-    def test_save_migration_and_rejected_result(self):
-        self.file('project.lua',"return {id='migrate',data_version=2,migrate='game.migrate'}")
-        self.file('main.lua',"return {update=function() if not sc.state.get('coins') then local ok,e=sc.save.load('slot'); if not ok then sc.state.set('error',e) end end end}")
-        save=self.root/'saves/migrate/slot.json'; save.parent.mkdir(parents=True)
-        record={'format':1,'project':'migrate','data_version':1,'scene':'main.lua','state':{'gold':5}}
-        save.write_text(json.dumps(record),encoding='utf-8'); original=save.read_bytes()
-        self.file('game/migrate.lua',"return function(old,new,data) assert(old==1 and new==2); assert(not pcall(sc.spawn,{})); return {coins=data.gold} end")
-        self.assertEqual(self.run_game('--frames',2,'--save-dir',self.root/'saves')['state'],{'coins':5})
-        self.assertEqual(save.read_bytes(),original)
-        for result in ["{coins=string.char(255)}", "{coins=0/0}", "{coins=string.rep('x',270000)}", "{coins=string.rep('x',20000000)}"]:
-            self.file('game/migrate.lua','return function() return '+result+' end')
-            x=self.run_game('--frames',1,'--save-dir',self.root/'saves')
-            self.assertIn('error',x['state']); self.assertNotIn('coins',x['state'])
-            self.assertEqual(save.read_bytes(),original)
-        record['state']={'coins':[None]};save.write_text(json.dumps(record),encoding='utf-8')
-        self.assertIn('null',self.run_game('--frames',1,'--save-dir',self.root/'saves')['state']['error'])
+    def test_save_rejects_old_versions_and_recovers_backup(self):
+        self.file('project.lua',"return {id='versions',data_version=2}")
+        self.file('main.lua',"return {update=function() local ok,e=sc.save.load('slot'); if not ok then sc.state.set('error',e) end end}")
+        save=self.root/'saves/versions/slot.json'; save.parent.mkdir(parents=True)
+        record={'format':1,'project':'versions','data_version':2,'scene':'main.lua','state':{'coins':5}}
+        save.write_text(json.dumps(record),encoding='utf-8')
+        self.assertIn('unsupported save format',self.run_game('--frames',1,'--save-dir',self.root/'saves')['state']['error'])
+        record['format']=2; record['data_version']=1
+        save.write_text(json.dumps(record),encoding='utf-8')
+        self.assertIn('unsupported save data',self.run_game('--frames',1,'--save-dir',self.root/'saves')['state']['error'])
+        self.file('main.lua',"return {update=function() sc.state.set('coins',sc.tick()+1); assert(sc.save.write('slot')) end}")
+        self.run_game('--frames',2,'--save-dir',self.root/'saves')
+        backup=Path(str(save)+'.bak')
+        self.assertEqual(json.loads(backup.read_text())['state']['coins'],1)
+        saved_backup=backup.read_bytes(); save.write_text('{broken')
+        self.file('main.lua',"return {update=function() if not sc.state.get('coins') then assert(sc.save.load('slot')) end end}")
+        self.assertEqual(self.run_game('--frames',2,'--save-dir',self.root/'saves')['state']['coins'],1)
+        self.file('main.lua',"return {update=function() sc.state.set('coins',9); assert(sc.save.write('slot')) end}")
+        self.run_game('--frames',1,'--save-dir',self.root/'saves')
+        self.assertEqual(backup.read_bytes(),saved_backup)
+
+    def test_save_slot_listing_read_and_delete(self):
+        self.file('project.lua',"return {id='slots'}")
+        self.file('main.lua',"""return {update=function()
+ sc.state.set('coins',7); assert(sc.save.write('b')); assert(sc.save.write('a'))
+ local slots=sc.save.list(); assert(#slots==2 and slots[1].slot=='a' and slots[2].slot=='b')
+ assert(slots[1].valid and slots[1].saved_at and slots[1].frame==0)
+ assert(sc.save.read('a').state.coins==7)
+ assert(sc.save.delete('a')); assert(sc.save.read('a')==nil); assert(#sc.save.list()==1)
+end}""")
+        self.run_game('--frames',1,'--save-dir',self.root/'saves')
+        self.assertFalse((self.root/'saves/slots/a.json').exists())
+        self.run_game('--frames',1)
+
+    def test_required_module_validation(self):
+        self.file('main.lua','return {}')
+        self.file('project.lua',"return {modules={'physics','navigation'}}")
+        self.run_game('--check-all')
+        self.file('project.lua',"return {modules={'unknown'}}")
+        self.assertIn('unknown required module',self.run_game('--check-all',ok=False))
+        self.file('project.lua',"return {modules={'advanced_render'}}")
+        self.assertIn('required module unavailable',self.run_game('--check-all',ok=False))
+
+    def test_persistent_network_candidate_guard(self):
+        api=json.loads(subprocess.check_output([str(BINARY),'--api'],encoding='utf-8'))
+        if not api['network']['available']: self.skipTest('network disabled')
+        self.file('main.lua',"""local h
+return {init=function() h=assert(sc.net.host('127.0.0.1',0)); assert(h:persist('coop')); sc.state.set('port',h:port()) end,
+update=function() sc.scene('next.lua') end}""")
+        self.file('next.lua',"""local h
+return {init=function()
+ h=assert(sc.net.bind('coop')); assert(h:port()==sc.state.get('port'))
+ local ok,e=pcall(h.flush,h); assert(not ok and e:find('candidate initialization'))
+ ok,e=pcall(h.close,h); assert(not ok and e:find('candidate initialization'))
+ sc.state.set('rebound',true)
+end,update=function() assert(h:flush()) end}""")
+        self.assertTrue(self.run_game('--frames',3)['state']['rebound'])
 
     def test_audio_handles_pause_fade_and_room_persistence(self):
         for name in ['chime.wav','theme.ogg']: shutil.copy(ROOT/'examples/workshop/assets'/name,self.root/name)
@@ -224,6 +265,30 @@ end}''')
         self.assertEqual(len(x['audio']),1)
         self.assertTrue(x['audio'][0]['paused']);self.assertEqual(x['audio'][0]['position'],0)
         self.assertAlmostEqual(x['audio'][0]['volume'],.4,places=4)
+
+    def test_audio_buses_priority_and_age(self):
+        shutil.copy(ROOT/'examples/workshop/assets/chime.wav',self.root/'chime.wav')
+        self.file('project.lua',"return {limits={sound_voices=2},resources={s={type='sound',path='chime.wav'}}}")
+        self.file('main.lua',"""local first,second,last
+return {init=function()
+ first=assert(sc.audio.play('s',{loop=true,priority=2,pan=-1,bus='ui'}))
+ second=assert(sc.audio.play('s',{loop=true,priority=2,pan=1,bus='ui'}))
+ assert(sc.audio.play('s',{priority=1})==nil)
+ last=assert(sc.audio.play('s',{loop=true,priority=2,bus='ui'}))
+ assert(not pcall(sc.audio.set,first,{volume=.5})); sc.audio.set(second,{volume=.5})
+ sc.audio.bus('ui',{paused=true}); sc.audio.bus('master',{volume=.5,fade=.1})
+end,update=function()
+ if sc.tick()==10 then
+  assert(sc.audio.bus('master').volume==.5)
+  assert(sc.audio.bus('ui').paused)
+  sc.scene('second.lua')
+ end
+end}""")
+        x=self.run_game('--frames',10)
+        self.assertEqual(len(x['audio']),2)
+        self.assertTrue(all(v['position']==0 for v in x['audio']))
+        self.file('second.lua',"return {init=function() assert(sc.audio.bus('master').volume==.5 and sc.audio.bus('ui').paused) end}")
+        self.assertEqual(self.run_game('--frames',12)['scene'],'second.lua')
 
     def test_utf8_measure_wrap_and_bad_font(self):
         shutil.copy(ROOT/'examples/workshop/assets/workshop.ttf',self.root/'font.ttf')
@@ -275,6 +340,48 @@ end}''')
         saves=self.root/'saves';saved=self.run_game('--frames',1,'--save-dir',saves)['state']
         self.file('main.lua',"return {update=function() if not sc.state.get('deep') then assert(sc.save.load('slot')) end end}")
         self.assertEqual(self.run_game('--frames',2,'--save-dir',saves)['state'],saved)
+
+    def test_settings_persistence_and_candidate_guard(self):
+        self.file('project.lua',"return {id='settings',display={width=960,height=540,scale='smooth'}}")
+        self.file('main.lua',"""return {init=function()
+ assert(sc.settings.get().scale=='smooth')
+ assert(not pcall(sc.settings.apply,{width=640}))
+end,update=function()
+ local ok,err=sc.settings.apply({volume={master=2}}); assert(not ok and err)
+ assert(sc.settings.get().width==960)
+ assert(sc.settings.apply({width=1280,volume={master=.4},bindings={play={jump={{key='space'}}}}}))
+ sc.scene('second.lua')
+end}""")
+        self.file('second.lua',"""return {init=function()
+ assert(sc.settings.get().width==1280)
+ assert(not pcall(sc.settings.apply,{width=640}))
+ assert(sc.settings.get().bindings.play.jump[1].key=='space')
+end}""")
+        x=self.run_game('--frames',2,'--save-dir',self.root/'data')
+        self.assertEqual(x['settings']['width'],1280)
+        settings=self.root/'data/settings/config/settings.json'
+        self.assertEqual(json.loads(settings.read_text())['settings']['width'],1280)
+        self.file('main.lua',"return {init=function() assert(sc.settings.get().width==1280) end}")
+        self.run_game('--frames',0,'--save-dir',self.root/'data')
+        settings.write_text('{broken')
+        self.file('main.lua',"return {init=function() assert(sc.settings.get().width==960 and #sc.settings.error()>0) end}")
+        self.run_game('--frames',0,'--save-dir',self.root/'data')
+
+    def test_record_trace_profile_and_clip_validation(self):
+        self.file('main.lua',"return {update=function() sc.debug.watch('tick',sc.tick()) end}")
+        record=self.root/'record.jsonl'; trace=self.root/'trace.jsonl'; profile=self.root/'profile.jsonl'
+        self.run_game('--frames',3,'--record',record,'--trace',trace,'--profile',profile)
+        self.assertEqual(len(record.read_text().splitlines()),4)
+        self.assertEqual(len(trace.read_text().splitlines()),3)
+        self.assertTrue(profile.stat().st_size>0)
+        replayed=self.root/'replayed.jsonl'
+        self.run_game('--frames',3,'--replay',record,'--trace',replayed)
+        self.assertEqual(trace.read_bytes(),replayed.read_bytes())
+        self.assertIn('already exists',self.run_game('--frames',1,'--trace',trace,ok=False))
+        self.assertIn('mutually exclusive',self.run_game('--frames',1,'--record',self.root/'other','--replay',record,ok=False))
+        for draw in ('sc.clip()', 'sc.clip(0,0,20,20)'):
+            self.file('main.lua','return {draw=function() '+draw+' end}')
+            self.assertIn('clip stack',self.run_game('--frames',0,ok=False))
 
     def test_api_metadata_matches_annotations(self):
         import re

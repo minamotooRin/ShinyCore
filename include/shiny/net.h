@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <map>
 
 inline constexpr unsigned SC_NET_MAX_PEERS = 32;
 inline constexpr std::size_t SC_NET_MAX_PAYLOAD = 1200;
@@ -64,4 +65,11 @@ private:
     struct Impl;
     explicit ScNet(std::unique_ptr<Impl> impl) noexcept;
     std::unique_ptr<Impl> impl_;
+};
+
+// Application lifetime; room VMs borrow named bindings without owning sockets.
+struct ScNetSessions {
+    struct Entry { std::unique_ptr<ScNet> net; std::uint64_t generation{}; };
+    std::map<std::string,Entry,std::less<>> entries;
+    std::uint64_t next_generation{1};
 };

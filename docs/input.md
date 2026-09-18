@@ -84,7 +84,7 @@ deadzone. The argument must be finite, in `[0,1)`, and representable below 1 as 
 
 Legacy `frame mask` files remain unchanged: masks are 0–63, frames strictly
 increase, and comments start with `#`. They drive only the six actions; direct
-device queries stay neutral. New files begin with `{"version":2}`:
+device queries stay neutral. The selected-controller format uses `{"version":2}`:
 
 ```jsonl
 {"version":2}
@@ -116,13 +116,29 @@ frame are allowed. JSON lines are limited to 64 KiB and files to one million
 records. Blank lines are accepted; JSON records do not accept inline comments.
 Legacy and version 2 records cannot be mixed.
 
-Both formats isolate gameplay from live keyboard/gamepad state. Explicit host
+All formats isolate gameplay from live device state. Explicit host
 debug shortcuts can still control the host. The existing JSON snapshot gains
 `input`, containing the named held controls, per-tick edges, connection state,
 and all six standardized axes. The world hash includes these logical fields;
 hash strings are not compatible with older binaries. Same binary/platform,
-project, seed and replay produce the same results. There is no automatic live
-recording, checkpoint restoration, or cross-platform float equivalence claim.
+project, seed and replay produce the same results. There is no arbitrary VM
+checkpoint restoration or cross-platform float equivalence claim.
+
+Current `--record FILE` output begins with `{"version":3}` and records one
+normalized snapshot per simulation tick. `--replay FILE` isolates live input.
+Version 3 keeps `frame`, `keys`, and `gamepad`, and adds these optional fields:
+
+- `pads`: exactly four objects containing `connected`, `buttons`, `axes`,
+  `pressed`, and `released`; their positions correspond to Lua slots 1..4.
+- `mouse`: logical viewport `x`, `y`, movement `dx`, `dy`, `wheel_x`, `wheel_y`,
+  `inside`, and `buttons`/`pressed`/`released` name arrays. Black bars are outside.
+- `text`, `composition`, `clipboard`: UTF-8 strings of at most 4095 bytes.
+  Text and paste are consumed once; composition persists until replaced.
+
+The `sc.input` namespace exposes these snapshots and individual controls.
+Unslotted gamepad queries retain the selected-controller view; an optional slot
+argument addresses one of the four pads directly. See [new-systems.md](new-systems.md)
+for text editing, action profiles and settings.
 
 ## Example and tests
 

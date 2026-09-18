@@ -152,7 +152,7 @@ end}''')
             with self.subTest(sample=sample):
                 path=self.replay([sample]); error=self.invoke("--frames",1,"--replay",path,ok=False)
                 self.assertIn("input.jsonl:2:",error)
-        for raw in ['{"version":3}\n','{"version":2,"extra":0}\n',
+        for raw in ['{"version":4}\n','{"version":2,"extra":0}\n',
                     '{"version":2}\n{"frame":0,"frame":1}\n',
                     '{"version":2}\n{"frame":0,"keys":[],"gamepad":{"connected":true,"axes":{"left_x":NaN}}}\n']:
             self.source(raw,"input.jsonl")

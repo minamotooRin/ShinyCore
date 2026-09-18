@@ -1,5 +1,6 @@
 #pragma once
 #include <expected>
+#include <concepts>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -12,7 +13,8 @@ struct ScValue {
     using Object = std::map<std::string, ScValue, std::less<>>;
     std::variant<std::monostate, bool, double, std::string, Array, Object> data;
     ScValue() = default;
-    template<class T> explicit ScValue(T value) : data(std::move(value)) {}
+    template<class T> requires (std::same_as<T,bool> || std::same_as<T,double> || std::same_as<T,std::string> || std::same_as<T,Array> || std::same_as<T,Object>)
+    explicit ScValue(T value) : data(std::move(value)) {}
     const ScValue* get(std::string_view key) const;
     std::string text(std::string fallback = {}) const;
     double number(double fallback = 0) const;

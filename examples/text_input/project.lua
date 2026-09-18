@@ -1,0 +1,1 @@
+return {id="text-input",resources={ui={type="font",path="assets/ui.ttf",size=20}},limits={draws=2048,particles=0}}

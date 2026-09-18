@@ -8,11 +8,15 @@ ShinyCore sources and original LANTERN assets are MIT licensed. Dependencies are
 | Box2D | 3.1.1 | https://github.com/erincatto/box2d/tree/v3.1.1 | [MIT](licenses/box2d.txt) |
 | yyjson | 0.12.0 | https://github.com/ibireme/yyjson/tree/0.12.0 | [MIT](licenses/yyjson.txt) |
 | stb_truetype | header pinned from raylib 5.5 | https://github.com/raysan5/raylib/blob/5.5/src/external/stb_truetype.h | [MIT option](licenses/stb_truetype.txt) |
-| Noto Sans SC subset (Workshop only) | weight 400, declared repertoire | https://github.com/google/fonts/tree/main/ofl/notosanssc | [SIL OFL](licenses/notosanssc.txt) |
+| Noto Sans SC subset (Workshop and text-input fixture) | weight 400, declared repertoire | https://github.com/google/fonts/tree/main/ofl/notosanssc | [SIL OFL](licenses/notosanssc.txt) |
 | ENet (optional, `SHINY_NETWORK=ON`) | 1.3.18 | https://github.com/lsalzman/enet/tree/v1.3.18 | [MIT](licenses/enet.txt) |
 | raylib | 5.5 | https://github.com/raysan5/raylib/releases/tag/5.5 | [zlib/libpng](licenses/raylib.txt) |
 | GLFW | bundled with raylib 5.5 | https://github.com/raysan5/raylib/tree/5.5/src/external/glfw | [zlib/libpng](licenses/glfw.txt) |
 | raylib bundled loaders, fonts and audio | archive-pinned | https://github.com/raysan5/raylib/tree/5.5/src/external | [Collected original notices](licenses/raylib-external.txt) |
+
+The ASCII default-font width table in `src/content/text.cpp` is adapted from
+raylib 5.5 `rtext.c`, copyright Ramon Santamaria. It shares the raylib license
+above and provides matching layout metrics in graphics and headless builds.
 
 The collected notices retain the original source comments for miniaudio, dr audio decoders, stb libraries, QOI/QOA, jar audio loaders, glad, compression utilities and platform helpers. Some are optional features in the pinned dependency rather than public ShinyCore APIs. Original license alternatives are preserved. ShinyCore does not include or license any Animal Well code, artwork or music.
 
@@ -33,3 +37,9 @@ stb_truetype.h ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab
 ```
 
 Redistributable application packages produced by `tools/package.py` include this file, the project's LICENSE, and the notice files above. macOS framework libraries are provided by the operating system and are not copied into the package.
+
+## utf8proc 2.10.0
+
+UTF-8 grapheme boundaries use utf8proc (MIT, with Unicode data license).
+Source: https://github.com/JuliaStrings/utf8proc/tree/v2.10.0
+Full notices: licenses/utf8proc.txt.

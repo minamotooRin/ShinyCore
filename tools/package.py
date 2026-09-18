@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -47,24 +48,26 @@ def executable(path: Path, contents: str | None = None) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def preflight(binary: Path, destination: Path, make_zip: bool, with_network: bool = False, custom: bool = False) -> Path:
+def preflight(binary: Path, destination: Path, make_zip: bool, with_network: bool = False, custom: bool = False) -> tuple[Path, dict]:
     archive = Path(str(destination) + ".zip")
     for path in (destination, archive) if make_zip else (destination,):
         if os.path.lexists(path):
             raise FileExistsError(f"output already exists; refusing to overwrite: {path}")
     if not binary.is_file():
         raise OSError(f"engine executable is missing: {binary}")
+    try:
+        result = subprocess.run([str(binary), "--api"], capture_output=True, text=True, encoding="utf-8", timeout=10)
+        metadata = json.loads(result.stdout) if result.returncode == 0 else None
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("version"), str) or not isinstance(metadata.get("modules"), dict):
+            raise ValueError("missing version/modules")
+    except (ValueError, subprocess.TimeoutExpired) as error:
+        raise OSError("cannot read engine contract from executable --api") from error
     files = ["LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "docs/input.md"]
     directories = ["licenses"] + ([] if custom else ["examples/lantern", "examples/input"])
     if with_network:
         files += ["docs/networking.md", "examples/duet/main.lua", "licenses/enet.txt"]
         directories += ["examples/duet"]
-        try:
-            result = subprocess.run([str(binary), "--api"], capture_output=True, text=True, timeout=10)
-            enabled = result.returncode == 0 and json.loads(result.stdout).get("network", {}).get("available") is True
-        except (ValueError, AttributeError, subprocess.TimeoutExpired) as error:
-            raise OSError("cannot read network capability from executable --api") from error
-        if not enabled:
+        if metadata["modules"].get("network") is not True:
             raise OSError("--with-network-examples requires a SHINY_NETWORK=ON executable")
     for name in files:
         if not (ROOT / name).is_file():
@@ -79,7 +82,41 @@ def preflight(binary: Path, destination: Path, make_zip: bool, with_network: boo
         raise OSError("licenses/ is empty; include the dependency license texts before packaging")
     if not custom and not (ROOT / "examples" / "lantern" / "main.lua").is_file():
         raise OSError("Lantern's main.lua is missing")
-    return archive
+    return archive, metadata
+
+
+def write_report(destination: Path, binary: Path, metadata: dict) -> None:
+    """Record shipped bytes, including a per-file inventory that can be audited after moving."""
+    sizes = dict.fromkeys(("engine", "resources", "standard_library", "game_code", "debug_symbols", "other"), 0)
+    files = []
+    for path in sorted(destination.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(destination).as_posix()
+        if path == binary:
+            category = "engine"
+        elif "debug-symbols" in path.relative_to(destination).parts:
+            category = "debug_symbols"
+        elif "/lib/shiny/" in "/" + relative:
+            category = "standard_library"
+        elif "docs" in path.relative_to(destination).parts or path.suffix in (".md", ".txt") or path.name.startswith("."):
+            category = "other"
+        elif "/game/" in "/" + relative or "/examples/" in "/" + relative:
+            category = "game_code" if path.suffix == ".lua" else "resources"
+        else:
+            category = "other"
+        size = path.stat().st_size
+        sizes[category] += size
+        with path.open("rb") as source:
+            digest = hashlib.file_digest(source, "sha256").hexdigest()
+        files.append({"path": relative, "bytes": size, "category": category, "sha256": digest})
+    report = {"format": 1, "engine_version": metadata["version"],
+              "capabilities": metadata["modules"], "platform": platform.system(), "machine": platform.machine(),
+              "bytes": sizes, "total_bytes": sum(sizes.values()), "files": files,
+              "notes": ["Totals exclude package-report.json and the ZIP container.",
+                        "Debug-symbol bytes count supplied separate files; embedded symbols remain in engine bytes.",
+                        "Authored project files are copied conservatively; unused resources are not automatically removed."]}
+    (destination / "package-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def copy_resources(destination: Path, with_network: bool = False, custom: bool = False) -> None:
@@ -101,8 +138,13 @@ def copy_resources(destination: Path, with_network: bool = False, custom: bool =
 
 
 def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
-            with_network: bool = False, project: Path | None = None) -> tuple[Path, Path | None]:
-    archive = preflight(binary, destination, make_zip, with_network, project is not None)
+            with_network: bool = False, project: Path | None = None, symbols: tuple[Path, ...] = ()) -> tuple[Path, Path | None]:
+    archive, metadata = preflight(binary, destination, make_zip, with_network, project is not None)
+    if len({path.name.casefold() for path in symbols}) != len(symbols):
+        raise OSError("debug symbol filenames must be unique")
+    for path in symbols:
+        if not path.is_file():
+            raise OSError(f"debug symbols are missing: {path}")
     if project is not None:
         project = project.resolve()
         checked = subprocess.run([str(binary), "--check-all", str(project)], capture_output=True, text=True, encoding="utf-8", timeout=60)
@@ -127,8 +169,8 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
                 "CFBundleName": "ShinyCore",
                 "CFBundleDisplayName": project.name if project else "ShinyCore — Lantern",
                 "CFBundleIdentifier": "dev.shinycore.game" if project else "dev.shinycore.lantern",
-                "CFBundleVersion": "0.2.0",
-                "CFBundleShortVersionString": "0.2.0",
+                "CFBundleVersion": metadata["version"].split("-")[0],
+                "CFBundleShortVersionString": metadata["version"].split("-")[0],
                 "CFBundlePackageType": "APPL",
                 "CFBundleExecutable": "launch",
                 "NSHighResolutionCapable": True,
@@ -161,6 +203,10 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             launch_hint = "Launch the bundled game with " + ("ShinyCore.app" if system == "Darwin" else "run-game.bat" if system == "Windows" else "run-game.sh") + "."
         shutil.copy2(binary, copied_binary)
         executable(copied_binary)
+        if symbols:
+            (destination / "debug-symbols").mkdir()
+            for path in symbols:
+                shutil.copy2(path, destination / "debug-symbols" / path.name)
         strip_tool = shutil.which("strip") if strip and system != "Windows" else None
         if strip_tool:
             flags = ["-x"] if system == "Darwin" else ["--strip-unneeded"]
@@ -178,8 +224,8 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
 Built on {system} for {platform.machine()}; this package contains that platform's executable.
 Move or unzip the entire folder together. The launchers resolve their own location.
 
-Controls: A/D or arrows move, Space/Z jumps, E/X interacts, Esc quits.
-F1 stats, F2 hitboxes, F3 lighting, F5 reload, P pause, O single step.
+Controls are defined by the bundled game. Close the window to exit.
+Host debug keys require the explicit --debug-keys option.
 
 From this package directory, validate the included game:
   "{relative_binary}" --check-all "{relative_project}"
@@ -194,6 +240,7 @@ The launchers work independently of the source checkout and working directory.
             duet = (resources / "examples" / "duet").relative_to(destination).as_posix()
             readme += f'\nNative multiplayer demo (open twice; Z hosts, X joins):\n  "{relative_binary}" "{duet}"\nSee docs/networking.md beside the bundled examples.\n'
         (destination / "README.txt").write_text(readme, encoding="utf-8")
+        write_report(destination, copied_binary, metadata)
         if make_zip:
             with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED, compresslevel=9) as output:
                 archive_created = True
@@ -216,12 +263,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-zip", action="store_true", help="create only the runnable folder")
     parser.add_argument("--with-network-examples", action="store_true", help="include DUET and network docs; requires a network-enabled executable")
     parser.add_argument("--project", type=Path, help="validate and bundle an authored game with its own launcher")
+    parser.add_argument("--symbols", type=Path, action="append", default=[], help="include a separate symbol file (repeatable)")
     args = parser.parse_args(argv)
     binary = Path(args.binary).expanduser().resolve()
     destination = Path(os.path.abspath(os.path.expanduser(args.destination)))
     try:
         copied_binary, archive = package(binary, destination, strip=not args.no_strip,
-                                        make_zip=not args.no_zip, with_network=args.with_network_examples, project=args.project)
+                                        make_zip=not args.no_zip, with_network=args.with_network_examples, project=args.project,
+                                        symbols=tuple(args.symbols))
     except (OSError, zipfile.BadZipFile) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

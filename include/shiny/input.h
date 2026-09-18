@@ -144,12 +144,28 @@ template<std::size_t N> int sc_input_id(const ScInputName (&names)[N], std::stri
     for (const auto& entry:names) if(entry.name==name) return entry.id;
     return -1;
 }
+inline constexpr ScInputName SC_MOUSE_BUTTONS[] = {{"left",0},{"right",1},{"middle",2},{"side",3},{"extra",4}};
+struct ScPadInput {
+    bool connected{};
+    std::uint32_t buttons{},pressed{},released{};
+    std::array<float,6> axes{};
+};
 struct ScDeviceInput {
+    std::array<ScPadInput,4> pads{};
+    float mouse_x{},mouse_y{},mouse_dx{},mouse_dy{},wheel_x{},wheel_y{};
+    bool mouse_inside{};
+    std::uint32_t mouse_buttons{},mouse_pressed{},mouse_released{};
+    std::array<char,4096> text{},composition{},clipboard{};
+
     std::bitset<512> keys{}, key_pressed{}, key_released{};
     bool connected{};
     std::uint32_t buttons{}, button_pressed{}, button_released{};
     std::array<float,6> axes{};
-    void clear_edges() noexcept { key_pressed.reset(); key_released.reset(); button_pressed=button_released=0; }
+    void clear_edges() noexcept {
+        key_pressed.reset(); key_released.reset(); button_pressed=button_released=0;
+        mouse_pressed=mouse_released=0; mouse_dx=mouse_dy=wheel_x=wheel_y=0; text.fill(0); clipboard.fill(0);
+        for(auto& pad:pads) pad.pressed=pad.released=0;
+    }
 };
 struct ScWorld;
 std::uint32_t sc_device_actions(const ScDeviceInput& input);

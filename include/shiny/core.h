@@ -9,18 +9,22 @@
 #include <string>
 #include <vector>
 
-inline constexpr char SC_VERSION[] = "0.2.0";
+inline constexpr char SC_VERSION[] = "1.0.0-dev";
 inline constexpr float SC_DT = 1.0f / 60.0f;
-inline constexpr int SC_MAX_ENTITIES = 256;
+inline constexpr int SC_MAX_ENTITIES = 4096;
 inline constexpr int SC_MAX_TILES = 16384;
-inline constexpr int SC_MAX_PARTICLES = 1024;
+inline constexpr int SC_MAX_PARTICLES = 32768;
 inline constexpr int SC_MAX_TONES = 32;
-inline constexpr int SC_MAX_DRAWS = 512;
+inline constexpr int SC_MAX_DRAWS = 4096;
 inline constexpr int SC_PATH_MAX = 512;
 inline constexpr int SC_ERROR_MAX = 2048;
 inline constexpr std::uint32_t SC_DEFAULT_SEED = 0x6d2b79f5u;
 
 enum : std::uint32_t { SC_LEFT=1, SC_RIGHT=2, SC_UP=4, SC_DOWN=8, SC_JUMP=16, SC_INTERACT=32 };
+
+using ScEntityId = std::uint64_t;
+inline constexpr ScEntityId SC_ID_MAX = (ScEntityId{1} << 52) - 1;
+inline constexpr std::size_t sc_entity_slot(ScEntityId id) { return id & 65535; }
 
 struct ScBodyShape {
     int kind{};
@@ -30,7 +34,7 @@ struct ScBodyShape {
     bool operator==(const ScBodyShape&) const = default;
 };
 struct ScEntity {
-    std::uint32_t id{};
+    ScEntityId id{};
     bool alive{}, dynamic{}, solid{}, grounded{};
     float x{}, y{}, w{}, h{}, vx{}, vy{}, gravity{}, glow{};
     std::uint32_t color{};
@@ -40,7 +44,8 @@ struct ScEntity {
     int body_type{}, shape{}; // box, circle, capsule, convex polygon
     float angle{}, angular_velocity{}, density{1}, friction{0.3f}, restitution{};
     bool fixed_rotation{true}, sensor{}, bullet{}, one_way{}, flip_x{}, flip_y{};
-    std::uint32_t category{1}, mask{0xffffffffu}, support{};
+    std::uint32_t category{1}, mask{0xffffffffu};
+    ScEntityId support{};
     float normal_x{}, normal_y{}, drop_time{}, force_x{}, force_y{}, impulse_x{}, impulse_y{};
     std::array<float,16> vertices{};
     int vertex_count{};
@@ -48,7 +53,7 @@ struct ScEntity {
     int shape_count{};
 };
 
-struct ScContact { std::uint32_t a{},b{}; float nx{},ny{}; bool sensor{}; int phase{}; };
+struct ScContact { ScEntityId a{},b{}; float nx{},ny{}; bool sensor{}; int phase{}; };
 struct ScPhysics;
 struct ScPhysicsDeleter { void operator()(ScPhysics*) const noexcept; };
 
@@ -57,7 +62,7 @@ struct ScParticle {
     std::uint32_t color{};
 };
 struct ScTone { float frequency{}, duration{}, volume{}; };
-enum ScDrawKind { SC_DRAW_RECT, SC_DRAW_CIRCLE, SC_DRAW_TEXT };
+enum ScDrawKind { SC_DRAW_RECT, SC_DRAW_CIRCLE, SC_DRAW_TEXT, SC_DRAW_CLIP, SC_DRAW_UNCLIP, SC_DRAW_IMAGE };
 struct ScDraw {
     ScDrawKind kind{SC_DRAW_RECT};
     float x{}, y{}, w{}, h{};
@@ -106,35 +111,44 @@ struct ScResource {
     std::string name,type,path,characters;
     int size{16};
     float duration{};
-    std::vector<ScGlyph> glyphs;
+    mutable std::vector<ScGlyph> glyphs;
+    std::vector<unsigned char> font_bytes;
 };
 struct ScAudioVoice {
     std::uint32_t id{};
     bool alive{},music{},loop{},paused{},persistent{},stopping{};
     float volume{1},target_volume{1},pitch{1},fade{},position{},duration{};
+    float pan{};
+    int bus{2},priority{};
+    std::uint64_t age{};
     char path[128]{};
 };
+struct ScAudioBus { float volume{1},target{1},fade{}; bool paused{}; };
+class ScProjectiles;
+struct ScProjectilesDeleter { void operator()(ScProjectiles*) const noexcept; };
 struct ScWorld {
+    std::unique_ptr<ScProjectiles,ScProjectilesDeleter> projectiles;
     std::unique_ptr<ScPhysics,ScPhysicsDeleter> physics;
     ScMap map{};
-    std::array<ScEntity, SC_MAX_ENTITIES> entities{};
-    std::array<std::uint32_t, SC_MAX_ENTITIES> generations = [] {
-        std::array<std::uint32_t, SC_MAX_ENTITIES> values{};
-        values.fill(1);
-        return values;
-    }();
-    std::array<ScParticle, SC_MAX_PARTICLES> particles{};
+    std::vector<ScEntity> entities = std::vector<ScEntity>(SC_MAX_ENTITIES);
+    std::vector<std::uint32_t> generations = std::vector<std::uint32_t>(SC_MAX_ENTITIES, 1);
+    std::uint32_t epoch{1}, visual_rng{0x91e10da5};
+    bool simulation_paused{}, exit_requested{};
+    bool text_focus{}, clipboard_write{};
+    float text_x{},text_y{};
+    std::array<char,4096> clipboard_out{};
+    std::vector<ScParticle> particles = std::vector<ScParticle>(SC_MAX_PARTICLES);
     std::array<ScTone, SC_MAX_TONES> tones{};
-    std::array<ScDraw, SC_MAX_DRAWS> draws{};
+    std::vector<ScDraw> draws = std::vector<ScDraw>(SC_MAX_DRAWS);
     int tone_count{}, draw_count{};
     ScDeviceInput input{};
     std::uint32_t held{}, pressed{}, released{}, rng{SC_DEFAULT_SEED};
     std::uint64_t tick{};
     float gravity{600}, camera_x{}, camera_y{}, ambient{0.4f};
-    std::uint32_t camera_target{};
+    ScEntityId camera_target{};
     int view_width{384}, view_height{216};
     char title[128]{"ShinyCore"}, message[192]{};
-    std::array<ScContact,1024> contacts{};
+    std::vector<ScContact> contacts = std::vector<ScContact>(16384);
     int contact_count{};
     char error[SC_ERROR_MAX]{};
     std::vector<ScLayer> layers;
@@ -144,14 +158,18 @@ struct ScWorld {
     std::vector<ScResource> resources;
     std::array<ScAudioVoice,34> audio{};
     std::array<std::uint32_t,34> audio_generations{};
+    std::array<ScAudioBus,4> audio_buses{}; // master, music, sfx, ui
+    std::array<float,4> audio_gains{1,1,1,1}; // Application preferences, independent of game bus fades.
+    std::uint64_t audio_clock{};
+    std::size_t sound_voice_limit{32};
 };
 
 void sc_world_init(ScWorld *world, std::uint32_t seed);
 /* Returns 0 on invalid values or capacity exhaustion; IDs are generation checked. */
-std::uint32_t sc_spawn(ScWorld *world, const ScEntity *entity);
-ScEntity *sc_entity(ScWorld *world, std::uint32_t id);
-bool sc_destroy(ScWorld *world, std::uint32_t id);
-std::uint32_t sc_find(const ScWorld *world, const char *tag);
+ScEntityId sc_spawn(ScWorld *world, const ScEntity *entity);
+ScEntity *sc_entity(ScWorld *world, ScEntityId id);
+bool sc_destroy(ScWorld *world, ScEntityId id);
+ScEntityId sc_find(const ScWorld *world, const char *tag);
 void sc_input(ScWorld *world, std::uint32_t held);
 void sc_step(ScWorld *world); /* Physics + particles + camera, exactly SC_DT. */
 char sc_tile(const ScWorld *world, int x, int y);

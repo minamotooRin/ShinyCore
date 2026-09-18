@@ -1,5 +1,5 @@
 return {
-    id = "shiny.workshop", data_version = 2, migrate = "game.migrate",
+    id = "shiny.workshop", data_version = 2,
     entry = "main.lua", rooms = {"main.lua", "rooms/quiet.lua"},
     resources = {
         keeper = {type="image", path="assets/keeper.png"},

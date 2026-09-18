@@ -1,5 +1,7 @@
 # Architecture and contracts
 
+This is the current development implementation, not a complete-edition acceptance report. Expanded importer output and streaming APIs are documented separately in [new systems](new-systems.md); direct runtime Tiled loading retains the subset described below.
+
 ShinyCore owns one simulation world per room, one Lua VM per runtime, and one native backend per host. There is no ECS, plugin framework or generated editor scene database.
 
 ## Ownership and fixed update
@@ -18,7 +20,7 @@ Entity positions locate the unrotated bounds' top-left; rotation is about the ce
 
 ASCII solid runs are merged to avoid contact seams. Tiled collision geometry is compiled into the same solver, not a second collision engine. Map virtual boundaries are solid. One-way platforms use prior bounds and relative vertical velocity; use unrotated top-face geometry. `drop` temporarily disables their contacts. Lua implements coyote time, jump buffering and moving-platform velocity inheritance; Workshop supplies an editable controller.
 
-Contacts are sorted by a/b/phase. Terrain has ID 0. Solid contacts carry normals from a to b, sensors emit begin/end edges with zero normals; destroyed shapes may not produce end events. Limits are 64 contacts per body and 1024 collected records per step, with explicit failures. `overlap` and `physics.query` use authored AABBs, while `physics.ray` uses actual solver shapes. Joints expose distance, revolute and local-vertical prismatic constraints, without motors in 0.2.
+Contacts are sorted by a/b/phase. Terrain has ID 0. Solid contacts carry normals from a to b, sensors emit begin/end edges with zero normals; destroyed shapes may not produce end events. Limits are 64 contacts per body and 16384 collected records per step by default, with explicit failures. `overlap` and `physics.query` use authored AABBs, while `physics.ray` uses actual solver shapes. Joints expose distance, revolute and local-vertical prismatic constraints, without motor controls currently.
 
 Entity/joint IDs use slot plus generation; audio IDs use six slot bits. IDs are room-local and must not be stored as persistent game references. Generations have finite rollover limits. Use stable authored names in saves and recreate references in init. The world hash contains explicit logical fields including compound geometry, not padding, addresses, solver caches, joints, resources or arbitrary Lua locals; audio is exposed separately in snapshots. It is diagnostic evidence, not a complete future-state identity.
 
@@ -42,9 +44,9 @@ Only persistent music voices carry across rooms/F5; other voices expire. Candida
 
 ## Checkpoints
 
-`project.id` scopes saves. Records contain format=1, project, data_version, scene and state. `write` runs only in update, writes a sibling temporary file, flushes/closes it and atomically replaces the target. This protects the previous file from ordinary write/rename failures; POSIX power-loss durability and simultaneous writers to one slot are not promised.
+`project.id` scopes saves. Records contain format=2, project, data_version, scene and state. `write` runs only in update, writes a sibling temporary file, flushes/closes it and atomically replaces the target. This protects the previous file from ordinary write/rename failures; POSIX power-loss durability and simultaneous writers to one slot are not promised.
 
-`load` validates a complete candidate, rejects future versions and optionally calls the module named by project.migrate with `(oldVersion,newVersion,state)`. Engine mutation is disabled during migration module loading and execution. The returned state passes the same type/UTF-8/depth/size checks. Successful loading requests room reconstruction; no VM locals, entities, solver caches, audio position or animation time are restored automatically.
+`load` validates the current format (2) and exact project data version, recovering from a previous valid `.bak` when the main file is damaged. Writes atomically preserve the previous valid record; malformed records never replace a good backup. Unsupported formats/data versions are rejected. Successful loading requests room reconstruction; VM locals and solver caches are not restored. `read`, `list` and `delete` expose records, sorted metadata and slot removal.
 
 Graphical defaults: LOCALAPPDATA/ShinyCore on Windows, ~/Library/Application Support/ShinyCore on macOS, XDG_DATA_HOME/shinycore or ~/.local/share/shinycore on Linux. Headless defaults to up to 16 in-memory slots; `--save-dir` opts into disk. Check modes invoke no updates and disable save operations. `--check-all` validates the entry and each declared room with empty state.
 
@@ -52,7 +54,7 @@ Graphical defaults: LOCALAPPDATA/ShinyCore on Windows, ~/Library/Application Sup
 
 Tiled support is finite orthogonal, square equal-size tiles, right-down ordering, integer GID arrays, tile/object layers and one convex collision polygon per tile. Inline and external tilesets, spacing/margins, H/V/diagonal flips, visibility/opacity and tile-layer pixel offsets are supported. Unsupported compression/encoding, groups, images layers, parallax, tint, templates, rotated collision objects and hex rotation bits fail. Object records are copied to Lua for factories; they do not spawn native entities automatically. See Workshop for the editor workflow.
 
-Resources declare image, WAV sound, Ogg Vorbis music, or standalone TTF/OTF font paths. Header structure/duration and font metrics validate without devices; graphical builds additionally decode images/audio and validate atlas rectangles. Text uses declared glyph repertoires plus ASCII, tries fallback fonts in name order and warns once per room when replacing a missing glyph with ?. Layout uses codepoint wrapping and optional alignment; no kerning, shaping, bidi or IME is provided.
+Resources declare image, WAV sound, Ogg Vorbis music, or standalone TTF/OTF font paths. Header structure/duration and font metrics validate without devices; graphical builds additionally decode images/audio and validate atlas rectangles. Text caches metrics and glyph pages on demand, tries fallback fonts in name order and warns once per room when replacing a missing glyph with ?. Layout uses codepoint wrapping and optional alignment; no complex shaping, bidi or color Emoji is provided. Windows IME composition and candidate positioning live in src/platform; physical IME acceptance remains pending.
 
 Audio has a deterministic logical clock even when muted/headless, 32 SFX voices and two music streams, pause/loop/pitch/volume/fades, and generation-checked handles. Pause freezes clock and fades. The native backend decodes sounds and streams music; device playback timing is not an exact simulation clock.
 
@@ -62,10 +64,10 @@ Optional ENet transport remains separate from the solver and game protocol; see 
 
 ## Device input
 
-The host owns `ScInputBuffer`; the world owns a fixed-capacity `ScDeviceInput` snapshot, with no raylib or Lua dependency. The native backend selects a single gamepad and samples named controls; Lua reads only the committed fixed tick. Buffered presses/releases survive render-only iterations and are consumed once, including taps with both edges in one tick. OS repeat is suppressed. Hardware events not reported by the backend cannot be recovered.
+The host owns `ScInputBuffer`; the world owns a fixed-capacity `ScDeviceInput` snapshot, with no raylib or Lua dependency. The native backend samples four stable gamepad slots plus one selected-controller view, keyboard, mouse and text; Lua reads only the committed fixed tick. Buffered presses/releases survive render-only iterations and are consumed once, including taps with both edges in one tick. OS repeat is suppressed. Hardware events not reported by the backend cannot be recovered.
 
 Loss of window focus submits neutral state and release edges. A disconnected pad cannot be replaced until at least one neutral simulation tick has been consumed. A scene transition or successful reload inherits held device/action state before init, with consumed edges cleared. The host buffer survives both. Failed reloads preserve the active runtime.
 
 The six legacy actions derive from the same device state, retaining the 0.25 stick direction threshold and adding vertical left-stick motion. Logical actions OR all sources; releasing one source while another remains held does not release the action. `--debug-keys` explicitly enables host shortcuts; otherwise all keyboard controls, including Escape, belong to the game.
 
-Both replay versions suppress live device input. Legacy masks do not fabricate device state. Version 2 contains normalized controls and derives legacy actions just like live sampling. State hashes include device held/edge bits, connection state and each axis as an explicit logical field; device metadata and native slot numbers are excluded. Hash values therefore change from older binaries. See [input.md](input.md) for names and format.
+Replays suppress live device input. Legacy masks do not fabricate device state. Version 2 contains normalized keyboard/selected-controller controls; version 3 adds four pads, mouse, committed text, composition and paste input. `--record` writes version 3 fixed-tick snapshots. State hashes include these explicit input fields, including stable pad slots. Hash values therefore change from older binaries. See [input.md](input.md) for names and format.

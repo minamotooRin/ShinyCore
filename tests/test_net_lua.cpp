@@ -49,11 +49,11 @@ static int pause_one_ms(lua_State *L) {
     return 0;
 }
 
-static void register_api(lua_State *L) {
+static void register_api(lua_State *L,ScNetSessions* application=nullptr) {
     luaL_openlibs(L);
     lua_newtable(L);
     int top = lua_gettop(L);
-    sc_net_lua_register(L, mutation_guard);
+    sc_net_lua_register(L, mutation_guard,application);
     CHECK(lua_gettop(L) == top);
     lua_setglobal(L, "sc");
     lua_pushcfunction(L, pause_one_ms);
@@ -62,10 +62,10 @@ static void register_api(lua_State *L) {
 
 using LuaVm = std::unique_ptr<lua_State, decltype(&lua_close)>;
 
-static LuaVm new_vm() {
+static LuaVm new_vm(ScNetSessions* application=nullptr) {
     LuaVm vm{luaL_newstate(), lua_close};
     CHECK(vm != nullptr);
-    register_api(vm.get());
+    register_api(vm.get(),application);
     return vm;
 }
 
@@ -324,7 +324,27 @@ static void test_script_integration(void) {
     CHECK(test_rmdir(directory) == 0);
 }
 
+static void test_application_sessions() {
+    ScNetSessions application;
+    auto first=new_vm(&application);
+    run(first.get(),"h=assert(sc.net.host('127.0.0.1',0)); port=h:port(); assert(h:persist('coop'))");
+    auto port=read_port(first.get()); first.reset();
+    check_bind(port,false);
+    CHECK(application.entries.size()==1);
+    auto second=new_vm(&application);
+    run(second.get(),"h=assert(sc.net.bind('coop')); port=h:port(); old=assert(sc.net.bind('coop')); assert(h:flush())");
+    CHECK(read_port(second.get())==port);
+    run(second.get(),"h:close(); assert(old:port()==nil); h=assert(sc.net.host('127.0.0.1',0)); assert(h:persist('coop')); assert(old:port()==nil)");
+    second.reset();
+    CHECK(application.entries.size()==1);
+    auto third=new_vm(&application);
+    run(third.get(),"h=assert(sc.net.bind('coop')); h:close(); assert(sc.net.bind('coop')==nil)");
+    CHECK(application.entries.empty());
+    check_bind(port,true);
+}
+
 int main(void) {
+    test_application_sessions();
     test_arguments_and_limits();
     test_loopback();
     test_guard();

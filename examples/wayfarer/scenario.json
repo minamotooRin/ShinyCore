@@ -1,0 +1,10 @@
+{
+  "frames": 180,
+  "replay": "smoke.jsonl",
+  "assertions": [
+    {
+      "path": "frames",
+      "equals": 180
+    }
+  ]
+}

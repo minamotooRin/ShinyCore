@@ -1,0 +1,153 @@
+#include "shiny/input_replay.h"
+#include <cmath>
+#include <stdexcept>
+#include <cstring>
+#include "shiny/text.h"
+
+namespace {
+void fields(const ScValue& value,std::initializer_list<std::string_view> allowed) {
+    auto object=std::get_if<ScValue::Object>(&value.data);
+    if(!object) throw std::runtime_error("expected an object");
+    for(const auto& [key,item]:*object) {
+        bool found=false;
+        for(auto name:allowed) if(key==name) found=true;
+        if(!found) throw std::runtime_error("unknown field: "+key);
+    }
+}
+const ScValue& required(const ScValue& value,const char* name) {
+    auto item=value.get(name);
+    if(!item) throw std::runtime_error(std::string("missing field: ")+name);
+    return *item;
+}
+template<std::size_t N,class Set> void names(const ScValue* value,const ScInputName (&list)[N],Set set) {
+    if(!value) return;
+    auto array=std::get_if<ScValue::Array>(&value->data);
+    if(!array) throw std::runtime_error("controls must be an array of names");
+    std::bitset<512> seen;
+    for(const auto& item:*array) {
+        auto name=std::get_if<std::string>(&item.data);
+        int id=name?sc_input_id(list,*name):-1;
+        if(id<0) throw std::runtime_error("unknown control name or non-string control");
+        auto index=static_cast<std::size_t>(id);
+        if(seen[index]) throw std::runtime_error("duplicate control: "+*name);
+        seen.set(index); set(index);
+    }
+}
+double numeric(const ScValue& value,double low,double high) {
+    auto number=std::get_if<double>(&value.data);
+    if(!number||!std::isfinite(*number)||*number<low||*number>high) throw std::runtime_error("number outside allowed range");
+    return *number;
+}
+}
+ScResult<ScDeviceReplayEvent> sc_device_replay_event(const ScValue& value) {
+    try {
+        fields(value,{"frame","keys","gamepad","key_pressed","key_released","button_pressed","button_released","mouse","text","composition","clipboard","pads"});
+        ScDeviceReplayEvent event;
+        double frame=numeric(required(value,"frame"),0,1'000'000'000);
+        if(std::floor(frame)!=frame) throw std::runtime_error("frame must be an integer");
+        event.frame=static_cast<std::uint64_t>(frame);
+        auto& in=event.input;
+        names(&required(value,"keys"),SC_KEYS,[&](auto id){in.keys.set(id);});
+        names(value.get("key_pressed"),SC_KEYS,[&](auto id){in.key_pressed.set(id);});
+        names(value.get("key_released"),SC_KEYS,[&](auto id){in.key_released.set(id);});
+        names(value.get("button_pressed"),SC_BUTTONS,[&](auto id){in.button_pressed|=1u<<id;});
+        names(value.get("button_released"),SC_BUTTONS,[&](auto id){in.button_released|=1u<<id;});
+        const auto& pad=required(value,"gamepad"); fields(pad,{"connected","buttons","axes"});
+        auto connected=std::get_if<bool>(&required(pad,"connected").data);
+        if(!connected) throw std::runtime_error("connected must be boolean");
+        in.connected=*connected;
+        names(pad.get("buttons"),SC_BUTTONS,[&](auto id){in.buttons|=1u<<id;});
+        if(auto axes=pad.get("axes")) {
+            fields(*axes,{"left_x","left_y","right_x","right_y","left_trigger","right_trigger"});
+            for(const auto& axis:SC_AXES) if(auto val=axes->get(axis.name)) {
+                auto n=numeric(*val,axis.id<4?-1:0,1);
+                if(!in.connected && n!=0) throw std::runtime_error("disconnected gamepad must be neutral");
+                float axis_value=static_cast<float>(n);
+                in.axes[static_cast<std::size_t>(axis.id)]=axis_value==0?0:axis_value;
+            }
+        }
+        if(!in.connected) {
+            // Explicit releases are valid on a disconnect frame; held/press/axis state is not.
+            bool nonzero=in.buttons||in.button_pressed;
+            for(float axis:in.axes) nonzero|=axis!=0;
+            if(nonzero) throw std::runtime_error("disconnected gamepad must be neutral");
+        }
+        if(auto mouse=value.get("mouse")) {
+            fields(*mouse,{"x","y","dx","dy","wheel_x","wheel_y","inside","buttons","pressed","released"});
+            auto n=[&](const char* name) { auto v=mouse->get(name); return v?static_cast<float>(numeric(*v,-1e6,1e6)):0.0f; };
+            in.mouse_x=n("x"); in.mouse_y=n("y"); in.mouse_dx=n("dx"); in.mouse_dy=n("dy"); in.wheel_x=n("wheel_x"); in.wheel_y=n("wheel_y");
+            if(auto v=mouse->get("inside")) { auto b=std::get_if<bool>(&v->data); if(!b) throw std::runtime_error("mouse.inside requires boolean"); in.mouse_inside=*b; }
+            names(mouse->get("buttons"),SC_MOUSE_BUTTONS,[&](auto i){in.mouse_buttons|=1u<<i;});
+            names(mouse->get("pressed"),SC_MOUSE_BUTTONS,[&](auto i){in.mouse_pressed|=1u<<i;});
+            names(mouse->get("released"),SC_MOUSE_BUTTONS,[&](auto i){in.mouse_released|=1u<<i;});
+        }
+        for(auto field:{"text","composition","clipboard"}) if(auto v=value.get(field)) {
+            auto text=std::get_if<std::string>(&v->data);
+            if(!text||text->size()>=4096||text->find('\0')!=std::string::npos||!sc_utf8(*text)) throw std::runtime_error("invalid input UTF-8 text");
+            auto& buffer=std::strcmp(field,"text")==0?in.text:std::strcmp(field,"composition")==0?in.composition:in.clipboard;
+            std::memcpy(buffer.data(),text->data(),text->size());
+        }
+        if(auto devices=value.get("pads")) {
+            auto entries=std::get_if<ScValue::Array>(&devices->data);
+            if(!entries||entries->size()!=4) throw std::runtime_error("pads requires four snapshots");
+            for(size_t i=0;i<4;++i) {
+                const auto& device=(*entries)[i];
+                fields(device,{"connected","buttons","axes","pressed","released"});
+                ScValue::Object pad_fields,edge_fields;
+                for(const auto& [key,item]:std::get<ScValue::Object>(device.data)) {
+                    if(key=="pressed"||key=="released") edge_fields.emplace("button_"+key,item);
+                    else pad_fields.emplace(key,item);
+                }
+                edge_fields.emplace("frame",ScValue{0.0});
+                edge_fields.emplace("keys",ScValue{ScValue::Array{}});
+                edge_fields.emplace("gamepad",ScValue{std::move(pad_fields)});
+                auto nested=sc_device_replay_event(ScValue{std::move(edge_fields)});
+                if(!nested) throw std::runtime_error(nested.error());
+                auto& p=nested->input; in.pads[i]={p.connected,p.buttons,p.button_pressed,p.button_released,p.axes};
+            }
+        } else in.pads[0]={in.connected,in.buttons,in.button_pressed,in.button_released,in.axes};
+        return event;
+    } catch(const std::exception& error) { return std::unexpected(error.what()); }
+}
+ScValue sc_input_snapshot(const ScDeviceInput& input) {
+    auto names_json=[](const auto& list,auto held) {
+        ScValue::Array array;
+        for(const auto& name:list) if(held(static_cast<std::size_t>(name.id))) array.emplace_back(std::string(name.name));
+        return ScValue(std::move(array));
+    };
+    ScValue::Object axes;
+    for(const auto& axis:SC_AXES) axes.emplace(axis.name,ScValue(static_cast<double>(input.axes[static_cast<std::size_t>(axis.id)])));
+    ScValue::Array pads;
+    for(const auto& p:input.pads) {
+        ScValue::Object a; for(const auto& axis:SC_AXES) a.emplace(axis.name,ScValue{double(p.axes[static_cast<size_t>(axis.id)])});
+        pads.push_back(ScValue{ScValue::Object{
+            {"connected",ScValue{p.connected}},
+            {"buttons",names_json(SC_BUTTONS,[&](auto id){return p.buttons&(1u<<id);})},
+            {"pressed",names_json(SC_BUTTONS,[&](auto id){return p.pressed&(1u<<id);})},
+            {"released",names_json(SC_BUTTONS,[&](auto id){return p.released&(1u<<id);})},
+            {"axes",ScValue{std::move(a)}}}});
+    }
+    return ScValue(ScValue::Object{
+        {"text",ScValue{std::string(input.text.data())}},
+        {"composition",ScValue{std::string(input.composition.data())}},
+        {"clipboard",ScValue{std::string(input.clipboard.data())}},
+        {"pads",ScValue{std::move(pads)}},
+        {"mouse",ScValue{ScValue::Object{
+            {"x",ScValue{double(input.mouse_x)}},{"y",ScValue{double(input.mouse_y)}},
+            {"dx",ScValue{double(input.mouse_dx)}},{"dy",ScValue{double(input.mouse_dy)}},
+            {"wheel_x",ScValue{double(input.wheel_x)}},{"wheel_y",ScValue{double(input.wheel_y)}},
+            {"inside",ScValue{input.mouse_inside}},
+            {"buttons",names_json(SC_MOUSE_BUTTONS,[&](auto i){return input.mouse_buttons&(1u<<i);})},
+            {"pressed",names_json(SC_MOUSE_BUTTONS,[&](auto i){return input.mouse_pressed&(1u<<i);})},
+            {"released",names_json(SC_MOUSE_BUTTONS,[&](auto i){return input.mouse_released&(1u<<i);})}}}},
+        {"keys",names_json(SC_KEYS,[&](auto id){return input.keys[id];})},
+        {"key_pressed",names_json(SC_KEYS,[&](auto id){return input.key_pressed[id];})},
+        {"key_released",names_json(SC_KEYS,[&](auto id){return input.key_released[id];})},
+        {"button_pressed",names_json(SC_BUTTONS,[&](auto id){return input.button_pressed&(1u<<id);})},
+        {"button_released",names_json(SC_BUTTONS,[&](auto id){return input.button_released&(1u<<id);})},
+        {"gamepad",ScValue(ScValue::Object{
+            {"connected",ScValue(input.connected)},
+            {"buttons",names_json(SC_BUTTONS,[&](auto id){return input.buttons&(1u<<id);})},
+            {"axes",ScValue(std::move(axes))}})}
+    });
+}
