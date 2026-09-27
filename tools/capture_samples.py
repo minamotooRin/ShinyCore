@@ -23,6 +23,7 @@ CASES={
     'crossing-mill':('crossing',None,10),
     'crossing-signal':('crossing',None,10),
     'barrage-wave':('barrage','challenge.jsonl',180),
+    'ui-scroll':('ui_scroll','idle.jsonl',2),
     'crossing-ending':('crossing',None,10),
     'wayfarer-ending':('wayfarer',None,4),
     'barrage-ending':('barrage',None,6),

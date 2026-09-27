@@ -20,3 +20,6 @@ included Python sprite generator is optional development tooling.
 [`tsx_import`](tsx_import/) shows a JSON map with external TSX atlas and image
 collection tilesets plus an XML `.tx` object template, converted offline to streamed chunks. It includes original
 small pixel art, a local Lua SDK and a short replay.
+
+[`ui_scroll`](ui_scroll/) demonstrates a horizontal, focus-aware scroll container
+with a native screenshot case and a project-local Lua SDK.

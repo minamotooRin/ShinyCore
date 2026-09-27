@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "1.0.0-dev.85",
+  "version": "1.0.0-dev.86",
   "engine_version": "1.0.0-dev",
   "contract_version": 1,
   "hash": "sha256-text-lf",
@@ -20,6 +20,6 @@
     "lib/shiny/stream_world.lua": "68eaab14235a53f1ce5e540c0c47d649bd0340f7df06b746a686c9ce9d63eb11",
     "lib/shiny/textedit.lua": "701c6294e33109a048d3cd96a2f7959ae4d9e5877343ae0dd065d2cc1be899df",
     "lib/shiny/tween.lua": "bd8afe8c3f739c16bd7678f713232ddaeba823af4d8e2d991f32c641e97cc012",
-    "lib/shiny/ui.lua": "4c950338bd5b4d7dd527628925c49b33d2d7370de1b3820789bd101f1d4b9e75"
+    "lib/shiny/ui.lua": "74dea4392adb9686521c8c40bfed39aab85bc40574e4ee20f86bb13f8e418980"
   }
 }

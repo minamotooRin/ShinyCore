@@ -2,7 +2,7 @@
 
 **小型原生 2D 引擎 · C++23 + Lua · 为人和 LLM Agent 共同开发设计**
 
-当前工作树为 **1.0 开发中版本，尚未完成完整版验收**。新增系统与限制见 [开发状态](docs/implementation-status.md) 和 [新增接口](docs/new-systems.md)。
+当前工作树为 **1.0 开发中版本，尚未完成完整版验收**。剩余验收关口见[验收核对](docs/acceptance-audit-20260928.md)；新增系统与限制见 [开发状态](docs/implementation-status.md) 和 [新增接口](docs/new-systems.md)。
 性能诊断使用 `--profile` 和 [采样报告工具](docs/profiling.md)，区分 CPU 处理、GPU 时间与限帧等待。
 
 ShinyCore 提供固定 60 Hz 模拟、Box2D 刚体、Tiled 地图、跨房间数据与磁盘检查点、精灵图集、音频文件和中英文字体。游戏就是一个可读、可回放的 Lua 项目；角色控制、动画、收集和关卡规则保持在普通 Lua 模块中。

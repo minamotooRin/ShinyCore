@@ -865,6 +865,48 @@ return {init=function()
 end,draw=function() UI.draw(ui) end}''')
         self.invoke('--frames',1)
 
+    def test_horizontal_scroll_layout_focus_and_input(self):
+        shutil.copytree(ROOT/'lua/shiny',self.path/'lib/shiny')
+        self.source('''local UI=require('shiny.ui')
+local ui=UI.new{id='root',kind='scroll',axis='horizontal',padding=4,gap=3,children={
+    {id='a',kind='button',w=40,text='A'},{id='b',kind='button',w=50,text='B'},
+    {id='c',kind='button',w=40,text='C'}}}
+return {init=function()
+    UI.layout(ui,80,50)
+    assert(ui.root.content_w==144 and ui.root.scroll_max==64)
+    assert(UI.scroll_to(ui,'root',999)==64 and ui.nodes.c.rect.x==36)
+    assert(select(1,UI.inspect(ui,0,1))[1].scroll_axis=='horizontal')
+    UI.scroll_to(ui,'root',0); ui.focus='c'
+    assert(not pcall(UI.set,ui,'root',{axis='diagonal'}))
+end,update=function(dt)
+    UI.update(ui,dt,80,50)
+    if sc.tick()==0 then assert(ui.scroll.root==64 and ui.nodes.c.rect.x==36) end
+    if sc.tick()==1 then
+        ui.focus=nil;UI.scroll_to(ui,'root',0)
+    end
+    if sc.tick()==2 then assert(ui.scroll.root==64) end -- Vertical wheel moves a horizontal strip.
+    if sc.tick()==3 then assert(ui.scroll.root==64) end -- Clamp at the far edge.
+end,draw=function() UI.draw(ui) end}''')
+        path=self.replay([event(0),event(1),
+            event(2,mouse=dict(x=20,y=20,inside=True,wheel_y=-2,buttons=[])),
+            event(3,mouse=dict(x=20,y=20,inside=True,wheel_x=-1,buttons=[]))])
+        self.invoke('--replay',path,'--frames',4)
+        self.source('''local UI=require('shiny.ui')
+local ui=UI.new{id='root',kind='scroll',axis='horizontal',padding=0,gap=0,children={
+    {id='a',kind='button',w=80,on_click=function() error('scrollbar click leaked') end},
+    {id='b',kind='button',w=80},{id='c',kind='button',w=80}}}
+return {init=function() UI.layout(ui,100,50) end,update=function(dt)
+    local consumed=UI.update(ui,dt,100,50)
+    if sc.tick()==0 then assert(ui.scroll_drag and consumed.pointer) end
+    if sc.tick()==1 then assert(ui.scroll.root==140 and ui.scroll_drag) end
+    if sc.tick()==2 then assert(ui.scroll.root==140 and not ui.scroll_drag) end
+    if sc.tick()==3 then assert(ui.scroll.root==40 and consumed.pointer) end
+end,draw=function() UI.draw(ui) end}''')
+        path=self.replay([event(i,mouse=dict(x=x,y=46,inside=True,buttons=buttons))
+                          for i,(x,buttons) in enumerate([(10,['left']),(90,['left']),
+                                                            (90,[]),(0,['left']),(0,[])])])
+        self.invoke('--replay',path,'--frames',5)
+
     def test_scroll_focus_reveal_and_nested_wheel(self):
         shutil.copytree(ROOT/'lua/shiny',self.path/'lib/shiny')
         self.source('''local UI=require('shiny.ui')

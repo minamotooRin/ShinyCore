@@ -10,6 +10,11 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+The UI scroll container now accepts `axis="horizontal"` with clamped width-based
+layout, focus reveal, wheel, thumb dragging and inspector state. The default vertical
+path remains. A small local-SDK example and focused native visual evidence are in
+[horizontal scroll verification](verification-ui-horizontal-scroll.md).
+
 `sc.stream.prefetch(x,y)` now queues a best-effort, unscheduled read without
 pinning or gating simulation; a later scheduled request reuses the same job or
 cached result. The room helper selects one ahead chunk from a coarse route and

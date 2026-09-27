@@ -49,6 +49,9 @@ local anchors={top_left={0,0},top={.5,0},top_right={1,0},left={0,.5},center={.5,
 local function layout_fields(node,patch)
     local anchor=field(node,patch,"anchor")
     assert(anchor==nil or anchors[anchor],"unknown UI anchor")
+    local axis=field(node,patch,"axis")
+    assert(axis==nil or (field(node,patch,"kind")=="scroll" and
+        (axis=="vertical" or axis=="horizontal")),"scroll axis must be vertical or horizontal")
     for _,key in ipairs({"x","y","w","h","min_w","min_h","max_w","max_h","padding","gap","columns"}) do
         local value=field(node,patch,key)
         assert(value==nil or (type(value)=="number" and value==value and math.abs(value)<math.huge and
@@ -166,7 +169,7 @@ local function enabled(node)
 end
 -- Geometry dependencies follow parent flow; stable siblings reuse their assigned slot.
 local geometry_fields={x=true,y=true,w=true,h=true,min_w=true,min_h=true,max_w=true,max_h=true,
-    padding=true,gap=true,columns=true,anchor=true,kind=true,visible=true}
+    padding=true,gap=true,columns=true,anchor=true,kind=true,axis=true,visible=true}
 local function invalidate(ui,node,order)
     ui.layout_pending=true
     if order then ui.order_pending=true end
@@ -358,10 +361,12 @@ local function list_metrics(node)
     assert(type(row)=="number" and row>0 and row<math.huge,"list row_height must be finite and positive")
     return #(node.items or {}),row
 end
-local function translate(node,dy)
-    node.rect.y=node.rect.y+dy
-    if node.layout_slot then node.layout_slot.y=node.layout_slot.y+dy end
-    for _,child in ipairs(node.children or {}) do if child.visible~=false then translate(child,dy) end end
+local function translate(node,dx,dy)
+    node.rect.x,node.rect.y=node.rect.x+dx,node.rect.y+dy
+    if node.layout_slot then
+        node.layout_slot.x,node.layout_slot.y=node.layout_slot.x+dx,node.layout_slot.y+dy
+    end
+    for _,child in ipairs(node.children or {}) do if child.visible~=false then translate(child,dx,dy) end end
 end
 local function layout(ui,node,x,y,w,h,force)
     local slot=node.layout_slot
@@ -377,37 +382,50 @@ local function layout(ui,node,x,y,w,h,force)
     local items=children(node)
     local padding=node.padding or theme.padding
     local gap=node.gap or theme.gap
+    local horizontal=node.kind=="scroll" and node.axis=="horizontal"
     local offset=node.kind=="scroll" and (ui.scroll[node.id] or 0) or 0
     local inner_w,inner_h=math.max(0,w-padding*2),math.max(0,h-padding*2)
-    local px,py=node.rect.x+padding,node.rect.y+padding-offset
+    local px,py=node.rect.x+padding-(horizontal and offset or 0),
+        node.rect.y+padding-(horizontal and 0 or offset)
     local columns=node.columns or 1
     assert(type(columns)=="number" and columns>=1 and columns<math.huge and columns%1==0,"grid columns must be a positive integer")
-    local bottom,row_height=node.rect.y+padding-offset,0
+    local bottom,right,row_height=py,px,0
     for i,child in ipairs(items) do
         local cw,ch,cx,cy=inner_w,child.h or 28,px,py
         if node.kind=="row" then
             cw=child.w or math.max(0,(inner_w-gap*(#items-1))/#items)
             ch=inner_h
+        elseif horizontal then
+            cw=child.w or 28
+            ch=child.h or inner_h
         elseif node.kind=="grid" then
             cw=math.max(0,(inner_w-gap*(columns-1))/columns)
             cx=node.rect.x+padding+((i-1)%columns)*(cw+gap)
         elseif node.kind=="overlay" then ch=inner_h end
         layout(ui,child,cx,cy,cw,ch,force)
         bottom=math.max(bottom,child.rect.y+child.rect.h)
+        right=math.max(right,child.rect.x+child.rect.w)
         if node.kind=="row" then px=px+child.rect.w+gap
+        elseif horizontal then px=px+child.rect.w+gap
         elseif node.kind=="grid" then
             row_height=math.max(row_height,child.rect.h)
             if i%columns==0 then py=py+row_height+gap; row_height=0 end
         elseif node.kind~="overlay" then py=py+child.rect.h+gap end
     end
     node.content_h=math.max(0,bottom-node.rect.y+offset+padding)
+    if horizontal then
+        node.content_h=math.max(0,bottom-node.rect.y+padding)
+        node.content_w=math.max(0,right-node.rect.x+offset+padding)
+    end
     if node.kind=="list" then local count,row=list_metrics(node); node.content_h=count*row end
     if node.kind=="scroll" or node.kind=="list" then
-        node.scroll_max=math.max(0,node.content_h-h)
+        node.scroll_max=math.max(0,(horizontal and node.content_w or node.content_h)-(horizontal and w or h))
         local position=math.max(0,math.min(node.scroll_max,ui.scroll[node.id] or 0))
         ui.scroll[node.id]=position
         if node.kind=="scroll" and position~=offset then
-            for _,child in ipairs(items) do translate(child,offset-position) end
+            for _,child in ipairs(items) do
+                translate(child,horizontal and offset-position or 0,horizontal and 0 or offset-position)
+            end
         end
     end
 end
@@ -432,18 +450,18 @@ function UI.layout(ui,width,height)
     refresh_text(ui)
     ui.dirty=false; ui.layout_pending=false; ui.order_pending=false; ui.text_pending=false
 end
-local function scroll_set(ui,node,y)
-    y=math.max(0,math.min(node.scroll_max or 0,y))
-    if y==(ui.scroll[node.id] or 0) then return false end
-    ui.scroll[node.id]=y; invalidate(ui,node); return true
+local function scroll_set(ui,node,offset)
+    offset=math.max(0,math.min(node.scroll_max or 0,offset))
+    if offset==(ui.scroll[node.id] or 0) then return false end
+    ui.scroll[node.id]=offset; invalidate(ui,node); return true
 end
-function UI.scroll_to(ui,id,y)
+function UI.scroll_to(ui,id,offset)
     local node=assert(ui.nodes[id],"unknown UI ID")
     assert(node.kind=="scroll" or node.kind=="list","scroll_to requires a scroll container or list")
-    assert(type(y)=="number" and y==y and math.abs(y)<math.huge,"scroll offset must be finite")
+    assert(type(offset)=="number" and offset==offset and math.abs(offset)<math.huge,"scroll offset must be finite")
     assert(node.rect,"layout the UI before scrolling")
     UI.layout(ui,ui.width,ui.height)
-    scroll_set(ui,node,y); UI.layout(ui,ui.width,ui.height)
+    scroll_set(ui,node,offset); UI.layout(ui,ui.width,ui.height)
     ui.scroll_request=(ui.scroll_request or 0)+1
     return ui.scroll[id]
 end
@@ -452,10 +470,14 @@ local function reveal(ui,node)
     while parent do
         if parent.kind=="scroll" then
             local padding=parent.padding or ui.theme.padding
-            local top,bottom=parent.rect.y+padding,parent.rect.y+parent.rect.h-padding
+            local horizontal=parent.axis=="horizontal"
+            local first=horizontal and node.rect.x or node.rect.y
+            local last=first+(horizontal and node.rect.w or node.rect.h)
+            local start=(horizontal and parent.rect.x or parent.rect.y)+padding
+            local finish=start+(horizontal and parent.rect.w or parent.rect.h)-2*padding
             local delta=0
-            if node.rect.y<top then delta=node.rect.y-top
-            elseif node.rect.y+node.rect.h>bottom then delta=math.min(node.rect.y-top,node.rect.y+node.rect.h-bottom) end
+            if first<start then delta=first-start
+            elseif last>finish then delta=math.min(first-start,last-finish) end
             if scroll_set(ui,parent,(ui.scroll[parent.id] or 0)+delta) then UI.layout(ui,ui.width,ui.height) end
         end
         parent=parent.parent
@@ -465,8 +487,13 @@ local function scrollbar(ui,node)
     local maximum=node.scroll_max or 0
     if maximum<=0 or node.rect.h<=0 or node.rect.w<=0 then return end
     local r=node.rect
+    if node.kind=="scroll" and node.axis=="horizontal" then
+        local width=math.min(r.w,math.max(18,r.w*r.w/(r.w+maximum)))
+        return {axis="horizontal",x=r.x,y=r.y+math.max(0,r.h-8),w=r.w,h=math.min(8,r.h),
+            thumb_x=r.x+(ui.scroll[node.id] or 0)/maximum*(r.w-width),thumb_w=width}
+    end
     local height=math.min(r.h,math.max(18,r.h*r.h/(r.h+maximum)))
-    return {x=r.x+math.max(0,r.w-8),y=r.y,w=math.min(8,r.w),h=r.h,
+    return {axis="vertical",x=r.x+math.max(0,r.w-8),y=r.y,w=math.min(8,r.w),h=r.h,
         thumb_y=r.y+(ui.scroll[node.id] or 0)/maximum*(r.h-height),thumb_h=height}
 end
 local function visible_point(node,x,y)
@@ -576,8 +603,11 @@ local function scrollbar_input(ui,modal,x,y,viewport)
         local visible=false
         for _,item in ipairs(ui.order) do if item==node then visible=true; break end end
         local bar=visible and enabled(node) and (not modal or under(node,modal)) and scrollbar(ui,node)
-        if bar and bar.h>bar.thumb_h and (sc.input.mouse_down("left") or sc.input.mouse_released("left")) then
-            scroll_set(ui,node,(y-bar.y-drag.grab)/(bar.h-bar.thumb_h)*node.scroll_max)
+        local horizontal=bar and bar.axis=="horizontal"
+        local length=bar and (horizontal and bar.w or bar.h)
+        local thumb=bar and (horizontal and bar.thumb_w or bar.thumb_h)
+        if bar and length>thumb and (sc.input.mouse_down("left") or sc.input.mouse_released("left")) then
+            scroll_set(ui,node,((horizontal and x-bar.x or y-bar.y)-drag.grab)/(length-thumb)*node.scroll_max)
         end
         if not bar or not sc.input.mouse_down("left") then ui.scroll_drag=nil end
         return true -- Keep the release from activating content under the old thumb.
@@ -591,9 +621,14 @@ local function scrollbar_input(ui,modal,x,y,viewport)
                 if sc.input.mouse_pressed("left") then
                     ui.active=nil
                     if node.kind=="list" then ui.focus=node.id end
-                    if y>=bar.thumb_y and y<bar.thumb_y+bar.thumb_h then
-                        ui.scroll_drag={id=node.id,grab=y-bar.thumb_y}
-                    else scroll_set(ui,node,(ui.scroll[node.id] or 0)+(y<bar.thumb_y and -bar.h or bar.h)) end
+                    local horizontal=bar.axis=="horizontal"
+                    local point=horizontal and x or y
+                    local first=horizontal and bar.thumb_x or bar.thumb_y
+                    local size=horizontal and bar.thumb_w or bar.thumb_h
+                    if point>=first and point<first+size then
+                        ui.scroll_drag={id=node.id,grab=point-first}
+                    else scroll_set(ui,node,(ui.scroll[node.id] or 0)+
+                        (point<first and -1 or 1)*(horizontal and bar.w or bar.h)) end
                 end
                 return true
             end
@@ -901,9 +936,9 @@ function UI.update(ui,dt,width,height,actions)
         if #committed>0 and (composing or not control) then Edit.insert(e,committed,focused.max_bytes) end
         if e.value~=focused.value then focused.text_goal_x=nil; focused.value=e.value; emit(ui,focused,"change",e.value) end
     end
-    local _,wheel=sc.input.wheel()
+    local wheel_x,wheel_y=sc.input.wheel()
     local wheel_pointer=false
-    if wheel~=0 and viewport then
+    if (wheel_x~=0 or wheel_y~=0) and viewport then
         local target
         for i=#ui.order,1,-1 do
             local node=ui.order[i]
@@ -911,7 +946,9 @@ function UI.update(ui,dt,width,height,actions)
         end
         wheel_pointer=target~=nil
         while target and (not modal or under(target,modal)) do
-            if (target.kind=="scroll" or target.kind=="list") and enabled(target) and
+            local wheel=target.kind=="scroll" and target.axis=="horizontal" and
+                (wheel_x~=0 and wheel_x or wheel_y) or wheel_y
+            if (target.kind=="scroll" or target.kind=="list") and enabled(target) and wheel~=0 and
                 scroll_set(ui,target,(ui.scroll[target.id] or 0)-wheel*32) then break end
             target=target.parent -- An exhausted inner viewport hands the wheel to its parent.
         end
@@ -1059,7 +1096,13 @@ local function draw_node(ui,node)
         local bar=scrollbar(ui,node)
         if bar then
             sc.rect(bar.x,bar.y,bar.w,bar.h,t.background,true)
-            sc.rect(bar.x+1,bar.thumb_y,math.max(1,bar.w-2),bar.thumb_h,enabled(node) and t.accent or t.muted,true)
+            if bar.axis=="horizontal" then
+                sc.rect(bar.thumb_x,bar.y+1,bar.thumb_w,math.max(1,bar.h-2),
+                    enabled(node) and t.accent or t.muted,true)
+            else
+                sc.rect(bar.x+1,bar.thumb_y,math.max(1,bar.w-2),bar.thumb_h,
+                    enabled(node) and t.accent or t.muted,true)
+            end
         end
     end
     if clipped then sc.clip() end
@@ -1135,6 +1178,9 @@ function UI.inspect(ui,offset,limit)
         local scroll=rawget(ui,"scroll")
         row.scroll=type(scroll)=="table" and scalar(rawget(scroll,id)) or nil
         row.scroll_max=scalar(rawget(node,"scroll_max"))
+        if row.kind=="scroll" or row.kind=="list" then
+            row.scroll_axis=row.kind=="scroll" and (scalar(rawget(node,"axis")) or "vertical") or "vertical"
+        end
         local drag=rawget(ui,"scroll_drag")
         row.scroll_capture=type(drag)=="table" and rawget(drag,"id")==id or false
         local popup=rawget(ui,"tooltip")
