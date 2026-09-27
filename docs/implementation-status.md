@@ -10,6 +10,13 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+The offline [navigation bake](navigation-bake.md) now drives a headless native engine
+to export per-chunk passability from the existing Tiled terrain and navigation code.
+It includes terrain reach beyond the immediate neighbor and cross-chunk object
+anchors, and records input/tool/engine fingerprints. Focused native checks cover
+determinism and both distant collision sources. The output remains a static mask;
+component portals, runtime global routes and saved edits remain open.
+
 `sc.navigation.mask(radius?)` now exposes a bounded read-only snapshot of the
 selected grid's exact path/flow clearance mask and world origin. It updates after
 Tiled collision edits and enables one consistent source for future offline
