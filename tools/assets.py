@@ -19,7 +19,7 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 11
+VERSION = 12
 CHUNK = 32
 
 
@@ -150,6 +150,12 @@ def tiled(root, source, read):
     if type(tw) is not int or type(th) is not int or not 1 <= tw <= 256 or not 1 <= th <= 256:
         raise ValueError(f"{source}: invalid tile size")
     sets=[]; external_sets={}
+    def load_xml(kind,content,owner):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        try: import tiled_xml
+        finally: sys.path.pop(0)
+        return (tiled_xml.load_tileset if kind=="tsx" else tiled_xml.load_template)(content,owner.relative_to(root))
     def relative(owner,reference):
         if not isinstance(reference,str) or not reference:
             raise ValueError(f"{owner.relative_to(root)}: nonempty resource path required")
@@ -162,11 +168,7 @@ def tiled(root, source, read):
                 raise ValueError(f"{owner.relative_to(root)}: tileset.source: {error}") from error
             content=read(external)
             if external.suffix.lower()==".tsx":
-                import sys
-                sys.path.insert(0,str(Path(__file__).resolve().parent))
-                try: import tiled_tsx
-                finally: sys.path.pop(0)
-                definition=tiled_tsx.load(content,external.relative_to(root))
+                definition=load_xml("tsx",content,external)
             else:
                 definition=json.loads(content)
             item={**definition,"firstgid":item["firstgid"]}; directory=external.parent
@@ -257,9 +259,10 @@ def tiled(root, source, read):
         base={};defaults={}
         if "template" in instance:
             owner=relative(path,instance["template"])
-            template=json.loads(read(owner))
+            content=read(owner)
+            template=load_xml("tx",content,owner) if owner.suffix.lower()==".tx" else json.loads(content)
             if not isinstance(template,dict) or template.get("type")!="template" or not isinstance(template.get("object"),dict):
-                raise ValueError(f"{owner.relative_to(root)}: expected a JSON object template")
+                raise ValueError(f"{owner.relative_to(root)}: expected an object template")
             base=dict(template["object"])
             if "template" in base: raise ValueError(f"{owner.relative_to(root)}: nested templates are unsupported")
             defaults=properties(base.get("properties",[]),owner)

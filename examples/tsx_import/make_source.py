@@ -44,5 +44,8 @@ world = {"orientation": "orthogonal", "tilewidth": 16, "tileheight": 16,
          "tilesets": [{"firstgid": 1, "source": "ground.tsx"},
                       {"firstgid": 6, "source": "flower.tsx"}],
          "layers": [{"type": "tilelayer", "name": "court", "width": 16,
-                     "height": 8, "data": cells, "offsetx": 24, "offsety": 20}]}
+                     "height": 8, "data": cells, "offsetx": 24, "offsety": 20},
+                    {"type": "objectgroup", "name": "markers", "offsetx": 24, "offsety": 20,
+                     "objects": [{"id": 1, "template": "plaque.tx", "x": 176, "y": 80,
+                                  "properties": [{"name": "label", "type": "string", "value": "TX FLOWER"}]}]}]}
 (root / "world.json").write_text(json.dumps(world, indent=2) + "\n", encoding="utf-8")

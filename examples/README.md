@@ -18,5 +18,5 @@ rules. The runtime consumes the `.lua` files and `.png` assets directly; the
 included Python sprite generator is optional development tooling.
 
 [`tsx_import`](tsx_import/) shows a JSON map with external TSX atlas and image
-collection tilesets, converted offline to streamed chunks. It includes original
+collection tilesets plus an XML `.tx` object template, converted offline to streamed chunks. It includes original
 small pixel art, a local Lua SDK and a short replay.

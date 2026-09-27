@@ -10,13 +10,20 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+XML `.tx` object templates now join the JSON map import path, including inherited
+GID remapping to a map TSX tileset or automatic import of a template-only tileset.
+Effective `file` properties resolve from the template or map owner and enter the
+package closure. Five targeted resource checks, a 30-frame headless example and
+inspected native capture provide evidence; see [template contract](tiled-templates.md).
+The example inputs are authored fixtures, not a real Tiled editor export. TMX maps
+remain unsupported; complete game and platform acceptance remains open.
+
 The offline Tiled importer now accepts external TSX tilesets referenced by JSON
 maps. Atlas and sparse collection images, animation, collision shapes and file
 properties flow into the existing format-3 chunk output. The package closure now
 includes effective tileset/tile/layer file properties. Four focused asset tests,
 two package checks, a relocated example, headless runtime and inspected native capture provide
-evidence; see [TSX contract](tiled-tsx.md). Cache format is 11. TMX maps and XML
-object templates remain unsupported.
+evidence; see [TSX contract](tiled-tsx.md). Cache format is now 12. TMX maps remain unsupported.
 
 Barrage now has five distinct four-frame enemy sprites at native gameplay sizes.
 The offline source script reproduces their PNG bytes. Content, short replay,
@@ -29,7 +36,7 @@ and generate native sprite grids plus plain Lua animation catalogs. Focused asse
 tests and the runnable animation_import sample passed content/SDK checks; headless
 and hidden native observations agreed, and its PNG was inspected. Source metadata
 is an authored format fixture, not an editor-export acceptance claim. See the
-[import contract and evidence](aseprite.md). The shared builder cache is now format 11; SDK remains dev.46.
+[import contract and evidence](aseprite.md). The shared builder cache is now format 12; SDK remains dev.46.
 
 The advanced_render aggregate capability now follows its build switch and agrees
 with materials/postprocessing/geometry_shadows/normal_maps. A real full-build project

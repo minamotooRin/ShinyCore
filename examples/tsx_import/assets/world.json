@@ -150,6 +150,27 @@
       ],
       "offsetx": 24,
       "offsety": 20
+    },
+    {
+      "type": "objectgroup",
+      "name": "markers",
+      "offsetx": 24,
+      "offsety": 20,
+      "objects": [
+        {
+          "id": 1,
+          "template": "plaque.tx",
+          "x": 176,
+          "y": 80,
+          "properties": [
+            {
+              "name": "label",
+              "type": "string",
+              "value": "TX FLOWER"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

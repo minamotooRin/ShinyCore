@@ -16,12 +16,12 @@ The package dependency closure also retains effective tileset, tile and layer
 `file` properties; it rejects missing or outside-project targets.
 
 This importer reads **JSON maps plus external TSX tilesets**. It does not parse TMX
-maps or XML `.tx` object templates; JSON object templates may refer to a TSX
-tileset. Embedded images, color-key transparency, nonorthogonal tile grids,
+maps. Both JSON and XML `.tx` object templates may refer to a TSX tileset;
+see [object templates](tiled-templates.md). Embedded images, color-key transparency, nonorthogonal tile grids,
 custom tile image subrectangles, grid-size tile rendering and aspect-fit are
 explicitly rejected. DTD/entity declarations are rejected, and a TSX is limited
 to 4 MiB. A game's runtime needs only the built index/chunks and referenced PNGs.
-The builder cache key is version 11; the runtime chunk index remains format 3.
+The builder cache key is now version 12; the runtime chunk index remains format 3.
 
 This normalization follows Tiled's [TMX/TSX reference](https://doc.mapeditor.org/en/stable/reference/tmx-map-format/)
 and [JSON map reference](https://doc.mapeditor.org/en/stable/reference/json-map-format/).

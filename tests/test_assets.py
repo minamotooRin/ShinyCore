@@ -16,6 +16,69 @@ spec.loader.exec_module(assets)
 
 
 class Assets(unittest.TestCase):
+    def test_xml_object_template_with_tsx_and_property_origins(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory(prefix='shiny-tx-') as temp:
+            root=Path(temp);(root/'tiles').mkdir();(root/'templates').mkdir();(root/'images').mkdir()
+            Image.new('RGBA',(8,8),(150,80,40,255)).save(root/'images/icon.png')
+            (root/'tiles/set.tsx').write_text('''<tileset name="icons" tilewidth="8" tileheight="8" tilecount="1" columns="0">
+                <tile id="3"><image source="../images/icon.png"/></tile></tileset>''',encoding='utf-8')
+            (root/'templates/default.txt').write_text('template note',encoding='utf-8')
+            (root/'map-note.txt').write_text('map note',encoding='utf-8')
+            template='''<?xml version="1.0" encoding="UTF-8"?>
+                <template><tileset firstgid="5" source="../tiles/set.tsx"/>
+                <object name="sign" class="marker" gid="8" width="8" height="8" visible="1">
+                 <properties><property name="note" type="file" value="default.txt"/>
+                   <property name="title" value="from template"/>
+                   <property name="count" type="int" value="7"/></properties>
+                </object></template>'''
+            (root/'templates/sign.tx').write_text(template,encoding='utf-8')
+            data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,
+                  'tilesets':[{'firstgid':6,'source':'tiles/set.tsx'}],
+                  'layers':[{'type':'objectgroup','name':'markers','objects':[
+                      {'id':9,'template':'templates/sign.tx','x':16,'y':8,
+                       'properties':[{'name':'title','type':'string','value':'override'}]},
+                      {'id':10,'template':'templates/sign.tx','x':24,'y':8,
+                       'properties':[{'name':'note','type':'file','value':'map-note.txt'}]}]}]}
+            (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
+            manifest=root/'assets.json';manifest.write_text('{"maps":{"world":"map.json"}}',encoding='utf-8')
+            built=assets.build(manifest,root/'cache')
+            chunk=json.loads((built/'map-world/0_0.json').read_text(encoding='utf-8'))
+            first,second=chunk['objects']
+            self.assertEqual((first['id'],first['persistent_id'],first['gid'],first['type']),
+                             (9,'markers:9',9,'marker'))
+            self.assertEqual({p['name']:p['value'] for p in first['properties']},
+                             {'count':7,'note':'templates/default.txt','title':'override'})
+            self.assertEqual({p['name']:p['value'] for p in second['properties']}['note'],'map-note.txt')
+            inputs=json.loads((built/'index.json').read_text(encoding='utf-8'))['inputs']
+            self.assertTrue({'templates/sign.tx','tiles/set.tsx','templates/default.txt','map-note.txt'}<=inputs.keys())
+            self.assertEqual((built/'map-world/index.json').read_bytes(),
+                             (assets.build(manifest,root/'clean')/'map-world/index.json').read_bytes())
+            (root/'templates/sign.tx').write_text(template.replace('count" type="int" value="7"','count" type="int" value="8"'),encoding='utf-8')
+            self.assertNotEqual(built.name,assets.build(manifest,root/'cache').name)
+            data['tilesets']=[]
+            (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
+            imported=assets.build(manifest,root/'template-only')
+            self.assertEqual(json.loads((imported/'map-world/index.json').read_text(encoding='utf-8'))['tilesets'][0]['firstgid'],1)
+            self.assertEqual(json.loads((imported/'map-world/0_0.json').read_text(encoding='utf-8'))['objects'][0]['gid'],4)
+
+    def test_xml_object_template_rejects_bad_structure(self):
+        with tempfile.TemporaryDirectory(prefix='shiny-tx-invalid-') as temp:
+            root=Path(temp)
+            data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,'tilesets':[],
+                  'layers':[{'type':'objectgroup','name':'markers','objects':[
+                      {'id':1,'template':'sign.tx','x':0,'y':0}]}]}
+            (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
+            manifest=root/'assets.json';manifest.write_text('{"maps":{"world":"map.json"}}',encoding='utf-8')
+            for content,field in [('<template><object/><object/></template>','one object'),
+                                  ('<template><object template="other.tx"/></template>','nested templates'),
+                                  ('<template><object><properties><property name="x" type="int" value="bad"/></properties></object></template>','invalid number'),
+                                  ('<!DOCTYPE template [<!ENTITY x "y">]><template><object/></template>','DTD/entity')]:
+                (root/'sign.tx').write_text(content,encoding='utf-8')
+                with self.subTest(field=field),self.assertRaisesRegex(ValueError,field):
+                    assets.build(manifest,root/'cache')
+                self.assertFalse((root/'cache').exists())
+
     def test_external_tsx_atlas_collection_and_cache(self):
         from PIL import Image
         with tempfile.TemporaryDirectory(prefix='shiny-tsx-') as temp:

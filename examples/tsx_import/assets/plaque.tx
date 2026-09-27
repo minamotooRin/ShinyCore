@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+ <tileset firstgid="1" source="flower.tsx"/>
+ <object name="flower-plaque" class="marker" gid="8" width="18" height="24">
+  <properties>
+   <property name="label" value="TEMPLATE"/>
+   <property name="note" type="file" value="plaque.txt"/>
+  </properties>
+ </object>
+</template>
