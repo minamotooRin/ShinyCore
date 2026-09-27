@@ -455,6 +455,25 @@ function World.flow(world,gx,gy,budget,slot,radius)
     if not x then return nil,reason,0 end
     return sc.navigation.flow(x,y,budget,slot,radius)
 end
+-- Refresh only confirmed published chunks; pending transitions never enter the graph.
+function World.refresh_route(world,route)
+    assert(world.navigation and world.nav_region,"route refresh requires published navigation")
+    assert(not world.transaction and not world.region.pending,"finish the current world transition before refreshing routes")
+    assert(type(route)=="table" and type(route.refresh)=="function" and type(route.data)=="table",
+        "route refresh requires a stream route")
+    assert(route.data.chunk_width==world.region.width and route.data.chunk_height==world.region.height and
+        route.data.cell_size==world.nav_region.cell_size,"route scale disagrees with streamed world")
+    local mask=sc.navigation.mask(route.data.radius)
+    local halo=route.data.radius>mask.cell_size/2 and math.ceil(route.data.radius/mask.cell_size) or 0
+    local chunks={}
+    for _,chunk in ipairs(ordered(world.chunks)) do
+        local x=(chunk.x*route.data.chunk_width-mask.x)/mask.cell_size
+        local y=(chunk.y*route.data.chunk_height-mask.y)/mask.cell_size
+        if x>=halo and y>=halo and x+route.data.cells_x+halo<=mask.width and
+            y+route.data.cells_y+halo<=mask.height then chunks[#chunks+1]=chunk end
+    end
+    return route.refresh(route,mask,chunks)
+end
 function World.draw(world,camera)
     if not world.residency or world.resident_names then Tiles.draw(world.view,world.prepared,camera) end
 end

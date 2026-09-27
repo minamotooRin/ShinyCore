@@ -39,8 +39,9 @@ with tempfile.TemporaryDirectory(prefix='shiny-nav-route-') as temp:
     (project / 'split.json').write_text(json.dumps(split), encoding='utf-8')
     separated = graph.build(project / 'split.json', project / 'split.lua')
     assert separated['node_count'] == 3 and len(separated['edges']) == 1
-    shutil.copyfile(root / 'lua/shiny/stream_route.lua', project / 'route.lua')
-    (project / 'main.lua').write_text('''local Route=require('route')
+    shutil.copytree(root / 'lua/shiny', project / 'lib/shiny')
+    (project / 'main.lua').write_text('''local Route=require('shiny.stream_route')
+local World=require('shiny.stream_world')
 return {init=function()
   local forest=Route.new(require('wayfarer'))
   local path=Route.route(forest,12,12,780,780)
@@ -57,6 +58,37 @@ return {init=function()
   assert(crossing.status=='ok' and #crossing.points==4)
   assert(crossing.points[2].x==-4 and crossing.points[3].x==4)
   assert(Route.route(split,-28,20,4,4).status=='unreachable')
+  sc.navigation.region(-32,0,{'........','########','........','########'},8)
+  local mask=sc.navigation.mask()
+  assert(Route.refresh(split,mask,{{x=-1,y=0},{x=0,y=0}})==1)
+  assert(split.revision==1 and Route.route(split,-28,20,4,20).status=='ok')
+  assert(Route.route(split,-28,20,4,20).revision==1)
+  local bad=sc.navigation.mask(); bad.radius=1
+  assert(not pcall(Route.refresh,split,bad,{{x=0,y=0}}))
+  assert(not pcall(Route.refresh,split,mask,{{x=0,y=0},{x=0,y=0}}))
+  assert(not pcall(Route.refresh,split,mask,{[1]={x=0,y=0},[3]={x=-1,y=0}}))
+  local incomplete={x=-32,y=0,cell_size=8,radius=0,width=4,height=4,
+      rows={'####','####','....','####'}}
+  assert(not pcall(Route.refresh,split,incomplete,{{x=-1,y=0},{x=0,y=0}}))
+  assert(split.revision==1 and Route.route(split,-28,20,4,20).status=='ok')
+  sc.navigation.region(-32,0,{'....####','########','........','########'},8)
+  local world={navigation=true,nav_region={cell_size=8},region={width=32,height=32},
+      chunks={['0:0']={x=0,y=0}}}
+  assert(World.refresh_route(world,split)==1 and split.revision==2)
+  assert(Route.route(split,-28,4,4,4).status=='unreachable')
+  assert(Route.route(split,-28,20,4,20).status=='ok')
+  world.region.pending={}
+  assert(not pcall(World.refresh_route,world,split) and split.revision==2)
+  world.region.pending=nil
+  sc.navigation.region(-32,0,{'........','########','....####','########'},8)
+  assert(World.refresh_route(world,split)==1 and split.revision==3)
+  assert(Route.route(split,-28,4,4,4).status=='ok')
+  assert(Route.route(split,-28,20,4,20).status=='unreachable')
+  local wide_data=require('split'); wide_data.radius=6
+  local wide=Route.new(wide_data)
+  local wide_mask=sc.navigation.mask(6)
+  assert(World.refresh_route(world,wide)==0 and wide.revision==0)
+  assert(not pcall(Route.refresh,wide,wide_mask,{{x=0,y=0}}))
   sc.debug.watch('route',{status=path.status,portals=#path.points-2,split=crossing.status})
 end}
 ''', encoding='utf-8')
@@ -66,4 +98,4 @@ end}
     watches = json.loads(result.stdout)['watches']['route']
     assert watches['status'] == watches['split'] == 'ok' and watches['portals'] >= 2
 
-print('Stream route: native-baked map, portals, negative chunks and disconnection passed')
+print('Stream route: baked graph, native-mask refresh, published-world gate and disconnection passed')

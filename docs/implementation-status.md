@@ -10,14 +10,22 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Published streamed chunks can now refresh the coarse route graph from the native
+navigation mask. Changed chunks and boundary portals commit together after saved
+tile restoration or a map patch; failed refreshes leave the prior graph intact.
+Focused native-host checks cover graph changes, rollback, clearance halo, and
+unload/reload of saved edits. Unloaded chunks with unread saved edits still use
+the static graph, so local `World.path` and loading boundaries remain authoritative;
+see [refresh verification](verification-stream-route-refresh.md).
+
 The offline [navigation bake](navigation-bake.md) drives a headless native engine
 to export per-chunk passability from the existing Tiled terrain and navigation code.
 It includes distant tile collision and cross-chunk object anchors. A second tool
 compiles connected components and portals into a project-local Lua module;
 `shiny.stream_route` can now plan coarse routes beyond the published window.
 Focused native checks cover deterministic compilation, negative chunks,
-disconnections and portal waypoints. The graph remains static: saved tile edits
-and runtime component repair remain open.
+disconnections and portal waypoints. The baseline graph is static; confirmed
+published chunks may now carry dynamic connectivity overrides as above.
 
 `sc.navigation.mask(radius?)` now exposes a bounded read-only snapshot of the
 selected grid's exact path/flow clearance mask and world origin. It updates after
@@ -30,8 +38,8 @@ published navigation window. Wayfarer's courier no longer reads internal chunk
 tables or hardcodes their size. Focused negative-chunk/transition checks, the full
 Wayfarer integration run and an inspected hidden native frame pass; see
 [stream-world navigation](verification-stream-world-navigation.md). The newer
-static portal graph can plan beyond this local window; saved tile edits are not yet
-reflected in that graph.
+portal graph can plan beyond this local window; published saved tile edits can
+be reflected through explicit `World.refresh_route` calls.
 
 Wayfarer's checkpoint-gated ending now has a minimal streaming/graphics Release
 package with network, advanced rendering and dev tools disabled. The relocated

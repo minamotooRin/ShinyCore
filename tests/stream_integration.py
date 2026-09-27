@@ -973,6 +973,12 @@ end}''')
 
     def test_stream_world_map_edits(self):
         shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        (self.root/'route_graph.lua').write_text('''return {format=1,cell_size=8,chunk_width=256,chunk_height=256,
+cells_x=32,cells_y=32,radius=0,bounds={0,-1,2,-1},node_count=3,
+chunks={['0:-1']={full=true,component=1},['1:-1']={full=true,component=2},
+['2:-1']={full=true,component=3}},edges={
+{a=1,b=2,ax=31,ay=-1,bx=32,by=-1},
+{a=2,b=3,ax=63,ay=-1,bx=64,by=-1}}}''',encoding='utf-8')
         self.index['tilesets']=[{'firstgid':1,'tilecount':1,'columns':1,'tilewidth':8,'tileheight':8,'image':'terrain.png',
             'tiles':[{'id':0,'properties':[{'name':'collision','value':'solid'}]}]}]
         for x in range(3):
@@ -980,8 +986,10 @@ end}''')
             (self.root/f'{x}.json').write_text(data,encoding='utf-8'); self.index['chunks'][x]['bytes']=len(data.encode())
         self.write_index()
         self.scene('''local World=require("shiny.stream_world")
-local world
+local Route=require("shiny.stream_route")
+local world,route
 return {init=function()
+    route=Route.new(require("route_graph"))
     world=World.new{index="index.json",name="forest",slot="slot",margin=0,
         prepare=function() error("no authored objects expected") end,export=function() return {} end}
     World.request(world,{{x=8,y=-8}},0)
@@ -990,7 +998,10 @@ end,update=function(dt)
     local tick=sc.tick()
     if tick==1 then
         assert(changed)
+        assert(World.refresh_route(world,route)==0 and route.revision==0)
         assert(World.patch(world,{{x=0.0,y=-1.0,layer=0.0,gid=1}})==1)
+        assert(World.refresh_route(world,route)==1 and route.revision==1)
+        assert(Route.route(route,4,-4,12,-4).status=="unreachable")
         assert(world.chunks["0:-1"].layers["0"][993]==1 and #world.prepared[1]==1)
         local hit=sc.physics.ray(4,-16,0,24); assert(hit and hit.id==0 and math.abs(hit.y+8)<.01)
         assert(sc.navigation.path(0,31,1,31).status=="unreachable")
@@ -1007,8 +1018,14 @@ end,update=function(dt)
         World.request(world,{{x=8,y=-8}},sc.tick()+1)
     elseif tick==7 then
         assert(changed and world.chunks["0:-1"].layers["0"][993]==1)
+        assert(World.refresh_route(world,route)==0 and route.revision==1)
+        local restored=Route.new(require("route_graph"))
+        assert(World.refresh_route(world,restored)==1)
+        assert(Route.route(restored,4,-4,12,-4).status=="unreachable")
         assert(sc.physics.ray(4,-16,0,24).id==0 and sc.navigation.path(0,31,1,31).status=="unreachable")
         World.patch(world,{{x=0,y=-1,layer=0,gid=0}})
+        assert(World.refresh_route(world,route)==1 and route.revision==2)
+        assert(Route.route(route,4,-4,12,-4).status=="ok")
         assert(sc.physics.ray(4,-16,0,24).id~=0 and sc.navigation.path(0,31,1,31).status=="ok")
         World.request(world,{{x=264,y=-8}},sc.tick()+1)
     elseif tick==10 then World.request(world,{{x=8,y=-8}},sc.tick()+1)

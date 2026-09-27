@@ -36,13 +36,24 @@ local result = Route.route(graph, player_x, player_y, goal_x, goal_y, 16384)
 -- result.points = 起点、每次跨块的入口两侧格子中心、终点。
 ```
 
-`Route.route` 查询世界像素坐标，返回 `status, visited, points` 字段；状态为
+`Route.route` 查询世界像素坐标，返回 `status, visited, points, revision` 字段；状态为
 `ok`、`unreachable`、`unloaded` 或 `budget_exhausted`。它遍历块分量图，
 适合按目标建立一条长程路线，不应为 2000 个单位每帧各跑一次。游戏需要按下一入口
 预取块，再用 `World.path` 或共享流场验证和执行当前已加载路段；未准备块仍受加载边界
 保护。图的 `radius` 应与局部寻路半径一致，`cell_size` 应与 World 设置一致。
 
-烘焙产物和图都是**静态数据**，不包含存档中的地图修改。已加载块改变后，局部
-`World.path` 仍以当前地图为准；此图尚不会自动修复动态分量和远处存档覆盖，
-不能把粗路线视作最终移动许可。下一步完成局部失效/重建与保存状态整合。
+烘焙产物是静态基线。存档恢复或 `World.patch` 提交后，可对**已经发布**的块调用
+`World.refresh_route(world, graph)`：它读取当前原生 `sc.navigation.mask(graph.data.radius)`，
+仅替换通行掩码发生变化的块，重建相关分量和跨块入口。返回变化的块数；整批验证和
+重建成功后才发布新图，`revision` 增加一次。`World.update` 返回 `published` 或
+`patched` 后调用；同步 `World.patch` 成功返回时也可调用。等待、失败和取消期间不调用。
+直接使用时，`Route.refresh(graph, mask, {{x=0,y=0}, ...})` 的块列表必须是完整、
+已确认加载的块；掩码需覆盖每块全部单元，尺寸和半径须与烘焙图相同。半径大于
+半个格子时，原生清障计算会把窗口边缘视为阻挡；此时刷新还要求块周围有足够的
+已加载掩码边缘。`World.refresh_route` 自动跳过尚无这圈数据的边缘块，待邻块发布后
+再刷新，避免把窗口截断误记成地图阻挡。
+
+已卸载块保留本房间中上次确认的动态摘要；未曾加载的远处块仍使用静态基线，
+因此尚未读入的存档修改无法提前影响粗路线。游戏仍须预取入口，用 `World.path`
+验证已加载路段，并遵守加载边界；粗路线不是最终移动许可。
 参见[流式世界](stream-world.md)。
