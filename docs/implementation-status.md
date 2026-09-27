@@ -12,7 +12,8 @@ interactive device/window tests still need a suitable desktop period. See the up
 
 A Wayfarer route guide now uses its baked 16-block graph and the opt-in saved-edit
 index for healer and road objectives. Its minimap marks the next portal or an
-unverified saved chunk. Offline and dynamic portal selection uses the median
+unverified saved chunk. Before drawing an arrow, it validates the loaded leg
+with native `World.path` and reports unavailable legs. Offline and dynamic portal selection uses the median
 candidate so an open boundary does not send players toward its top edge. The
 full quest replay, targeted route/road checks, package content audit and hidden
 native route capture pass; see [Wayfarer route guide](verification-wayfarer-route-guide.md).

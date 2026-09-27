@@ -42,4 +42,11 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="shiny-wayfarer-road-") as directory:
         check(binary, Path(directory), False)
         check(binary, Path(directory), True)
-    print("Wayfarer road: async publish and cancellation preserve quest state")
+        result = subprocess.run([str(binary), "--headless", str(SOURCE), "--frames", "300",
+                                 "--replay", str(SOURCE / "travel.jsonl"),
+                                 "--save-dir", str(Path(directory) / "route-saves")],
+                                capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert result.returncode == 0, result.stderr
+        route = json.loads(result.stdout)["watches"]["stream"]
+        assert route["route_status"] == route["route_local_status"] == "ok"
+    print("Wayfarer road: async commit, cancellation and locally verified route passed")

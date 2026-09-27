@@ -44,6 +44,8 @@ points to the healer before the quest, the nearest loaded herb while gathering,
 the roadblock once 24 herbs are ready, then the healer for delivery. For the healer
 and road, its arrow follows the next baked cross-chunk portal and the locator marks
 that waypoint. Distant saved map edits remain marked as unchecked until loaded.
+The visible leg to a waypoint is checked against the currently published native
+navigation grid before the arrow is drawn; an unavailable leg shows a status.
 When no loaded herb remains, explore another district; the guide does not reveal
 unloaded objects.
 Prompts follow the configured interaction binding and hide behind menus/dialogue.

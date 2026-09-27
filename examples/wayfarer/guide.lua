@@ -39,6 +39,19 @@ function Guide.draw(player,herbs,target,reach,use,route)
         sc.text("继续探索林地",8,174,12,"#CEDFFFFF",true,{font="ui"})
         return
     end
+    if route and route.status=="unverified" then
+        sc.text("前方路径待载",8,174,12,"#FFCB77FF",true,{font="ui"})
+        return
+    end
+    if route and route.status~="ok" then
+        sc.text("当前没有可用路线",8,174,12,"#FFCB77FF",true,{font="ui"})
+        return
+    end
+    if route and route.status=="ok" and route.local_status~="ok" then
+        sc.text(route.local_status=="unloaded" and "前方区域待载" or "当前路段待确认",
+            8,174,12,"#FFCB77FF",true,{font="ui"})
+        return
+    end
     local waypoint=route and route.status=="ok" and #route.points>2 and route.points[2]
     local point=sc.camera.to_screen(waypoint and waypoint.x or target.x+3,
         waypoint and waypoint.y or target.y-8)
@@ -53,8 +66,5 @@ function Guide.draw(player,herbs,target,reach,use,route)
     sc.text(label,left,y-16,12,near and "#FFCB77FF" or "#CEDFFFFF",true,{font="ui"})
     local arrow=off and (point.x<16 and "<" or point.x>280 and ">" or point.y<60 and "^" or "v") or "v"
     sc.text(arrow,x-3,y,10,"#FFCB77FF",true)
-    if route and route.status=="unverified" then
-        sc.text("前方路径待载",8,174,12,"#FFCB77FF",true,{font="ui"})
-    end
 end
 return Guide

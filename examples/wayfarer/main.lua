@@ -30,7 +30,8 @@ local function publish()
     sc.debug.watch("courier",Patrol.snapshot(courier))
     sc.debug.watch("stream",{chunks=sc.stream.stats().pinned,images=sc.images.stats().pinned,
         route_cleared=sc.state.get("route_cleared")==true,
-        route_revision=graph.revision,route_status=route_hint and route_hint.status or "idle"})
+        route_revision=graph.revision,route_status=route_hint and route_hint.status or "idle",
+        route_local_status=route_hint and route_hint.local_status or "idle"})
     local saving=World.status(world)
     sc.debug.watch("save",saving or {status="idle"})
     sc.debug.watch("quest",{collected=bag,remaining=math.max(0,24-bag),complete=completed,stage=stage,equipment=equipment,
@@ -236,6 +237,11 @@ return {
         if Input.pressed(actions,"save") then checkpoint() end
         local gx,gy=Guide.route_goal(stage,bag,sc.state.get("route_cleared")==true)
         route_hint=gx and Route.route(graph,p.x+4,p.y+6,gx,gy,256) or nil
+        if route_hint and route_hint.status=="ok" then
+            local next_point=route_hint.points[2]
+            route_hint.local_status=World.path(world,p.x+4,p.y+6,
+                next_point.x,next_point.y,2048).status
+        end
         publish()
     end,
     ui_update=function(dt)
