@@ -12,7 +12,7 @@ local Controls=require("controls")
 local actions
 local courier
 local theme=require("theme")
-local shell,player,bag,inventory,completed,world,focus_x,focus_y,dialogue,healer,stage,equipment,save_error,route_pending
+local shell,player,bag,inventory,completed,world,focus_x,focus_y,dialogue,healer,stage,equipment,save_error,route_pending,ending_pending
 local function clear_route()
     route_pending=false
     sc.state.set("route_cleared",true)
@@ -53,7 +53,7 @@ return {
     map={tile_size=8,rows={"."},background="#142D27FF"},
     init=function()
         actions=Controls.new()
-        route_pending=false
+        route_pending=false; ending_pending=false
         traveler_view,courier_view,feedback=View.actor(),View.actor(),View.feedback()
         local position=sc.state.get("position") or {x=160,y=100}
         player=sc.spawn({persistent_id="traveler",tag="player",x=position.x,y=position.y,w=8,h=12,layer=2,
@@ -126,11 +126,21 @@ return {
     update=function(dt)
         Input.update(actions)
         local changed,err,event=World.update(world,dt)
-        if event=="saved" then shell.notice="已保存" end
+        if event=="saved" then
+            shell.notice="已保存"
+            if ending_pending then
+                ending_pending=false; stage="complete"; completed=true
+                sc.state.set("quest_stage",stage)
+                sc.audio.play("chime",{volume=.3})
+            end
+        end
         if event=="patched" and route_pending then clear_route() end
         if event=="cancelled" then
             route_pending=false
-            shell.notice="已放弃切换；已完成的存档不会撤销"
+            if ending_pending then
+                ending_pending=false; dialogue.open=false
+                shell.notice="交付未确认；已完成的存档不会撤销"
+            else shell.notice="已放弃切换；已完成的存档不会撤销" end
         end
         if changed then courier.field=nil end
         Patrol.stop(courier)
@@ -184,12 +194,20 @@ return {
             local npc=sc.get(healer)
             if math.abs(p.x-npc.x)<24 and math.abs(p.y-npc.y)<24 then
                 local words,finished
-                stage,words,finished=Quest.talk(stage,bag,sc.state.get("route_cleared")==true,Controls.hint(actions,"use"))
-                completed=stage=="complete"; sc.state.set("quest_stage",stage)
+                local next_stage
+                next_stage,words,finished=Quest.talk(stage,bag,sc.state.get("route_cleared")==true,Controls.hint(actions,"use"))
+                if finished then
+                    -- The save snapshot contains completion; live state changes only after disk confirmation.
+                    sc.state.set("quest_stage",next_stage)
+                    ending_pending=checkpoint()~=nil
+                    sc.state.set("quest_stage",stage)
+                    if not ending_pending then words="交付尚未保存。请稍后再与药师交谈。" end
+                else
+                    stage=next_stage; completed=stage=="complete"; sc.state.set("quest_stage",stage)
+                end
                 UI.set(dialogue,"words",{text=words}); UI.layout(dialogue,384,216)
                 dialogue.open=true; dialogue.focus="continue"
                 sc.set(player,{vx=0,vy=0}); Patrol.stop(courier)
-                if finished then checkpoint(); sc.audio.play("chime",{volume=.3}) end
                 sc.app.pause(true); publish()
                 return
             end
