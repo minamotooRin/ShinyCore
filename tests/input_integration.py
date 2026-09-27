@@ -134,10 +134,17 @@ return {update=function()
         assert(Input.pressed(actions,'right'))
         local original=actions.bindings.right
         for _,bad in ipairs({{axis='bogus'},{axis='left_x',direction=0},{axis='left_x',deadzone=1},
-            {axis='left_x',deadzone=0/0},{axis='left_x',slot=5},{axis='left_x',key='d'}}) do
+            {axis='left_x',deadzone=0/0},{axis='left_x',slot=5},{axis='left_x',key='d'},
+            {key='unknown'},{mouse='unknown'},{button='unknown'},{key='a',mouse='left'},
+            {key='a',slot=1},{axis='left_x',extra=true}}) do
             assert(not pcall(Input.bind,actions,'right',{bad}) and actions.bindings.right==original)
             assert(not pcall(Input.new,{right={bad}}))
         end
+        assert(not pcall(Input.bind,actions,'',{{key='a'}}))
+        local authored={{key='a'}}
+        Input.bind(actions,'right',authored);authored[1].key='unknown'
+        assert(actions.bindings.right[1].key=='a')
+        Input.bind(actions,'right',original)
         assert(Input.save(actions))
     end
 end}''')
@@ -486,7 +493,7 @@ local ui=UI.new{id='root',kind='overlay',padding=0,children={
     {id='items',kind='list',w=100,h=80,items=items,value=1},
     {id='volume',kind='slider',y=90,w=100,h=24,value=0,step=.1},
     {id='button',kind='button',y=130,w=100,h=24,on_click=function() hits=hits+1 end}}}
-local actions=Input.new{move={keys={'down'},gamepad={'dpad_down'}}}
+local actions=Input.new{move={{key='down'},{button='dpad_down'}}}
 ui.focus='items'
 return {init=function() UI.layout(ui,384,216) end,update=function(dt)
     local tick=sc.tick()

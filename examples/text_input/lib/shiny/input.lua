@@ -3,21 +3,41 @@ local Input = {}
 local axes={left_x=true,left_y=true,right_x=true,right_y=true,left_trigger=true,right_trigger=true}
 local function validate_sources(sources)
     assert(type(sources)=="table","action sources must be a table")
+    local count=0
+    for index in pairs(sources) do
+        assert(type(index)=="number" and index%1==0 and index>=1,"action sources must be an array")
+        count=count+1
+    end
+    assert(count==#sources,"action sources must be a dense array")
     for _,source in ipairs(sources) do
         assert(type(source)=="table","binding source must be a table")
+        local kinds=(source.key and 1 or 0)+(source.mouse and 1 or 0)+(source.button and 1 or 0)+(source.axis and 1 or 0)
+        assert(kinds==1,"binding source requires exactly one device control")
+        for field in pairs(source) do
+            assert(field=="key" or field=="mouse" or field=="button" or field=="axis" or
+                field=="direction" or field=="deadzone" or field=="slot","unknown binding field")
+        end
         if source.axis then
-            assert(axes[source.axis] and not (source.key or source.mouse or source.button),"invalid axis source")
+            assert(type(source.axis)=="string" and axes[source.axis],"invalid axis source")
             assert(source.direction==nil or source.direction==1 or source.direction==-1,"axis direction must be -1 or 1")
             local deadzone=source.deadzone
             assert(deadzone==nil or (type(deadzone)=="number" and deadzone>=0 and deadzone<1),"axis deadzone must be in [0,1)")
-            local slot=source.slot
-            assert(slot==nil or (type(slot)=="number" and slot%1==0 and slot>=1 and slot<=4),"axis slot must be 1..4")
+        else
+            assert(source.direction==nil and source.deadzone==nil,"direction and deadzone require an axis")
         end
+        local slot=source.slot
+        assert(slot==nil or ((source.axis or source.button) and type(slot)=="number" and
+            slot%1==0 and slot>=1 and slot<=4),"slot requires a pad source and must be 1..4")
+        if source.key then assert(type(source.key)=="string" and pcall(sc.input.key_down,source.key),"invalid key source") end
+        if source.mouse then assert(type(source.mouse)=="string" and pcall(sc.input.mouse_down,source.mouse),"invalid mouse source") end
+        if source.button then assert(type(source.button)=="string" and pcall(sc.input.gamepad_down,source.button,slot),"invalid pad source") end
     end
 end
 function Input.copy_bindings(bindings)
+    assert(type(bindings)=="table","bindings must be a table")
     local copy={}
     for name,sources in pairs(bindings) do
+        assert(type(name)=="string" and #name>0,"action name must be nonempty text")
         validate_sources(sources);copy[name]={}
         for i,source in ipairs(sources) do
             local item={};for key,value in pairs(source) do item[key]=value end
@@ -36,20 +56,18 @@ end
 function Input.new(bindings,profile)
     local defaults=Input.copy_bindings(bindings)
     if profile then bindings=sc.settings.get().bindings[profile] or bindings end
-    for _,sources in pairs(bindings) do validate_sources(sources) end
-    return {bindings=bindings,defaults=defaults,profile=profile,held={},values={},pressed={},released={},consumed={},
+    return {bindings=Input.copy_bindings(bindings),defaults=defaults,profile=profile,held={},values={},pressed={},released={},consumed={},
         history={game={},ui={}},ui_consumed={},pending_consumed={},ui_blocked={}}
 end
 function Input.save(input)
     assert(input.profile,"persistent input requires a profile name")
     local bindings=sc.settings.get().bindings
-    bindings[input.profile]=input.bindings
+    bindings[input.profile]=Input.copy_bindings(input.bindings)
     return sc.settings.apply({bindings=bindings})
 end
 function Input.bind(input, name, sources)
-    assert(type(name)=="string" and type(sources)=="table", "action name and sources required")
-    validate_sources(sources)
-    input.bindings[name]=sources
+    assert(type(name)=="string" and #name>0 and type(sources)=="table","action name and sources required")
+    input.bindings[name]=Input.copy_bindings({[name]=sources})[name]
 end
 function Input.update(input,context)
     if context==nil then context="game" end

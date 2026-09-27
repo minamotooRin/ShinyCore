@@ -11,7 +11,9 @@
 axis 支持 left_x/left_y/right_x/right_y/left_trigger/right_trigger；direction
 为 -1 或 1，默认 1，选择轴的负/正方向。deadzone 默认 .2，范围 [0,1)，与原生
 输入相同，逐轴将死区外幅度重新映射到 0–1；slot 可省略使用选中的手柄，或指定
-1–4。断开返回零。Input.new/Input.bind 在发布前验证轴来源，错误不会替换原绑定。
+1–4。断开返回零。Input.new/Input.bind 在发布前验证完整来源：来源数组须连续，
+每项恰有一个键盘、鼠标、按钮或轴控制，字段及对应设备名称必须有效；
+方向和死区仅供轴使用，slot 仅供手柄。错误不会替换原绑定。
 
 ```lua
 local actions=Input.new({
@@ -32,7 +34,9 @@ down 为强度大于零，pressed/released 表示越过死区边界，不会因�
 
 Input.save 原样保存方向/死区/槽位至独立设置；无须原生 API 或额外依赖。
 共享设置现可通过 [CONTROLS 面板](rebinding.md) 编辑并原子保存这些来源。
-使用 Input.bind 修改绑定，空来源表可禁用动作。不要在更新中绕过它修改来源字段。
+使用 Input.bind 修改绑定，空来源表可禁用动作。创建与修改时复制来源表，之后
+修改调用者的表不会改变生效绑定；直接修改 `actions.bindings` 不受此保证。
+保存前再次校验复制，错误不会写入设置。
 消费后的 value 与 axis 同样为零；已被 UI 消费的偏转保持屏蔽直到回中。
 `Input.consume_sources(actions,{axes={left_x=true}})` 显式独占整条轴：包含该轴的
 动作整体被消费，包括中立/释放帧和该动作的其他绑定来源。

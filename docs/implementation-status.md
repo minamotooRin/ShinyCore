@@ -10,6 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Named input bindings now validate every source and native device name before
+publication; malformed keyboard/mouse/pad entries and mixed source fields fail
+without replacing the active binding. New/bind/save copy their data, so caller
+mutation cannot silently alter live controls. Four focused replay cases and five
+project content checks pass; a hidden native UI capture was inspected. The five
+projects bundling input.lua are pinned at dev.47; see [input actions](input-actions.md).
+Physical controllers and full UI/device acceptance remain outstanding.
+
 XML `.tx` object templates now join the JSON map import path, including inherited
 GID remapping to a map TSX tileset or automatic import of a template-only tileset.
 Effective `file` properties resolve from the template or map owner and enter the
