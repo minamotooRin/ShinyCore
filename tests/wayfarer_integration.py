@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='shiny-wayfarer-') as folder:
     delete_slot=delete_root/'shiny.wayfarer'
     delete_slot.mkdir(parents=True)
     (delete_slot/'checkpoint.json').write_text(json.dumps(dict(format=3,project='shiny.wayfarer',
-        data_version=2,scene='main.lua',state={})),encoding='utf-8')
+        data_version=3,scene='main.lua',state={})),encoding='utf-8')
     backup=delete_slot/'checkpoint.json.bak'
     backup.mkdir();(backup/'keep').write_text('fixture',encoding='utf-8')
     delete_replay=temp/'delete-fault.jsonl'

@@ -12,10 +12,14 @@ function Guide.target(stage,bag,cleared,player,herbs)
     end
     if target then return {x=target.x,y=target.y,label="药草",kind="herb"} end
 end
+function Guide.route_goal(stage,bag,cleared)
+    if stage=="meet" or (bag>=24 and cleared) then return 212,106 end
+    if bag>=24 then return 320,128 end -- The road object itself blocks its own cell.
+end
 local function pin(x,y,color,size)
     sc.rect(299+x/1024*72-size/2,34+y/1024*72-size/2,size,size,color,true)
 end
-function Guide.draw(player,herbs,target,reach,use)
+function Guide.draw(player,herbs,target,reach,use,route)
     -- A locator, not a reveal of unloaded objects. Up is north, road stays at y=128.
     sc.rect(293,28,86,101,"#101C2EEE",true)
     sc.rect(299,34,72,72,"#244438FF",true)
@@ -24,13 +28,20 @@ function Guide.draw(player,herbs,target,reach,use)
     for _,herb in ipairs(herbs) do pin(herb.x,herb.y,"#66D9B0FF",2) end
     pin(208,100,"#9EC5FFFF",3)
     pin(player.x,player.y,"#FFF0C9FF",4)
+    if route and route.status=="ok" and #route.points>2 then
+        pin(route.points[2].x,route.points[2].y,"#FFCB77FF",3)
+    elseif route and route.status=="unverified" and route.pending then
+        pin((route.pending.x+.5)*256,(route.pending.y+.5)*256,"#FFCB77FF",3)
+    end
     sc.text("N",332,29,8,"#E6EDF7FF",true)
     sc.text(Scenery.region(player.x,player.y),299,110,12,"#CEDFFFFF",true,{font="ui"})
     if not target then
         sc.text("继续探索林地",8,174,12,"#CEDFFFFF",true,{font="ui"})
         return
     end
-    local point=sc.camera.to_screen(target.x+3,target.y-8)
+    local waypoint=route and route.status=="ok" and #route.points>2 and route.points[2]
+    local point=sc.camera.to_screen(waypoint and waypoint.x or target.x+3,
+        waypoint and waypoint.y or target.y-8)
     local off=point.x<16 or point.x>280 or point.y<60 or point.y>168
     local x,y=math.max(16,math.min(280,point.x)),math.max(60,math.min(168,point.y))
     local near=math.abs(player.x-target.x)<(target.kind=="herb" and reach or 24)
@@ -42,5 +53,8 @@ function Guide.draw(player,herbs,target,reach,use)
     sc.text(label,left,y-16,12,near and "#FFCB77FF" or "#CEDFFFFF",true,{font="ui"})
     local arrow=off and (point.x<16 and "<" or point.x>280 and ">" or point.y<60 and "^" or "v") or "v"
     sc.text(arrow,x-3,y,10,"#FFCB77FF",true)
+    if route and route.status=="unverified" then
+        sc.text("前方路径待载",8,174,12,"#FFCB77FF",true,{font="ui"})
+    end
 end
 return Guide

@@ -13,6 +13,7 @@ CASES={
     'wayfarer-dialogue':('wayfarer','journal.jsonl',27),
     'wayfarer-journal':('wayfarer','journal.jsonl',38),
     'wayfarer-world':('wayfarer','travel.jsonl',182),
+    'wayfarer-route':('wayfarer','travel.jsonl',300),
     'wayfarer-gather-ready':('wayfarer','walkthrough.jsonl',187),
     'wayfarer-gathered':('wayfarer','walkthrough.jsonl',194),
     'wayfarer-camp':('wayfarer','walkthrough.jsonl',24),

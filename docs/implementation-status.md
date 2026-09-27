@@ -10,12 +10,20 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+A Wayfarer route guide now uses its baked 16-block graph and the opt-in saved-edit
+index for healer and road objectives. Its minimap marks the next portal or an
+unverified saved chunk. Offline and dynamic portal selection uses the median
+candidate so an open boundary does not send players toward its top edge. The
+full quest replay, targeted route/road checks, package content audit and hidden
+native route capture pass; see [Wayfarer route guide](verification-wayfarer-route-guide.md).
+The guide does not yet prefetch a distant pending chunk or execute local legs.
+
 An opt-in streamed-route index now commits modified block names with chunk saves.
 A fresh room reads it asynchronously and marks distant edited blocks `unverified`
 until their native masks are published; routing returns the next block to fetch.
 A two-process disk test also covers repeated edits to one block and stale graph
 references across unload. Existing slots without the index fail explicitly when
-the option is enabled. Wayfarer has not adopted the optional route graph/index;
+the option is enabled. Wayfarer enables this option with save data version 3;
 see [index verification](verification-stream-route-index.md).
 
 Published streamed chunks can now refresh the coarse route graph from the native

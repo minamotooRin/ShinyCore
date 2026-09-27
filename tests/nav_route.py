@@ -30,6 +30,7 @@ with tempfile.TemporaryDirectory(prefix='shiny-nav-route-') as temp:
     graph.build(masks, project / 'wayfarer-copy.lua')
     assert (project / 'wayfarer.lua').read_bytes() == (project / 'wayfarer-copy.lua').read_bytes()
     assert compiled['node_count'] == 16 and len(compiled['edges']) == 24
+    assert compiled['edges'][0] == (1, 2, 31, 16, 32, 16)
 
     split = {'format': 1, 'chunk_size': 32, 'tilewidth': 1, 'tileheight': 1,
              'cell_size': 8, 'radius': 0, 'bounds': [-1, 0, 0, 0],
@@ -73,7 +74,7 @@ return {init=function()
   assert(split.revision==1 and Route.route(split,-28,20,4,20).status=='ok')
   sc.navigation.region(-32,0,{'....####','########','........','########'},8)
   local world={navigation=true,nav_region={cell_size=8},region={width=32,height=32},
-      chunks={['0:0']={x=0,y=0}}}
+      chunks={['0:0']={x=0,y=0},['-2:0']={x=-2,y=0}}}
   assert(World.refresh_route(world,split)==1 and split.revision==2)
   assert(Route.route(split,-28,4,4,4).status=='unreachable')
   assert(Route.route(split,-28,20,4,20).status=='ok')
@@ -99,6 +100,13 @@ return {init=function()
   assert(Route.invalidate(linear,{{x=1,y=0}}) and linear.revision==3)
   assert(Route.route(linear,4,4,68,4).status=='unverified')
   assert(Route.refresh(linear,sc.navigation.mask(),{{x=1,y=0}})==0 and linear.revision==4)
+  local middle=Route.new{format=1,cell_size=8,chunk_width=32,chunk_height=32,
+      cells_x=4,cells_y=4,radius=0,bounds={0,0,1,0},node_count=2,
+      chunks={['0:0']={full=true,component=1},['1:0']={full=true,component=2}},
+      edges={{a=1,b=2,ax=3,ay=0,bx=4,by=0}}}
+  sc.navigation.region(0,0,{'........','.#......','........','........'},8)
+  assert(Route.refresh(middle,sc.navigation.mask(),{{x=0,y=0}})==1)
+  assert(Route.route(middle,4,20,44,20).points[2].y==20)
   local wide_data=require('split'); wide_data.radius=6
   local wide=Route.new(wide_data)
   local wide_mask=sc.navigation.mask(6)

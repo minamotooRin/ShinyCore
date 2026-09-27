@@ -1,6 +1,7 @@
 local Shell=require("shiny.shell")
 local UI=require("shiny.ui")
 local World=require("shiny.stream_world")
+local Route=require("shiny.stream_route")
 local Quest=require("quest")
 local Patrol=require("patrol")
 local View=require("presentation")
@@ -12,7 +13,7 @@ local Controls=require("controls")
 local actions
 local courier
 local theme=require("theme")
-local shell,player,bag,inventory,completed,world,focus_x,focus_y,dialogue,healer,stage,equipment,save_error,route_pending,ending_pending
+local shell,player,bag,inventory,completed,world,graph,route_hint,focus_x,focus_y,dialogue,healer,stage,equipment,save_error,route_pending,ending_pending
 local function clear_route()
     route_pending=false
     sc.state.set("route_cleared",true)
@@ -28,7 +29,8 @@ end
 local function publish()
     sc.debug.watch("courier",Patrol.snapshot(courier))
     sc.debug.watch("stream",{chunks=sc.stream.stats().pinned,images=sc.images.stats().pinned,
-        route_cleared=sc.state.get("route_cleared")==true})
+        route_cleared=sc.state.get("route_cleared")==true,
+        route_revision=graph.revision,route_status=route_hint and route_hint.status or "idle"})
     local saving=World.status(world)
     sc.debug.watch("save",saving or {status="idle"})
     sc.debug.watch("quest",{collected=bag,remaining=math.max(0,24-bag),complete=completed,stage=stage,equipment=equipment,
@@ -53,6 +55,7 @@ return {
     map={tile_size=8,rows={"."},background="#142D27FF"},
     init=function()
         actions=Controls.new()
+        graph=Route.new(require("maps.world.route")); route_hint=nil
         route_pending=false; ending_pending=false
         traveler_view,courier_view,feedback=View.actor(),View.actor(),View.feedback()
         local position=sc.state.get("position") or {x=160,y=100}
@@ -68,6 +71,7 @@ return {
         courier=Patrol.new(sc.state.get("courier"))
         sc.camera.set{bounds=false,x=position.x-188,y=position.y-102}
         world=World.new{index="maps/world/index.json",name="forest",slot="checkpoint",margin=1,capacity=16,
+            route_index=true,
             residency=true,
             images={["assets/tiles.png"]="forest"},
             prepare=function(object,saved)
@@ -126,6 +130,7 @@ return {
     update=function(dt)
         Input.update(actions)
         local changed,err,event=World.update(world,dt)
+        if event=="published" or event=="patched" then World.refresh_route(world,graph) end
         if event=="saved" then
             shell.notice="已保存"
             if ending_pending then
@@ -223,11 +228,14 @@ return {
             if not sc.state.get("route_cleared") and math.abs(p.x-328)<24 and math.abs(p.y-128)<24 then
                 local count,phase=World.patch(world,{{x=41,y=16,layer=0,gid=4}})
                 if count>0 then
-                    if phase=="pending" then route_pending=true else clear_route() end
+                    if phase=="pending" then route_pending=true
+                    else clear_route(); World.refresh_route(world,graph) end
                 end
             end
         end
         if Input.pressed(actions,"save") then checkpoint() end
+        local gx,gy=Guide.route_goal(stage,bag,sc.state.get("route_cleared")==true)
+        route_hint=gx and Route.route(graph,p.x+4,p.y+6,gx,gy,256) or nil
         publish()
     end,
     ui_update=function(dt)
@@ -253,7 +261,7 @@ return {
                 if Quest.in_reach(p,herb,Quest.equipment[equipment].reach) then View.focus(herb) end
             end
             local target=Guide.target(stage,bag,sc.state.get("route_cleared")==true,p,herbs)
-            Guide.draw(p,herbs,target,Quest.equipment[equipment].reach,Controls.hint(actions,"use"))
+            Guide.draw(p,herbs,target,Quest.equipment[equipment].reach,Controls.hint(actions,"use"),route_hint)
             View.draw(feedback)
         end
         sc.rect(0,0,384,24,"#101C2EDD",true)

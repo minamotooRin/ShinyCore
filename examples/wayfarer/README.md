@@ -41,8 +41,11 @@ landmarks drawn behind actors; authored terrain still defines collisions. A smal
 north-up locator shows the road, landmarks, player, healer and only currently
 loaded herbs. Its four district names help orient exploration. The amber prompt
 points to the healer before the quest, the nearest loaded herb while gathering,
-the roadblock once 24 herbs are ready, then the healer for delivery. When no loaded
-herb remains, explore another district; the guide does not reveal unloaded objects.
+the roadblock once 24 herbs are ready, then the healer for delivery. For the healer
+and road, its arrow follows the next baked cross-chunk portal and the locator marks
+that waypoint. Distant saved map edits remain marked as unchecked until loaded.
+When no loaded herb remains, explore another district; the guide does not reveal
+unloaded objects.
 Prompts follow the configured interaction binding and hide behind menus/dialogue.
 `scenery.lua` owns atlas placements; `guide.lua` reads quest and visible-world data.
 
@@ -57,7 +60,8 @@ Collected herbs use object persistent IDs and deletion markers; road edits and
 active objects are saved with explicit player, name, equipment and quest state.
 The road objective changes only after its streamed tile patch is published; a failed
 or cancelled image preparation leaves the road uncleared and available to retry.
-Save data version is 2; VM state and native handles are not persisted.
+Save data version is 3; old checkpoints are rejected. VM state and native handles
+are not persisted.
 
 Entering chunk states and outgoing snapshots use the application IO worker. The
 current map stays active until state reads, world/image preparation, saving and publication succeed;
@@ -92,6 +96,7 @@ python tests/wayfarer_integration.py build/full/shiny.exe
 python tests/wayfarer_route_commit.py build/full/shiny.exe
 python tools/scenario.py build/full/shiny.exe examples/wayfarer/walkthrough.scenario.json
 python tools/capture_samples.py build/full/shiny.exe --output build/wayfarer-gather-captures --case wayfarer-gather-ready --case wayfarer-gathered
+python tools/capture_samples.py build/full/shiny.exe --output build/wayfarer-route-captures --case wayfarer-route
 ```
 
 Use a fresh save directory for the full walkthrough. It uses only real keyboard
@@ -115,3 +120,5 @@ scene. The journal has an opaque panel. The optimized full route takes about 54 
 seconds; normal 5–10 minute exploration has not been established by a human session.
 Audio-device playback, real IME input, final art, ending screenshots and portable
 packages remain unaccepted. See ../../docs/verification-sample-visuals.md.
+The distant route marker has a separate native visual check in
+../../docs/verification-wayfarer-route-guide.md.

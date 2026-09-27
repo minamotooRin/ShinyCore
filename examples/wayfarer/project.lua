@@ -1,4 +1,4 @@
-return {id="shiny.wayfarer",data_version=2,entry="title.lua",rooms={"title.lua","main.lua"},modules={"streaming"},
+return {id="shiny.wayfarer",data_version=3,entry="title.lua",rooms={"title.lua","main.lua"},modules={"streaming"},
     stream_indexes={["main.lua"]="maps/world/index.json"},
     limits={entities=256,identities=512,particles=1024,projectiles=0,draws=2048},
     resources={forest={type="image",path="assets/tiles.png",stream=true},

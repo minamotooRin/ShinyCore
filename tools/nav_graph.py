@@ -76,21 +76,25 @@ def compile_graph(source: Path) -> dict:
         right_chunk = chunks.get((x+1, y))
         below_chunk = chunks.get((x, y+1))
         if right_chunk:
-            seen = set()
+            portals = {}
             other = right_chunk['labels']
             for row in range(height):
                 a, b = own[row*width+width-1], other[row*width]
-                if a and b and (a, b) not in seen:
-                    seen.add((a, b))
-                    edges.append((a, b, x*width+width-1, y*height+row, (x+1)*width, y*height+row))
+                if a and b:
+                    portals.setdefault((a, b), []).append(row)
+            for (a, b), rows in portals.items():
+                row = rows[len(rows)//2]
+                edges.append((a, b, x*width+width-1, y*height+row, (x+1)*width, y*height+row))
         if below_chunk:
-            seen = set()
+            portals = {}
             other = below_chunk['labels']
             for col in range(width):
                 a, b = own[(height-1)*width+col], other[col]
-                if a and b and (a, b) not in seen:
-                    seen.add((a, b))
-                    edges.append((a, b, x*width+col, y*height+height-1, x*width+col, (y+1)*height))
+                if a and b:
+                    portals.setdefault((a, b), []).append(col)
+            for (a, b), columns in portals.items():
+                col = columns[len(columns)//2]
+                edges.append((a, b, x*width+col, y*height+height-1, x*width+col, (y+1)*height))
     return {'source': data, 'chunks': chunks, 'edges': edges, 'node_count': node_count,
             'cells_x': width, 'cells_y': height}
 

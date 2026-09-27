@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "examples/wayfarer"
 PATCH = "local count,phase=World.patch(world,{{x=41,y=16,layer=0,gid=4}})"
-PENDING = 'if phase=="pending" then route_pending=true else clear_route() end'
+PENDING = 'if phase=="pending" then route_pending=true'
 
 
 def check(binary, folder, cancel):

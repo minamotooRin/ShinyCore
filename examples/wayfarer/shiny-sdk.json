@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "1.0.0-dev.75",
+  "version": "1.0.0-dev.81",
   "engine_version": "1.0.0-dev",
   "contract_version": 1,
   "hash": "sha256-text-lf",
@@ -15,8 +15,9 @@
     "lib/shiny/shell.lua": "3556b910a9db4f857ed6b27536f9da1f93e2bfb3c8d2fde616e368d739758645",
     "lib/shiny/stream_objects.lua": "1a022d3028f4287147958cccb7b2b2e742b5c473dfc13b222d50beaf0ffb92fc",
     "lib/shiny/stream_regions.lua": "1ef859cdc87da6b063edc0b0223d56a499be3530b757e3a1471248367e26b054",
+    "lib/shiny/stream_route.lua": "ab1fb596f9f87115d1401d205ba2b5818a7d18383e1380325b2bc3665c3ba663",
     "lib/shiny/stream_tiles.lua": "025536f67791bac7047ed48e7761e930e6b37af4464f9ea5eaf2cc6eacd8f823",
-    "lib/shiny/stream_world.lua": "fe17b3a4ed428865f26c8bd254f6c3792aa7c34a76efedb05fd70ddafda8cc0d",
+    "lib/shiny/stream_world.lua": "95362563503869010066f8b4e66417c70fb648a2ce64ebba4b67e37c1c9ac0c0",
     "lib/shiny/textedit.lua": "701c6294e33109a048d3cd96a2f7959ae4d9e5877343ae0dd065d2cc1be899df",
     "lib/shiny/tween.lua": "bd8afe8c3f739c16bd7678f713232ddaeba823af4d8e2d991f32c641e97cc012",
     "lib/shiny/ui.lua": "4c950338bd5b4d7dd527628925c49b33d2d7370de1b3820789bd101f1d4b9e75"

@@ -560,7 +560,9 @@ function World.refresh_route(world,route)
     for _,chunk in ipairs(ordered(world.chunks)) do
         local x=(chunk.x*route.data.chunk_width-mask.x)/mask.cell_size
         local y=(chunk.y*route.data.chunk_height-mask.y)/mask.cell_size
-        if x>=halo and y>=halo and x+route.data.cells_x+halo<=mask.width and
+        if chunk.x>=route.bounds[1] and chunk.x<=route.bounds[3] and
+            chunk.y>=route.bounds[2] and chunk.y<=route.bounds[4] and
+            x>=halo and y>=halo and x+route.data.cells_x+halo<=mask.width and
             y+route.data.cells_y+halo<=mask.height then chunks[#chunks+1]=chunk end
     end
     return route.refresh(route,mask,chunks)
