@@ -57,6 +57,9 @@ region、flow、refresh、steer 只能在 load/init/update 调用；path 和 dir
 同一场可供大量单位共享。原生调用方直接修改 `ScMap` 后应调用 `invalidate()`；
 Lua 的 `sc.tile` 和 `sc.map` 自动处理。原生读取当前状态使用 `field.state(map)`，
 公开 status 表示最后一次构建状态。重建复用已分配的距离和队列存储。
+原生调用方在每格像素尺寸变化时，旧场也会变为 stale；refresh 按新尺寸重算
+身体余量。宽高变化同样报告 stale，但需重新 build，不能 refresh。
+Lua 成功替换 region 仍直接使旧句柄失效。
 第一次重启仍有一次全场距离清空及身体余量计算，因此节点预算不是严格 CPU 毫秒上限。
 
 这是格子修改的失效与分批重建机制，不是动态最短路径的局部修复算法。

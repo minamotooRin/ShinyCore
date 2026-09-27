@@ -196,12 +196,12 @@ void ScFlowField::build(const ScMap& map,int goal,std::size_t budget,float radiu
 void ScFlowField::refresh(const ScMap& map,std::size_t budget) {
     if(status=="unbuilt"||map.width!=width_||map.height!=height_||map.tile_size<=0||budget==0||budget>1048576)
         throw std::invalid_argument("flow refresh requires original map dimensions and budget 1..1048576");
-    if(revision_!=map.navigation_revision) status="stale";
+    if(revision_!=map.navigation_revision||tile_size_!=map.tile_size) status="stale";
     if(status=="ok"||status=="unreachable") return;
     if(status=="stale") {
         distance_.assign(static_cast<std::size_t>(width_*height_),INT_MAX);
         queue_.clear(); queue_.reserve(distance_.size()); visited=0;
-        revision_=map.navigation_revision;
+        revision_=map.navigation_revision; tile_size_=map.tile_size;
         blocked_=clearance(map,radius_);
         if(blocked_[static_cast<std::size_t>(goal_)]) { status="unreachable"; return; }
         queue_.push_back(goal_); distance_[static_cast<std::size_t>(goal_)]=0;

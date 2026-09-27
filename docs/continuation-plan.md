@@ -2,6 +2,10 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **原生共享流场现在跟踪格子像素尺寸：** 宽高和通行版本不变、仅 tile_size
+  变化时旧场也报告 stale，refresh 按新尺寸重新计算身体余量。定向
+  `test_systems --navigation` 通过；见 navigation-refresh.md。Lua 替换区域
+  仍使旧句柄失效。未做性能长测，不重做中文字体问题。
 - **三款样例音乐占位循环已替换：** Wayfarer/Crossing/Barrage 分别使用可离线
   重建的原创 20/16/15 秒主题。共用构建器逐字节复现三份 Ogg；真实宿主跨循环、
   Crossing/Barrage 轻量发行包及隐藏原生画面均已检查。见

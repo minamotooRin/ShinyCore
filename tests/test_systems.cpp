@@ -24,6 +24,19 @@ void navigation_clearance() {
     check(field.state(map)=="stale","terrain change invalidates body-sized field");
     do { field.refresh(map,1); } while(field.status=="budget_exhausted");
     check(field.status=="ok"&&field.direction(map,20,28).first>0,"refresh retains radius and reopens wide door");
+    ScMap resized; resized.width=5; resized.height=3; resized.tile_size=8;
+    for(int x=0;x<5;++x) { resized.navigation_blocked.set(x); resized.navigation_blocked.set(10+x); }
+    ScFlowField scaled; scaled.build(resized,9,100,5);
+    check(scaled.status=="unreachable","small cells exclude a body from the corridor");
+    resized.tile_size=16; // Equal grid dimensions and passability revision, different clearance.
+    check(scaled.state(resized)=="stale"&&scaled.direction(resized,8,24)==std::pair{0.f,0.f},
+        "cell-size changes must not publish the old clearance field");
+    scaled.refresh(resized,100);
+    check(scaled.status=="ok"&&scaled.direction(resized,8,24).first>0,
+        "refresh recomputes body clearance after a cell-size change");
+    resized.width=4;
+    check(scaled.state(resized)=="stale","different grid dimensions cannot reuse a field");
+    resized.width=5;
     // Independent circle/rectangle oracle, including diagonal corners and non-square maps.
     for(float radius:{0.f,4.f,5.f,6.f,11.f,4096.f}) for(int cell=0;cell<63;++cell) {
         const double x=(cell%9+.5)*8,y=(cell/9+.5)*8;

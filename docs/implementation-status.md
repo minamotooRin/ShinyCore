@@ -10,6 +10,12 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Native shared flow fields now treat a grid cell-size change as stale even when
+dimensions and passability revision are unchanged. Refresh recomputes body
+clearance using the new pixel size. Focused `test_systems --navigation` passes;
+see [flow-field behavior](navigation-refresh.md). This does not add local shortest-
+path repair or establish the large-unit performance target.
+
 The three samples now use distinct, reproducible 20/16/15-second original music
 loops. A shared offline builder reproduces each bundled Ogg byte-for-byte in the
 current encoder environment; focused host runs cross all three loop boundaries

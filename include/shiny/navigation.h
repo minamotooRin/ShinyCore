@@ -17,7 +17,8 @@ public:
     void invalidate() noexcept { if(status!="unbuilt") status="stale"; }
     void refresh(const ScMap& map,std::size_t budget);
     std::string_view state(const ScMap& map) const noexcept {
-        return status!="unbuilt"&&revision_!=map.navigation_revision?"stale":status;
+        return status!="unbuilt"&&(width_!=map.width||height_!=map.height||
+            tile_size_!=map.tile_size||revision_!=map.navigation_revision)?"stale":status;
     }
     std::pair<float,float> direction(const ScMap& map,float x,float y) const;
     std::string_view status{"unbuilt"};
@@ -26,6 +27,6 @@ private:
     std::vector<int> distance_,queue_;
     std::bitset<SC_MAX_TILES> blocked_;
     float radius_{};
-    int width_{},height_{},goal_{};
+    int width_{},height_{},tile_size_{},goal_{};
     std::uint64_t revision_{};
 };
