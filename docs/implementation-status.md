@@ -12,7 +12,8 @@ interactive device/window tests still need a suitable desktop period. See the up
 
 Native shared flow fields now treat a grid cell-size change as stale even when
 dimensions and passability revision are unchanged. Refresh recomputes body
-clearance using the new pixel size. Focused `test_systems --navigation` passes;
+clearance using the new pixel size. The full build, focused navigation systems
+test and Lua navigation contract check pass;
 see [flow-field behavior](navigation-refresh.md). This does not add local shortest-
 path repair or establish the large-unit performance target.
 

@@ -5,8 +5,9 @@
 原生 `ScFlowField` 在格网宽高、通行版本不变而 tile_size 变化时也报告 stale，
 不沿用旧的身体余量或方向；refresh 用新尺寸重建。Release
 `test_systems --navigation` 的窄走廊用例先证实旧尺寸不可达，再改变像素尺寸，
-验证过期零方向和刷新后可达；宽高变化也报告 stale。本次只运行该定向入口，
-没有性能长测或图形变更。
+验证过期零方向和刷新后可达；宽高变化也报告 stale。完整构建通过，
+`tests/navigation_contracts.py` 的 Lua 导航边界检查通过。未运行性能长测，
+也没有图形变更。
 
 ## 导航脏格提交（2026-09-27）
 
