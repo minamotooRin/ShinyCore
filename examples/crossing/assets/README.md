@@ -7,6 +7,12 @@ repository MIT license. Room geometry, palettes and level data are authored in
 levels.lua/game.lua.
 There are no runtime downloads or external asset paths.
 
+keeper-air.png adds two 12×18 rise/fall frames using the original keeper palette.
+Its editable pixel rows and deterministic PNG writer are in
+`tools/build_crossing_air.py`; regenerate from the engine root with
+`python tools/build_crossing_air.py`. This original addition is covered by the
+repository MIT license. The existing keeper.png is unchanged.
+
 The five short cues `jump/land/switch/error/rescue.wav` are original mono PCM
 sounds generated deterministically by `tools/build_crossing_audio.py` with Python's
 standard library. They add movement, mechanism and recovery feedback without

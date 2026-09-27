@@ -73,7 +73,7 @@ function Game.room(index)
     local function reset_player()
         stage.deaths=stage.deaths+1
         sound("rescue");airborne=false;ground_seen=false
-        sc.set(player,{x=24,y=174,vx=0,vy=0,frame=0,flip_x=false})
+        sc.set(player,{x=24,y=174,vx=0,vy=0,frame=0,flip_x=false,sprite="keeper"})
         animation=View.player()
         if crate then sc.set(crate,{x=300,y=176,vx=0,vy=0}) end
         notify("Back at camp. Collected lights and powered gates are kept.")
@@ -156,7 +156,7 @@ function Game.room(index)
                 patch.vy=-240; sound("jump")
                 sc.particles.burst(dust,p.x+p.w*.5,p.y+p.h-2,7)
             end
-            patch.frame,patch.flip_x=View.animate(animation,p,patch.vx/90,dt,patch.vy~=nil)
+            patch.frame,patch.flip_x,patch.sprite=View.animate(animation,p,patch.vx/90,dt,patch.vy~=nil)
             sc.set(player,patch)
             if platform then
                 local target=level.platform; local t=(1-math.cos(stage.time*2*math.pi/target.period))*.5

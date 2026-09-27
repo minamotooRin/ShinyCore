@@ -7,7 +7,7 @@ function View.player()
     local clock=Animation.new{
         idle={{frame=0,duration=.5},loop=true},
         walk={{frame=1,duration=.125},{frame=2,duration=.125},{frame=3,duration=.125},loop=true},
-        rise={{frame=2,duration=.2}},fall={{frame=3,duration=.2}},
+        rise={{frame=0,duration=.2}},fall={{frame=1,duration=.2}},
     }
     Animation.play(clock,"idle")
     return {clock=clock,left=false}
@@ -19,7 +19,7 @@ function View.animate(player,pose,direction,dt,jumping)
     Animation.play(player.clock,name)
     player.clock.speed=name=="walk" and math.max(.35,math.abs(direction)) or 1
     local frame=Animation.update(player.clock,dt)
-    return frame,player.left
+    return frame,player.left,(name=="rise" or name=="fall") and "keeper_air" or "keeper"
 end
 function View.control(room,stage,index)
     if stage.open then return colors.done,"done" end
