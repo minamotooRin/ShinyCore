@@ -31,7 +31,7 @@ function Game.room(index)
     local level=levels[index]
     local c,stage,shell,player,gate,platform,crate,lights,controls,notice,respawn
     local notice_time=0
-    local actions,animation,plate,airborne,ground_seen,dust
+    local actions,animation,plate,airborne,ground_seen,dust,ending_save_failed,finish_pending
     local function notify(text)
         if #text>120 then
             local last=0
@@ -54,7 +54,8 @@ function Game.room(index)
     end
     local function publish()
         sc.debug.watch("crossing",{room=index,name=level.name,collected=Campaign.count(stage),open=stage.open,
-            sequence=stage.sequence,deaths=stage.deaths,complete=c.complete,mode=shell.mode,player=sc.get(player).x,
+            sequence=stage.sequence,deaths=stage.deaths,complete=c.complete,save_error=ending_save_failed,
+            mode=shell.mode,player=sc.get(player).x,
             objective=objective().text})
     end
     local function snapshot()
@@ -70,6 +71,15 @@ function Game.room(index)
         notify(shell.notice)
         return ok
     end
+    local function complete_checkpoint()
+        c.complete=true
+        if checkpoint() then ending_save_failed=false; return true end
+        c.complete=false; snapshot(); ending_save_failed=true
+        local save_hint=Controls.hint(actions,"save",sc.input.gamepad_connected())
+        if save_hint=="-" then save_hint=Controls.hint(actions,"save",false) end
+        notify("Ending not saved. Press "..save_hint.." or use SAVE in the menu to retry.")
+        return false
+    end
     local function reset_player()
         stage.deaths=stage.deaths+1
         sound("rescue");airborne=false;ground_seen=false
@@ -83,6 +93,7 @@ function Game.room(index)
         title="ShinyCore / Crossing / "..level.name,width=384,height=216,gravity=550,ambient=1,map=terrain(level),
         init=function()
             actions=Controls.new(); animation=View.player(); airborne=false; ground_seen=false
+            ending_save_failed=false; finish_pending=false
             dust=sc.particles.define{speed_min=12,speed_max=34,life_min=.24,life_max=.42,
                 angle_min=-math.pi,angle_max=0,gravity=.6,
                 curve={{time=0,size=3,color=0xE5DFC6D8},{time=1,size=0,color=0xE5DFC600}}}
@@ -121,7 +132,9 @@ function Game.room(index)
             sc.camera.follow(player)
             shell=Shell.new("CROSSING / "..index,level.name,function() c.started=true end)
             if c.started then shell.mode="game" end
-            shell.ui.nodes.save.on_click=checkpoint
+            shell.ui.nodes.save.on_click=function()
+                if ending_save_failed then finish_pending=complete_checkpoint() else checkpoint() end
+            end
             local play=shell.ui.nodes.play.on_click
             shell.ui.nodes.play.on_click=function(...)
                 if c.complete then sc.state.set("campaign",Campaign.new()); sc.scene("main.lua")
@@ -135,6 +148,7 @@ function Game.room(index)
         update=function(dt)
             Input.update(actions,"ui")
             local playing=Shell.update(shell,dt,actions)
+            if finish_pending then finish_pending=false; finish(); publish(); return end
             Input.update(actions)
             if not playing then publish(); return end
             if c.complete then finish(); publish(); return end
@@ -191,7 +205,11 @@ function Game.room(index)
             end
             if plate then sc.set(plate,{color=stage.open and "#66D9B0FF" or "#FFCB77FF"}) end
             if stage.open and gate then sc.destroy(gate); gate=nil; sc.audio.play("chime",{volume=.4,pitch=.7}) end
-            if Input.pressed(actions,"save") then checkpoint() end
+            if Input.pressed(actions,"save") then
+                if ending_save_failed then
+                    if complete_checkpoint() then finish(); publish(); return end
+                else checkpoint() end
+            end
             if Input.pressed(actions,"load") then
                 local ok,err=sc.save.load("checkpoint")
                 if ok then publish(); return else notify(err) end
@@ -199,7 +217,7 @@ function Game.room(index)
             if p.x>1200 then
                 if Campaign.ready(stage) then
                     if index==3 then
-                        c.complete=true; checkpoint(); finish()
+                        if not ending_save_failed and complete_checkpoint() then finish() end
                     else snapshot(); sc.scene(Campaign.paths[index+1]) end
                 else notify("The exit needs five lights and a powered gate.") end
             end
@@ -230,7 +248,7 @@ function Game.room(index)
                 sc.text(stage.open and "PLATE POWERED" or "PRESSURE PLATE",440,164,10,"#FFCB77FF",false)
                 View.marker(480,182,stage.open and "done" or "ready")
             end
-            sc.text("NEXT CROSSING",1180,128,10,"#66D9B0FF",false)
+            if index<3 then sc.text("NEXT CROSSING",1180,128,10,"#66D9B0FF",false) end
             Guide.draw(index,stage,objective(),notice,near,Controls.legend(actions,pad),use)
             Shell.draw(shell)
         end,

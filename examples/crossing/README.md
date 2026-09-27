@@ -40,6 +40,9 @@ Each exit requires five lights and a powered gate. Jump for lights above ledges.
 Falling into the water returns to camp while keeping collected lights and powered gates. Finishing
 the third room saves the ending; NEW JOURNEY clears campaign progress and returns
 to the title. Escape cannot bypass the title or ending.
+If the ending checkpoint cannot be written, the game stays in the final room and
+keeps the collected progress. The current save binding or the pause menu's SAVE
+retries the ending; the completion screen appears only after the write succeeds.
 
 The checkpoint reconstructs the current room from explicit campaign data: collected
 object persistent IDs, gates/switch sequence, player/crate positions, motion phase and
@@ -79,7 +82,9 @@ in a short hidden native run; see ../../docs/verification-crossing-controls.md.
 
 The focused test checks actual support contacts on the ferry/ramp, plate occupancy,
 all-room completion without deaths, fresh-process checkpoint/ending recovery and
-restart. It also checks falling into water retains collected lights. No gameplay
+restart. It also checks a blocked final checkpoint cannot falsely complete the game,
+that retrying after one injected failure reaches the ending, and that falling into
+water retains collected lights. No gameplay
 state or entity positions are injected into the walkthrough.
 
 All declared rooms passed content checks. The optimized replay takes 2,876 fixed

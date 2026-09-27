@@ -94,6 +94,34 @@ end}''',encoding='utf-8')
     assert visited=={'main.lua','rooms/mill.lua','rooms/beacon.lua'}
     assert len(music_ids)==1,'music must retain one voice across all three rooms'
     assert ferry and plate and ramp,(ferry,plate,ramp)
+    fault_root=temp/'ending-fault'
+    blocked=fault_root/'shiny.crossing/checkpoint.json'
+    blocked.mkdir(parents=True)
+    (blocked/'keep').write_text('fixture',encoding='utf-8')
+    failed=run(project,'--frames','2876','--replay',str(project/'walkthrough.jsonl'),
+               '--save-dir',str(fault_root))
+    assert failed['scene']=='rooms/beacon.lua' and not failed['state']['campaign']['complete']
+    assert failed['watches']['crossing']['mode']=='game' and failed['watches']['crossing']['save_error']
+    assert (blocked/'keep').read_text(encoding='utf-8')=='fixture'
+    retry_game=temp/'retry-game'
+    shutil.copytree(project,retry_game)
+    (retry_game/'rooms/beacon.lua').write_text('''local write=sc.save.write
+local fail=true
+sc.save.write=function(slot)
+    if fail then fail=false; return nil,'injected once' end
+    return write(slot)
+end
+return require('game').room(3)
+''',encoding='utf-8')
+    retry_replay=temp/'ending-retry.jsonl'
+    retry_replay.write_text((project/'walkthrough.jsonl').read_text(encoding='utf-8')+
+        '\n'.join(json.dumps(row) for row in [
+            {'frame':2876,'keys':['f6'],'gamepad':{'connected':False}},
+            {'frame':2877,'keys':[],'gamepad':{'connected':False}}])+'\n',encoding='utf-8')
+    retried=run(retry_game,'--frames','2880','--replay',str(retry_replay),
+                '--save-dir',str(temp/'retry-saves'))
+    assert retried['state']['campaign']['complete'] and retried['watches']['crossing']['mode']=='end'
+    assert (temp/'retry-saves/shiny.crossing/checkpoint.json').is_file()
     controller=run(project,'--frames','2876','--replay',str(project/'gamepad.jsonl'))
     assert controller['state']['campaign']==final,'controller traversal must match keyboard gameplay'
     assert controller['watches']['crossing']['mode']=='end'
