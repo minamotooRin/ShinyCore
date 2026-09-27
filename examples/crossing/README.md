@@ -90,3 +90,6 @@ The three backgrounds have been reviewed in ../../docs/verification-crossing-sce
 下落使用独立时钟，停步保留朝向，暂停冻结，回营重置。复用 keeper 原创帧，
 尚未制作专门的腾空姿态。机关的空心/实心菱形和勾号分别表示未就绪、待操作、
 已完成；信号灯顺序与 campaign 的同一份规则数据对应。表现不改变碰撞与存档规则。
+渡台、固定踏板、箱子、开关和门现在由 `presentation.lua` 绘制少量像素细节；
+地面前缘和渡槽水纹使用固定关卡坐标与模拟时间，不调用玩法随机数。
+三关隐藏原生画面已目视检查，记录见 ../../docs/verification-crossing-presentation.md。

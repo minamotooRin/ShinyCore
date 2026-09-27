@@ -200,6 +200,7 @@ function Game.room(index)
                 View.marker(p[1]-7,p[2]+7,state)
                 if not near or near.index~=i then sc.text(p[3].." ["..use.."]",p[1]-10,p[2]-16,10,"#FFCB77FF",false) end
             end
+            View.world(index,level,stage,platform,crate,gate,controls)
             if level.crate then
                 sc.text(stage.open and "PLATE POWERED" or "PRESSURE PLATE",440,164,10,"#FFCB77FF",false)
                 View.marker(480,182,stage.open and "done" or "ready")

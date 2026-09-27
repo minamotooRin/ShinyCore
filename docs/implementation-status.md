@@ -10,6 +10,13 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Crossing now draws small world-space details on its ferry/ledge surfaces, crate,
+switches, gate and floor edge. Aqueduct ripples follow simulation time without
+gameplay RNG. Three hidden native captures were inspected; an occluded first ripple
+placement and plain mill ledge were corrected. Their gameplay snapshot fields match
+the previous captures. See [Crossing presentation](verification-crossing-presentation.md).
+Dedicated jump art, human play duration and final sample quality remain open.
+
 Streamed Tiled object layers now bake `collision=solid/one_way` static shapes offline.
 The world publishes them with tile terrain, retains cross-chunk owner anchors,
 and preserves them when tile cells change; unloaded anchors remove their shapes.
