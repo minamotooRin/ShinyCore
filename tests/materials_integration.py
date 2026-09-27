@@ -21,16 +21,33 @@ with tempfile.TemporaryDirectory(prefix='shiny-material-') as directory:
         result=run('return {}',False)
         assert 'required module unavailable: materials' in result.stderr
         assert not any(f['name'].startswith('sc.material.') for f in api['functions'])
+        assert 'ScMaterialSpec' not in api['types']
         print('materials: disabled module rejected');raise SystemExit(0)
+    types=api['types']
+    spec={field['name']:field for field in types['ScMaterialSpec']['fields']}
+    assert set(spec)=={'shader','uniforms','postprocess'} and spec['postprocess']['default'] is False
+    assert spec['uniforms']['type']=='table<string,ScMaterialUniformSpec>'
+    assert spec['uniforms']['default']=={}
+    assert {field['name'] for field in types['ScMaterialUniformSpec']['fields']}=={'type','value'}
+    assert {field['name'] for field in types['ScMaterialInfo']['fields']}=={
+        'shader','revision','postprocess','compiled_revision','error','status','uniforms'}
+    assert all(field['readonly'] for field in types['ScMaterialCapacity']['fields'])
+    functions={item['name']:item['contract'] for item in api['functions']}
+    assert functions['sc.material.create']['parameters'][0]['type']=='ScMaterialSpec'
+    assert functions['sc.material.info']['returns'][0]['type']=='ScMaterialInfo'
+    assert functions['sc.material.pipeline']['returns'][0]['type']=='ScPostprocessPipeline'
     run('''local id
 local function fails(fn) assert(not pcall(fn)) end
 return {init=function()
 assert(sc.material.capacity().used==0)
 local spec={shader="tint",uniforms={strength={type="float",value=.25},tint={type="vec3",value={1,.5,0}}}}
 id=sc.material.create(spec)
+fails(function() sc.material.create(spec,false) end)
 assert(math.type(id)=="integer" and sc.material.info(id).status=="pending")
+fails(function() sc.material.info(id,false) end)
 assert(sc.material.info(id).compiled_revision==0)
 sc.material.set(id,{strength=.75,tint={0,1,0}})
+fails(function() sc.material.set(id,{},false) end)
 fails(function() sc.material.set(id,{strength=.9,tint={1,2}}) end)
 assert(sc.material.info(id).uniforms.strength==.75)
 fails(function() sc.material.set(id,{unknown=1}) end)
@@ -52,6 +69,8 @@ local replacement=sc.material.create(spec);assert(replacement~=extra)
 local ids={replacement};for i=1,62 do ids[#ids+1]=sc.material.create(spec) end
 assert(sc.material.capacity().used==64)
 fails(function() sc.material.create(spec) end)
+fails(function() sc.material.capacity(false) end)
+fails(function() sc.material.pipeline(false) end)
 for _,v in ipairs(ids) do sc.material.destroy(v) end
 assert(sc.material.capacity().used==1)
 end,update=function()

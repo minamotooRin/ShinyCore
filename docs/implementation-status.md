@@ -10,6 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Material create/uniform definitions and the info, capacity and pipeline results
+now have structured native field metadata, generated LuaLS classes and reference
+documentation. Material functions reject extra arguments instead of ignoring
+them. Full/lightweight builds, the focused headless material test, generated-doc
+check and local SDK audit pass; annotated projects are pinned to dev.55. GPU
+failure/lifetime acceptance and the broader API metadata work remain open. See
+[materials](materials.md).
+
 Crossing now accepts horizontal left-stick displacement through its named actions,
 while D-pad remains full speed. Its walk animation scales with speed, and the
 controller HUD names the stick. The shipped 100-frame analog replay and focused

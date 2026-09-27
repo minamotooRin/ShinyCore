@@ -1254,6 +1254,8 @@ void sc_script_describe(void) {
     auto particle_types=sc_script_particles_contracts();
     type_fields.merge(std::get<ScValue::Object>(particle_types.data));
 #ifdef SC_HAS_ADVANCED_RENDER
+    auto material_types=sc_script_material_contracts();
+    type_fields.merge(std::get<ScValue::Object>(material_types.data));
     auto lighting_types=sc_script_lighting_contracts();
     type_fields.merge(std::get<ScValue::Object>(lighting_types.data));
 #endif

@@ -2,6 +2,11 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **材质 API 字段契约已补全：** create 的 shader/uniforms/postprocess、uniform
+  的类型和值、info/capacity/pipeline 返回字段已进入原生 `--api`，生成 LuaLS
+  与参考文档；材质函数不再忽略多余实参。全/轻量构建、定向无窗口材质测试、
+  文档生成检查和 SDK 审计通过，项目注解为 dev.55。见 materials.md。其余
+  资源类型、GPU 故障长测及完整版验收仍待继续，不重做旧中文字体问题。
 - **Crossing 已加入左摇杆连续移动：** 命名动作保留方向键并支持水平模拟轴，
   走路动画随速度变化，手柄 HUD 显示 STICK。`analog.jsonl` 短回放及
   `tests/crossing_analog.py` 验证半推、反向、归零和断开；内容检查与隐藏静音

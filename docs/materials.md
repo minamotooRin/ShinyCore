@@ -45,6 +45,11 @@ sc.image("hero",x,y,32,32,{material=id})
 
 修改只允许 load/init/update；查询也可在 draw/ui_update 使用。普通参数与读取
 错误抛 Lua 错误，可用 pcall 捕获。set 不改变参数名或类型。
+`--api` 现在列出 `ScMaterialSpec`、`ScMaterialUniformSpec`、`ScMaterialInfo`、
+`ScMaterialCapacity` 和 `ScPostprocessPipeline` 的字段、必填项、默认值与只读属性；
+LuaLS 和 API 参考文档从这份原生元数据生成。材质函数拒绝多余实参，避免
+调用成功却忽略 Agent 误传的数据。类型相关的 uniform 值约束仍以本节及
+原生校验为准。
 
 绑定前先创建材质。每个房间最多绑定 64 个图像路径，实体覆盖存储随材质池按
 项目实体容量一次分配。销毁实体后其覆盖不再保留材质，新生成号不继承旧覆盖；
@@ -96,3 +101,8 @@ GPU 编译、驱动 uniform 检查、保留旧程序、透明像素及 GPU 资�
 弹体、粒子、几何及图块着色可见。进一步注入 GLSL 编译错误、活跃 uniform 不匹配，
 原生像素证明旧程序保留，修正重载后颜色更新；候选编译失败保留旧房间。
 透明排序、辅助纹理采样和长期 GPU 生命周期仍待检查；详见[视觉记录](verification-advanced-render.md)。
+
+2026-09-27：补全材质字段契约与返回类型，相关元数据/调用数量断言加入
+`tests/materials_integration.py`。完整与轻量构建、生成文档检查、项目 SDK 审计及
+定向无窗口材质测试通过；项目注解固定为 SDK dev.55。本次没有改动渲染像素，
+未将无窗口结果当作 GPU 或平台验收。

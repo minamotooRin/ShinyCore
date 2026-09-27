@@ -415,6 +415,54 @@ also use the descriptions and [authoring annotations](api.lua).
 
 - Plain partial object, no unknown fields or coercion. All numbers finite, lower <= upper even when limit is disabled. Omitted fields retain values; validation failure changes no controls.
 
+## ScMaterialCapacity
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| used | integer | Read-only. Current usage or configured upper bound. |
+| capacity | integer | Read-only. Current usage or configured upper bound. |
+| uniforms_per_material | integer | Read-only. Current usage or configured upper bound. |
+| textures_per_material | integer | Read-only. Current usage or configured upper bound. |
+| postprocess_textures_per_material | integer | Read-only. Current usage or configured upper bound. |
+| postprocess_passes | integer | Read-only. Current usage or configured upper bound. |
+| image_bindings | integer | Read-only. Current usage or configured upper bound. |
+| image_binding_capacity | integer | Read-only. Current usage or configured upper bound. |
+| entity_bindings | integer | Read-only. Current usage or configured upper bound. |
+| entity_binding_capacity | integer | Read-only. Current usage or configured upper bound. |
+
+
+## ScMaterialInfo
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| shader | string | Read-only. Project-relative shader path. |
+| revision | integer | Read-only. Requested source revision. |
+| postprocess | boolean | Read-only. Whether this is a postprocess material. |
+| compiled_revision | integer | Read-only. Last successfully compiled GPU revision; zero in headless mode. |
+| error | string | Read-only. Last GPU compile/link error, or empty. |
+| status | 'pending'\|'ready'\|'failed' | Read-only. Current GPU publication status. |
+| uniforms | table<string,number\|number[]\|boolean\|string> | Read-only. Independent current values; textures use project-relative paths. |
+
+
+## ScMaterialSpec
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| shader | string | Declared fragment shader resource name. |
+| uniforms? | table<string,ScMaterialUniformSpec> | At most 32 named definitions; omitted uses an empty map. Default {}. |
+| postprocess? | boolean | True reserves sc_scene/sc_resolution and limits auxiliary textures to three. Default false. |
+
+- Plain object. Uniform names are 1..63 byte GLSL identifiers, excluding reserved names; at most four surface or three postprocess textures.
+
+## ScMaterialUniformSpec
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| type | 'float'\|'vec2'\|'vec3'\|'vec4'\|'int'\|'bool'\|'texture' | Fixed GLSL uniform type. |
+| value | number\|number[]\|boolean\|string | Must match type: finite scalar/vector, int32, boolean or declared image name. |
+
+- Plain object with exactly type and value. Vectors have 2..4 exact numeric elements; numbers are finite within +/-1000000.
+
 ## ScMusicOptions
 
 | Field | Type | Contract |
@@ -545,6 +593,21 @@ also use the descriptions and [authoring annotations](api.lua).
 | ignore? | integer | Live entity handle excluded from this light's occlusion; 0 means no exclusion. Default 0. |
 
 - Draw-only copied command; unknown fields, stale ignore handles and out-of-range values fail before appending. No persistent light handles.
+
+## ScPostprocessPipeline
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| passes | integer[] | Read-only. Ordered live material handles. |
+| limit | integer | Read-only. Maximum chain length, four. |
+| revision | integer | Read-only. Requested chain revision. |
+| budget_bytes | integer | Read-only. Configured color-target budget. |
+| required_color_bytes | integer | Read-only. Target bytes required for this chain. |
+| allocated_color_bytes | integer | Read-only. GPU color-target bytes currently allocated. |
+| target_count | integer | Read-only. Current GPU color target count. |
+| error | string | Read-only. Last presentation error, or empty. |
+| status | 'disabled'\|'pending'\|'ready'\|'failed' | Read-only. Chain publication status. |
+
 
 ## ScProjectileHit
 
@@ -822,16 +885,16 @@ also use the descriptions and [authoring annotations](api.lua).
 | sc.map | layer: string, x: integer, y: integer, gid?: integer | integer | load, init, update, draw, ui_update; gid supplied (including nil): load, init, update |
 | sc.material.bind_entity | entity: ScEntityId, material: integer\|false | none | load, init, update |
 | sc.material.bind_image | image: string, material: integer | none | load, init, update |
-| sc.material.capacity |  | table | load, init, update, draw, ui_update |
-| sc.material.create | spec: table | integer | load, init, update |
+| sc.material.capacity |  | ScMaterialCapacity | load, init, update, draw, ui_update |
+| sc.material.create | spec: ScMaterialSpec | integer | load, init, update |
 | sc.material.destroy | id: integer | none | load, init, update |
 | sc.material.entity_material | entity: ScEntityId | integer | load, init, update, draw, ui_update |
 | sc.material.image_material | image: string | integer | load, init, update, draw, ui_update |
-| sc.material.info | id: integer | table | load, init, update, draw, ui_update |
-| sc.material.pipeline |  | table | load, init, update, draw, ui_update |
-| sc.material.postprocess | passes: integer[], budget_bytes?: integer | none | load, init, update |
+| sc.material.info | id: integer | ScMaterialInfo | load, init, update, draw, ui_update |
+| sc.material.pipeline |  | ScPostprocessPipeline | load, init, update, draw, ui_update |
+| sc.material.postprocess | passes: integer[], budget_bytes?: integer\|nil | none | load, init, update |
 | sc.material.reload | id: integer | none | load, init, update |
-| sc.material.set | id: integer, values: table | none | load, init, update |
+| sc.material.set | id: integer, values: table<string,number\|number[]\|boolean\|string> | none | load, init, update |
 | sc.measure | text: string, size: number, font?: string\|nil = "", wrap?: number\|nil = 0 | width: number, height: number | load, init, update, draw, ui_update |
 | sc.message | text: string | none | load, init, update |
 | sc.navigation.direction | handle: integer, x: number, y: number | dx: number, dy: number, status: 'ok'\|'unreachable'\|'budget_exhausted'\|'stale' | load, init, update, draw, ui_update |

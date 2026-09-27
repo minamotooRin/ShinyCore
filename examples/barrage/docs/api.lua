@@ -18,6 +18,52 @@
 ---@alias ScAction 'left'|'right'|'up'|'down'|'jump'|'action'
 ---@alias ScTile '.'|'#'|'=' # Empty, solid, one-way platform.
 
+---@class ScPostprocessPipeline
+-- Fields generated from native --api.
+---@field passes integer[] # Read-only. Ordered live material handles.
+---@field limit integer # Read-only. Maximum chain length, four.
+---@field revision integer # Read-only. Requested chain revision.
+---@field budget_bytes integer # Read-only. Configured color-target budget.
+---@field required_color_bytes integer # Read-only. Target bytes required for this chain.
+---@field allocated_color_bytes integer # Read-only. GPU color-target bytes currently allocated.
+---@field target_count integer # Read-only. Current GPU color target count.
+---@field error string # Read-only. Last presentation error, or empty.
+---@field status 'disabled'|'pending'|'ready'|'failed' # Read-only. Chain publication status.
+
+---@class ScMaterialUniformSpec
+-- Fields generated from native --api.
+---@field type 'float'|'vec2'|'vec3'|'vec4'|'int'|'bool'|'texture' # Fixed GLSL uniform type.
+---@field value number|number[]|boolean|string # Must match type: finite scalar/vector, int32, boolean or declared image name.
+
+---@class ScMaterialSpec
+-- Fields generated from native --api.
+---@field shader string # Declared fragment shader resource name.
+---@field uniforms? table<string,ScMaterialUniformSpec> # At most 32 named definitions; omitted uses an empty map. Default {}.
+---@field postprocess? boolean # True reserves sc_scene/sc_resolution and limits auxiliary textures to three. Default false.
+
+---@class ScMaterialInfo
+-- Fields generated from native --api.
+---@field shader string # Read-only. Project-relative shader path.
+---@field revision integer # Read-only. Requested source revision.
+---@field postprocess boolean # Read-only. Whether this is a postprocess material.
+---@field compiled_revision integer # Read-only. Last successfully compiled GPU revision; zero in headless mode.
+---@field error string # Read-only. Last GPU compile/link error, or empty.
+---@field status 'pending'|'ready'|'failed' # Read-only. Current GPU publication status.
+---@field uniforms table<string,number|number[]|boolean|string> # Read-only. Independent current values; textures use project-relative paths.
+
+---@class ScMaterialCapacity
+-- Fields generated from native --api.
+---@field used integer # Read-only. Current usage or configured upper bound.
+---@field capacity integer # Read-only. Current usage or configured upper bound.
+---@field uniforms_per_material integer # Read-only. Current usage or configured upper bound.
+---@field textures_per_material integer # Read-only. Current usage or configured upper bound.
+---@field postprocess_textures_per_material integer # Read-only. Current usage or configured upper bound.
+---@field postprocess_passes integer # Read-only. Current usage or configured upper bound.
+---@field image_bindings integer # Read-only. Current usage or configured upper bound.
+---@field image_binding_capacity integer # Read-only. Current usage or configured upper bound.
+---@field entity_bindings integer # Read-only. Current usage or configured upper bound.
+---@field entity_binding_capacity integer # Read-only. Current usage or configured upper bound.
+
 ---@class ScStreamMetadata
 -- Fields generated from native --api.
 ---@field format integer # Read-only. Built stream format 3.
@@ -1435,17 +1481,17 @@ function sc.material.bind_entity(entity, material) end
 function sc.material.bind_image(image, material) end
 ---Read material, uniform and texture limits without allocating the pool.
 ---Phases: load, init, update, draw, ui_update.
----@return table
+---@return ScMaterialCapacity
 function sc.material.capacity() end
 ---Create a room material from a declared fragment shader; uniforms map names to {type,value}. postprocess defaults false; true reserves sc_scene/sc_resolution and permits 3 auxiliary textures.
 ---Phases: load, init, update.
 ---Capacity: 64 materials; 32 uniforms; auxiliary textures: image 4, postprocess 3.
----@param spec table
+---@param spec ScMaterialSpec # Declared shader and optional typed uniform definitions.
 ---@return integer
 function sc.material.create(spec) end
 ---Release a room material; generation-checked handles become invalid. Clear image, live entity and postprocess references first; dead entity bindings do not retain materials.
 ---Phases: load, init, update.
----@param id integer
+---@param id integer # Live room material handle. Range 1..4503599627370495.
 function sc.material.destroy(id) end
 ---Read the effective entity material: override, image default, then builtin (0). The entity must be alive.
 ---Phases: load, init, update, draw, ui_update.
@@ -1459,27 +1505,27 @@ function sc.material.entity_material(entity) end
 function sc.material.image_material(image) end
 ---Read source revision, GPU compilation state/error and current uniform values; headless materials stay pending.
 ---Phases: load, init, update, draw, ui_update.
----@param id integer
----@return table
+---@param id integer # Live room material handle. Range 1..4503599627370495.
+---@return ScMaterialInfo
 function sc.material.info(id) end
 ---Read requested passes, target color-byte budget/allocation and presentation status. Headless chains stay pending.
 ---Phases: load, init, update, draw, ui_update.
----@return table
+---@return ScPostprocessPipeline
 function sc.material.pipeline() end
 ---Atomically replace the bounded postprocess chain; empty clears it. Live postprocess=true handles required; referenced materials cannot be destroyed.
 ---Phases: load, init, update.
 ---Capacity: 0..4 passes; default 64 MiB color-target budget; at most 1 GiB.
----@param passes integer[]
----@param budget_bytes? integer
+---@param passes integer[] # Dense array of 0..4 live postprocess material handles.
+---@param budget_bytes? integer|nil # 0..1073741824 bytes; omitted/nil retains the current budget (initially 64 MiB). Range 0..1073741824.
 function sc.material.postprocess(passes, budget_bytes) end
 ---Read replacement shader source; GPU compilation occurs before presentation and keeps the old program on failure.
 ---Phases: load, init, update.
----@param id integer
+---@param id integer # Live room material handle. Range 1..4503599627370495.
 function sc.material.reload(id) end
 ---Atomically patch values of existing typed uniforms; types and names remain fixed.
 ---Phases: load, init, update.
----@param id integer
----@param values table
+---@param id integer # Live room material handle. Range 1..4503599627370495.
+---@param values table<string,number|number[]|boolean|string> # Existing uniform names only; all values are validated before any change.
 function sc.material.set(id, values) end
 ---Read world-pixel steering without advancing the search. Stale or incomplete fields, blocked/unreachable cells and outside positions return zero direction; stale handles error.
 ---Phases: load, init, update, draw, ui_update.
