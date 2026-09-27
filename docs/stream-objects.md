@@ -194,6 +194,13 @@ source_extra?,target_extra?)` 导出两个 owner，生成一次写入两个块�
 迁回原始块时复用其对象定义，迁出块的导入记录移除。提交前后 owner 必须保持不变；
 同一 draft 不能提交两次。通常直接使用 `World.transfer`，由其后台写入并暂停模拟。
 
+成组对象可用 `Objects.prepare_transfers(moves, owners, export)`，其中 moves 是
+`{source=owner,target=owner,name=对象持久 ID}` 数组，owners 是唯一的
+`{owner=...,key=块存档键,extra=可选图块状态}` 数组。它对每个受影响块只导出一次，
+预检所有对象后生成一份 changes；写入成功调用 `Objects.commit_transfers(draft)`。
+重复 ID、未列出的 owner 或不活动对象会在写盘前失败。普通游戏优先调用
+`World.transfer_many`，无需直接管理 draft。
+
 2026-09-27：复合对象已接入普通加载、联合地形/边界发布和异步 World 切换。
 定向真实宿主测试覆盖多层子对象重访与删除、原子失败、流式世界卸载恢复和
 子对象精灵驻留；这不是跨平台或完整游戏验收。

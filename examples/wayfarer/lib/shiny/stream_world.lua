@@ -257,8 +257,8 @@ local function finish_transaction(world)
             return false
         end
         if transaction.transfer then
-            local ok,entry=pcall(Objects.commit_transfer,transaction.transfer)
-            if not ok then transaction.error=tostring(entry); return nil,transaction.error end
+            local ok,entries=pcall(Objects.commit_transfers,transaction.transfer)
+            if not ok then transaction.error=tostring(entries); return nil,transaction.error end
         elseif transaction.draft then
             local ok,incoming=pcall(Objects.commit_transition,transaction.draft)
             if not ok then transaction.error=tostring(incoming); return nil,transaction.error end
@@ -307,37 +307,62 @@ function World.save(world)
     begin(world,transaction)
     return request
 end
--- Explicitly migrate a live object after it crosses into another published chunk.
--- The two chunk records commit together; the root handle and persistent ID stay live.
-function World.transfer(world,name)
+-- Migrate all selected objects with one save commit; unchanged objects need no write.
+function World.transfer_many(world,names)
     if world.transaction or world.region.pending then return nil,"finish the current world transition first" end
-    assert(type(name)=="string" and #name>0,"object persistent ID required")
-    local source_name,entry
+    assert(type(names)=="table" and getmetatable(names)==nil and #names<=4096,
+        "transfers require a plain array of at most 4096 IDs")
+    local located={}
     for chunk_name,owner in pairs(world.owners) do
         for _,candidate in ipairs(owner.entries) do
-            if candidate.object.persistent_id==name and not candidate.moved then
-                assert(not entry,"duplicate streamed object owner")
-                source_name,entry=chunk_name,candidate
+            if not candidate.moved then
+                local name=candidate.object.persistent_id
+                assert(not located[name],"duplicate streamed object owner")
+                located[name]={chunk=chunk_name,entry=candidate,owner=owner}
             end
         end
     end
-    if not entry or not entry.id then return nil,"streamed object is not active" end
-    local entity=sc.get(entry.id)
-    local target_name=key(math.floor(entity.x/(32*world.view.width)),math.floor(entity.y/(32*world.view.height)))
-    if target_name==source_name then return false end
-    local target=world.owners[target_name]
-    if not target then return nil,"target chunk is not loaded" end
-    local source=world.owners[source_name]
+    local moves,touched,seen,count={},{},{},0
+    for i,name in ipairs(names) do
+        count=i
+        assert(type(name)=="string" and #name>0 and not seen[name],"invalid or duplicate object persistent ID")
+        seen[name]=true
+        local source=located[name]
+        if not source or not source.entry.id then return nil,"streamed object is not active: "..name end
+        local entity=sc.get(source.entry.id)
+        local target_name=key(math.floor(entity.x/world.region.width),math.floor(entity.y/world.region.height))
+        if target_name~=source.chunk then
+            local target=world.owners[target_name]
+            if not target then return nil,"target chunk is not loaded: "..target_name end
+            moves[#moves+1]={source=source.owner,target=target,name=name}
+            touched[source.chunk]=source.owner;touched[target_name]=target
+        end
+    end
+    for index in pairs(names) do
+        assert(type(index)=="number" and index%1==0 and index>=1 and index<=count,
+            "transfers must be dense")
+    end
+    if #moves==0 then return false end
     local function extra(chunk_name)
         return world.edits[chunk_name] and {format=1,tiles=world.edits[chunk_name]} or nil
     end
-    local draft=Objects.prepare_transfer(source,target,name,world.name..":"..source_name,
-        world.name..":"..target_name,world.export,extra(source_name),extra(target_name))
+    local owners,sorted={},{}
+    for chunk_name in pairs(touched) do sorted[#sorted+1]=chunk_name end
+    table.sort(sorted)
+    for i,chunk_name in ipairs(sorted) do
+        owners[i]={owner=touched[chunk_name],key=world.name..":"..chunk_name,extra=extra(chunk_name)}
+    end
+    local draft=Objects.prepare_transfers(moves,owners,world.export)
     local transaction={kind="transfer",phase="write",changes=draft.changes,transfer=draft}
     local request,err=submit_io(world,transaction)
     if not request then return nil,err end
     begin(world,transaction)
     return request
+end
+-- Single-object convenience API; both paths share the same batch transaction.
+function World.transfer(world,name)
+    assert(type(name)=="string" and #name>0,"object persistent ID required")
+    return World.transfer_many(world,{name})
 end
 -- Returns changed,error,event. Events: published/saved/transferred/patched/reloaded/cancelled.
 function World.update(world,dt)

@@ -876,6 +876,85 @@ end}''')
         restored=self.run_game('transfer-fresh-process',save=True,frames=6)
         self.assertTrue(restored['watches']['restored_transfer'])
 
+    def test_stream_world_batch_transfer(self):
+        shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        self.index['tilesets']=[{'firstgid':1,'tilecount':3,'columns':3,'tilewidth':8,'tileheight':8,'image':'terrain.png'}]
+        chunk=self.root/'0.json'
+        data=json.loads(chunk.read_text(encoding='utf-8'))
+        data['objects']=[{'persistent_id':f'group:{i}','layer':1,'x':i*8,'y':-8} for i in (1,2)]
+        encoded=json.dumps(data,separators=(',',':'))
+        chunk.write_text(encoded,encoding='utf-8')
+        self.index['chunks'][0]['bytes']=len(encoded.encode())
+        self.write_index()
+        common='''local World=require("shiny.stream_world")
+local Objects=require("shiny.stream_objects")
+local world,phase=nil,0
+local function make()
+    return World.new{index="index.json",name="forest",slot="slot",margin=0,
+        prepare=function(object,saved)
+            return {entity={x=saved and saved.x or object.x,y=-8,body=false},
+                children={marker={x=2,y=0,body=false}}},{}
+        end,export=function(entity) return {x=entity.x} end}
+end
+'''
+        self.scene(common+'''local ids,refs={},{}
+return {init=function()
+    world=make(); World.request(world,{{x=8,y=-8},{x=264,y=-8}},0)
+end,update=function(dt)
+    local _,err,event=World.update(world,dt); assert(not err,err)
+    if phase==0 and event=="published" then
+        local entries=world.owners["0:-1"].entries
+        for i,entry in ipairs(entries) do
+            ids[i]={entry.id,entry.children.marker.id}
+            refs[i]=Objects.reference(entry,{"marker"})
+            sc.set(entry.id,{x=256+i*8})
+        end
+        local request,why=World.transfer_many(world,{"group:1","missing"})
+        assert(request==nil and why:find("missing") and not World.status(world))
+        assert(not pcall(World.transfer_many,world,{"group:1","group:1"}))
+        assert(World.transfer_many(world,{"group:1","group:2"}))
+        assert(sc.app.paused() and entries[1].id==ids[1][1] and entries[2].id==ids[2][1])
+        phase=1
+    elseif phase==1 and event=="transferred" then
+        local source=world.owners["0:-1"].entries
+        local target=world.owners["1:-1"].entries
+        assert(source[1].moved and source[2].moved and #target==2)
+        for i,entry in ipairs(target) do
+            assert(entry.id==ids[i][1] and entry.children.marker.id==ids[i][2])
+            assert(Objects.resolve(refs[i]).id==ids[i][2])
+        end
+        assert(World.transfer_many(world,{})==false)
+        World.request(world,{{x=264,y=-8}},sc.tick()+1); phase=2
+    elseif phase==2 and event=="published" then
+        assert(world.owners["0:-1"]==nil and #world.owners["1:-1"].entries==2)
+        local saved=assert(sc.save.read_chunk("slot","forest:0:-1"))
+        assert(saved.objects["group:1"].moved and saved.objects["group:2"].moved)
+        for i,entry in ipairs(world.owners["1:-1"].entries) do
+            assert(entry.id==ids[i][1] and sc.get(entry.id).x==256+i*8)
+        end
+        phase=3
+    end
+    sc.debug.watch("batch_transfer_phase",phase)
+end}''')
+        result=self.run_game('batch-transfer',save=True,frames=12)
+        self.assertEqual(result['watches']['batch_transfer_phase'],3)
+        self.scene(common+'''return {init=function()
+    world=make(); World.request(world,{{x=264,y=-8}},0)
+end,update=function(dt)
+    local _,err,event=World.update(world,dt); assert(not err,err)
+    if event=="published" then
+        local target=world.owners["1:-1"].entries
+        assert(world.owners["0:-1"]==nil and #target==2)
+        for i,entry in ipairs(target) do
+            assert(entry.imported and sc.get(entry.id).x==256+i*8)
+            assert(sc.get(entry.children.marker.id).x==258+i*8)
+        end
+        sc.debug.watch("batch_restored",true)
+    end
+end}''')
+        restored=self.run_game('batch-transfer-fresh-process',save=True,frames=6)
+        self.assertTrue(restored['watches']['batch_restored'])
+
     def test_stream_world_map_edits(self):
         shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
         self.index['tilesets']=[{'firstgid':1,'tilecount':1,'columns':1,'tilewidth':8,'tileheight':8,'image':'terrain.png',

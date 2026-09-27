@@ -6,9 +6,10 @@
   已发布后异步原子写入原块迁出标记与目标块导入状态，成功才改变 Lua owner；根句柄
   不重建。`World.request` 拒绝卸载已有对象离开的原块，避免遗漏迁移导致对象消失。
   往返迁移、拒绝和新进程恢复有定向无窗口验证。流式记录格式升至 2，
-  旧对象记录拒绝加载；Wayfarer 本地 SDK 更新为 dev.65，见
+  旧对象记录拒绝加载。`World.transfer_many` 现将多对象迁移合成一次存档提交，
+  重复 ID、无效对象或未加载目标在写入前拒绝；Wayfarer 本地 SDK 更新为 dev.67，见
   verification-stream-transfer.md。当前仍由游戏选择迁移时机，
-  不自动逐帧扫描所有对象，也未完成多对象批量迁移、弱盘/长时性能与跨平台验收。
+  不自动逐帧扫描所有对象，弱盘/长时性能与跨平台验收仍未完成。
 - **Wayfarer 地图索引改为声明式后台预读：** `project.stream_indexes` 在场景表加载后、
   `init` 前经应用内容线程读取解析；`sc.stream.open` 消费同一路径元数据，候选失败保留
   活动房间，最多两个索引任务。Wayfarer 已接入，本地 SDK dev.62。Full/lightweight

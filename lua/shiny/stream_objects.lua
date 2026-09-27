@@ -352,60 +352,106 @@ function Objects.changes(items,export)
     local _,changes=prepare_unload(items,export)
     return changes
 end
--- Save both chunk records before changing a live object's owner. No native handle changes.
-function Objects.prepare_transfer(source,target,name,source_key,target_key,export,source_extra,target_extra)
-    assert(type(source)=="table" and type(target)=="table" and source~=target
-        and not source.unloaded and not target.unloaded,"transfer requires two active owners")
-    assert(type(name)=="string" and #name>0,"transfer requires an object persistent ID")
-    assert(type(source_key)=="string" and type(target_key)=="string" and source_key~=target_key,
-        "transfer requires distinct chunk keys")
-    local entry,destination
-    for _,candidate in ipairs(source.entries) do
-        if candidate.object.persistent_id==name then entry=candidate; break end
+-- A transfer batch exports each touched owner once, then changes all chunk records together.
+function Objects.prepare_transfers(moves,owners,export)
+    plain(moves,"transfers must be a plain array")
+    plain(owners,"transfer owners must be a plain array")
+    assert(type(export)=="function","object export callback required")
+    local known,keys,count={},{},0
+    for i,item in ipairs(owners) do
+        count=i
+        plain(item,"transfer owner requires owner and key")
+        local owner=plain(item.owner,"transfer owner required")
+        assert(not owner.unloaded and not known[owner],"duplicate or unloaded transfer owner")
+        assert(type(item.key)=="string" and #item.key>0 and not keys[item.key],"missing or duplicate transfer chunk key")
+        known[owner]=item;keys[item.key]=true
     end
-    assert(entry and not entry.moved and resolution(entry).status=="active","transfer source is not active")
-    for _,candidate in ipairs(target.entries) do
-        if candidate.object.persistent_id==name then destination=candidate; break end
+    for index in pairs(owners) do
+        assert(type(index)=="number" and index%1==0 and index>=1 and index<=count,"transfer owners must be dense")
     end
-    assert(not destination or (not destination.imported and destination.moved),
-        "transfer target already owns this object")
-    local before_source=Objects.snapshot(source,export)
-    local before_target=Objects.snapshot(target,export)
-    validate_snapshot(source,before_source)
-    validate_snapshot(target,before_target)
-    local changes={[source_key]=copy(before_source),[target_key]=copy(before_target)}
-    local old=entry.imported and changes[source_key].imports or changes[source_key].objects
-    local state=old[name].data
-    if entry.imported then old[name]=nil else old[name]={moved=true} end
-    if destination then changes[target_key].objects[name]={data=state}
-    else changes[target_key].imports[name]={object=copy(entry.object),data=state} end
-    changes[source_key].extra=source_extra and copy(plain(source_extra,"invalid source chunk state")) or nil
-    changes[target_key].extra=target_extra and copy(plain(target_extra,"invalid target chunk state")) or nil
-    return {source=source,target=target,entry=entry,destination=destination,name=name,
-        before_source=before_source,before_target=before_target,changes=changes}
+    local plans,names={},{}
+    for _,move in ipairs(moves) do
+        plain(move,"transfer requires source, target and name")
+        local source,target=known[move.source],known[move.target]
+        local name=move.name
+        assert(source and target and source~=target,"transfer requires two listed owners")
+        assert(type(name)=="string" and #name>0 and not names[name],"missing or duplicate object persistent ID")
+        names[name]=true
+        local entry,destination
+        for _,candidate in ipairs(move.source.entries) do
+            if candidate.object.persistent_id==name then entry=candidate; break end
+        end
+        assert(entry and not entry.moved and resolution(entry).status=="active","transfer source is not active")
+        for _,candidate in ipairs(move.target.entries) do
+            if candidate.object.persistent_id==name then destination=candidate; break end
+        end
+        assert(not destination or (not destination.imported and destination.moved),
+            "transfer target already owns this object")
+        plans[#plans+1]={source=move.source,target=move.target,entry=entry,destination=destination,
+            created=not destination and {object=copy(entry.object),imported=true,moved=false,deleted=false} or nil,
+            source_key=source.key,target_key=target.key,name=name}
+    end
+    for index in pairs(moves) do
+        assert(type(index)=="number" and index%1==0 and index>=1 and index<=#plans,"transfers must be dense")
+    end
+    local changes={}
+    for _,item in ipairs(owners) do
+        item.before=Objects.snapshot(item.owner,export)
+        changes[item.key]=copy(item.before)
+        changes[item.key].extra=item.extra and copy(plain(item.extra,"invalid chunk state")) or nil
+    end
+    for _,item in ipairs(owners) do validate_snapshot(item.owner,item.before) end
+    for _,plan in ipairs(plans) do
+        local old=plan.entry.imported and changes[plan.source_key].imports or changes[plan.source_key].objects
+        local state=old[plan.name].data
+        if plan.entry.imported then old[plan.name]=nil else old[plan.name]={moved=true} end
+        local next_record=plan.destination and changes[plan.target_key].objects or changes[plan.target_key].imports
+        next_record[plan.name]=plan.destination and {data=state} or {object=copy(plan.entry.object),data=state}
+    end
+    return {owners=owners,moves=plans,changes=changes}
 end
-function Objects.commit_transfer(draft)
+function Objects.commit_transfers(draft)
     assert(not draft.committed,"object transfer already committed")
-    validate_snapshot(draft.source,draft.before_source)
-    validate_snapshot(draft.target,draft.before_target)
-    local entry,target=draft.entry,draft.destination
-    assert(resolution(entry).status=="active","transfer source changed before commit")
-    if not target then
-        target={object=copy(entry.object),imported=true,moved=false,deleted=false}
-        draft.target.entries[#draft.target.entries+1]=target
-    end
-    target.moved=false; target.deleted=false
-    target.id, target.ids, target.children=entry.id,entry.ids,entry.children
-    target.data, target.components=entry.data,entry.components
-    if entry.imported then
-        for i,candidate in ipairs(draft.source.entries) do
-            if candidate==entry then table.remove(draft.source.entries,i); break end
+    for _,item in ipairs(draft.owners) do validate_snapshot(item.owner,item.before) end
+    for _,plan in ipairs(draft.moves) do
+        assert(resolution(plan.entry).status=="active","transfer source changed before commit")
+        local found=false
+        for _,entry in ipairs(plan.source.entries) do if entry==plan.entry then found=true;break end end
+        assert(found,"transfer source was detached")
+        if plan.destination then
+            found=false
+            for _,entry in ipairs(plan.target.entries) do if entry==plan.destination then found=true;break end end
+            assert(found and plan.destination.moved,"transfer target changed before commit")
         end
     end
-    entry.moved=true;entry.id=nil;entry.ids=nil;entry.children=nil;entry.data=nil;entry.components=nil
-    active[draft.name]=target
+    local result={}
+    for i,plan in ipairs(draft.moves) do
+        local entry,target=plan.entry,plan.destination
+        if not target then
+            target=plan.created
+            plan.target.entries[#plan.target.entries+1]=target
+        end
+        target.moved=false;target.deleted=false
+        target.id,target.ids,target.children=entry.id,entry.ids,entry.children
+        target.data,target.components=entry.data,entry.components
+        if entry.imported then
+            for n,candidate in ipairs(plan.source.entries) do
+                if candidate==entry then table.remove(plan.source.entries,n); break end
+            end
+        end
+        entry.moved=true;entry.id=nil;entry.ids=nil;entry.children=nil;entry.data=nil;entry.components=nil
+        active[plan.name]=target
+        result[i]=target
+    end
     draft.committed=true
-    return target
+    return result
+end
+function Objects.prepare_transfer(source,target,name,source_key,target_key,export,source_extra,target_extra)
+    return Objects.prepare_transfers({{source=source,target=target,name=name}},
+        {{owner=source,key=source_key,extra=source_extra},{owner=target,key=target_key,extra=target_extra}},export)
+end
+function Objects.commit_transfer(draft)
+    return Objects.commit_transfers(draft)[1]
 end
 function Objects.unload_many(items,slot,export)
     local batch,changes=prepare_unload(items,export)
