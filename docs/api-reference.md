@@ -525,6 +525,20 @@ also use the descriptions and [authoring annotations](api.lua).
 - Defaults apply only when no live persistent non-stopping voice matches the resource path. Reuse patches omitted fields unchanged and never restarts playback.
 - Candidate room changes remain isolated until commit; no runtime handle needs to be stored in game state or saves.
 
+## ScNavigationMask
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| x | number | Read-only. World-pixel origin of the selected grid. |
+| y | number | Read-only. World-pixel origin of the selected grid. |
+| cell_size | integer | Read-only. World pixels per cell. |
+| width | integer | Read-only. Columns per row. |
+| height | integer | Read-only. Number of rows. |
+| radius | number | Read-only. Requested circular body clearance in world pixels. |
+| rows | string[] | Read-only. Equal-width . passable / # blocked rows in local grid order. |
+
+- Read-only independent snapshot of the same clearance mask used by path and flow; terrain edits require a fresh call.
+
 ## ScNavigationPath
 
 | Field | Type | Contract |
@@ -1005,6 +1019,7 @@ also use the descriptions and [authoring annotations](api.lua).
 | sc.message | text: string | none | load, init, update |
 | sc.navigation.direction | handle: integer, x: number, y: number | dx: number, dy: number, status: 'ok'\|'unreachable'\|'budget_exhausted'\|'stale' | load, init, update, draw, ui_update |
 | sc.navigation.flow | gx: integer, gy: integer, budget?: integer = 16384, slot?: integer = 1, radius?: number = 0 | handle: integer, status: 'ok'\|'unreachable'\|'budget_exhausted', visited: integer | load, init, update |
+| sc.navigation.mask | radius?: number = 0 | ScNavigationMask | load, init, update, draw, ui_update |
 | sc.navigation.path | sx: integer, sy: integer, gx: integer, gy: integer, budget?: integer = 16384, radius?: number = 0 | ScNavigationPath | load, init, update, draw, ui_update |
 | sc.navigation.refresh | handle: integer, budget: integer | status: 'ok'\|'unreachable'\|'budget_exhausted', visited: integer | load, init, update |
 | sc.navigation.region | x?: number, y?: number, rows?: string[], cell_size?: integer = 8 | none | load, init, update |

@@ -10,6 +10,12 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+`sc.navigation.mask(radius?)` now exposes a bounded read-only snapshot of the
+selected grid's exact path/flow clearance mask and world origin. It updates after
+Tiled collision edits and enables one consistent source for future offline
+streamed-chunk connectivity summaries. It does not yet route across unloaded
+chunks. See [navigation mask verification](verification-navigation-mask.md).
+
 The streamed-world helper now accepts world-pixel path and flow goals against its
 published navigation window. Wayfarer's courier no longer reads internal chunk
 tables or hardcodes their size. Focused negative-chunk/transition checks, the full
@@ -26,7 +32,7 @@ clean-system or cross-platform acceptance.
 
 `ScScene` and `ScMap` now have structured native `--api` fields, defaults,
 ranges and table constraints. The generated LuaLS/reference copies and 18
-example annotations are synchronized; 11 manifested SDKs are dev.72.
+example annotations are synchronized; 11 affected manifested SDKs are now dev.75.
 Full/lightweight builds and focused contract/generation checks pass. This
 changes authoring metadata only; remaining work and release gates stay open.
 

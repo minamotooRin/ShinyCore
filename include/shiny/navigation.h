@@ -5,6 +5,8 @@
 
 struct ScPath { std::string_view status; std::vector<int> cells; std::size_t visited{}; };
 ScPath sc_path(const ScMap& map,int start,int goal,std::size_t budget,float radius=0);
+// The same point/body clearance mask used by paths and shared flow fields.
+std::bitset<SC_MAX_TILES> sc_navigation_blocked(const ScMap& map,float radius=0);
 std::bitset<SC_MAX_TILES> sc_navigation_obstacles(const ScMap&,std::span<const ScTerrainShape>,float origin_x=0,float origin_y=0);
 // Pure candidate update: map.navigation_blocked must describe before at the same grid/origin.
 struct ScNavigationUpdate { std::bitset<SC_MAX_TILES> blocked,dirty; };

@@ -4,6 +4,8 @@
 #include "shiny/script_data.h"
 #include <cmath>
 #include <stdexcept>
+#include <string>
+#include <utility>
 
 std::unique_ptr<ScNavigationRegion> sc_prepare_navigation_region(double x,double y,const ScValue& data,double tile,
                                                                std::span<const ScTerrainShape> shapes) {
@@ -85,6 +87,29 @@ int path(lua_State* L) {
         auto result=sc_path(map,static_cast<int>(sy*map.width+sx),static_cast<int>(gy*map.width+gx),static_cast<std::size_t>(budget),body_radius); ScValue::Array points;
         for(int cell:result.cells) points.push_back(ScValue{ScValue::Object{{"x",ScValue{double(cell%map.width)}},{"y",ScValue{double(cell/map.width)}}}});
         s->scratch=ScValue{ScValue::Object{{"status",ScValue{std::string(result.status)}},{"visited",ScValue{double(result.visited)}},{"points",ScValue{std::move(points)}}}};
+    }
+    sc_lua_push(L,s->scratch); return 1;
+}
+int mask(lua_State* L) {
+    arguments(L,0,1);
+    const auto body_radius=radius(L,1);
+    auto* s=script(L); const auto& map=navigation_map(s);
+    {
+        const auto blocked=sc_navigation_blocked(map,body_radius);
+        ScValue::Array rows;
+        rows.reserve(static_cast<std::size_t>(map.height));
+        for(int y=0;y<map.height;++y) {
+            std::string row(static_cast<std::size_t>(map.width),'.');
+            for(int x=0;x<map.width;++x)
+                if(blocked[static_cast<std::size_t>(y*map.width+x)]) row[static_cast<std::size_t>(x)]='#';
+            rows.push_back(ScValue{std::move(row)});
+        }
+        const double origin_x=s->navigation_region?s->navigation_region->x:0;
+        const double origin_y=s->navigation_region?s->navigation_region->y:0;
+        s->scratch=ScValue{ScValue::Object{{"x",ScValue{origin_x}},{"y",ScValue{origin_y}},
+            {"cell_size",ScValue{double(map.tile_size)}},{"width",ScValue{double(map.width)}},
+            {"height",ScValue{double(map.height)}},{"radius",ScValue{double(body_radius)}},
+            {"rows",ScValue{std::move(rows)}}}};
     }
     sc_lua_push(L,s->scratch); return 1;
 }
@@ -184,6 +209,8 @@ constexpr ScLuaParameter path_parameters[]={
     {"gy","integer",true,"Zero-based goal row within the selected grid."},
     {"budget","integer",false,"Maximum expanded nodes in this query.",&default_budget,1,1048576},
     {"radius","number",false,"Circular body clearance in world pixels at path cell centers. Zero uses point navigation.",&default_radius,0,4096}};
+constexpr ScLuaParameter mask_parameters[]={
+    {"radius","number",false,"Circular body clearance in world pixels; use the same value as path/flow.",&default_radius,0,4096}};
 constexpr ScLuaParameter flow_parameters[]={
     {"gx","integer",true,"Zero-based goal column within the selected grid."},
     {"gy","integer",true,"Zero-based goal row within the selected grid."},
@@ -214,6 +241,7 @@ constexpr ScLuaReturn refresh_results[]={
     {"visited","integer","Cumulative since the last restart, at most the number of grid cells."}};
 constexpr ScLuaContract region_contract{region_parameters,nullptr,ScLuaPhases::mutate,"16384 cells"};
 constexpr ScLuaContract path_contract{path_parameters,"ScNavigationPath",ScLuaPhases::read,"16384 cells"};
+constexpr ScLuaContract mask_contract{mask_parameters,"ScNavigationMask",ScLuaPhases::read,"16384 cells; explicit snapshot only"};
 constexpr ScLuaContract flow_contract{.parameters=flow_parameters,.result=nullptr,.phases=ScLuaPhases::mutate,
     .capacity="16 flow slots; 134217727 generations per slot per room, no wrap",.results=flow_results};
 constexpr ScLuaContract direction_contract{.parameters=direction_parameters,.result=nullptr,.phases=ScLuaPhases::read,.results=direction_results};
@@ -222,6 +250,7 @@ constexpr ScLuaContract steer_contract{steer_parameters,"integer",ScLuaPhases::m
 const ScLuaApi api[]={
     {"region",sc_lua_guard<navigation_region>,"region() / region(x,y,rows,cell_size?)","Atomically select a local navigation grid; terrain overlaps block cells. No arguments restores the room grid. Every successful replacement invalidates existing flow handles.",&region_contract},
     {"path",sc_lua_guard<path>,"path(sx,sy,gx,gy,budget?,radius?) -> result","Deterministic four-neighbor A-star with optional circular clearance from blocked cells and grid edges. Blocked endpoints return unreachable; out-of-bounds coordinates error. Returned paths are snapshots.",&path_contract},
+    {"mask",sc_lua_guard<mask>,"mask(radius?) -> result","Read the selected grid's current walkability after terrain and optional body clearance. Rows are . for passable and # for blocked; this allocates a bounded snapshot only when called.",&mask_contract},
     {"flow",sc_lua_guard<flow>,"flow(gx,gy,budget?,slot?,radius?) -> handle,status,visited","Build a shared target field with optional circular clearance. Each successful slot replacement creates a new handle; invalid arguments or failed preparation retain the old field.",&flow_contract},
     {"direction",sc_lua_guard<flow_direction>,"direction(handle,x,y) -> dx,dy,status","Read world-pixel steering without advancing the search. Stale or incomplete fields, blocked/unreachable cells and outside positions return zero direction; stale handles error.",&direction_contract},
     {"refresh",sc_lua_guard<flow_refresh>,"refresh(handle,budget) -> status,visited","Restart after passability changes or resume bounded BFS. Only a complete field publishes directions. Node budget is not a CPU time limit.",&refresh_contract},
@@ -249,5 +278,12 @@ ScValue sc_script_navigation_contracts() {
         {"ScNavigationPath",type({field("status",query_status,"Search outcome."),
             field("visited","integer","Expanded node count; blocked endpoints visit zero nodes."),
             field("points","ScNavigationPoint[]","Inclusive start-to-goal sequence on success; empty for unreachable or exhausted queries.")},
-            "Independent snapshot. Stable four-neighbor A-star ties use cost and cell order; queries do not mutate the grid or flow fields.")}}};
+            "Independent snapshot. Stable four-neighbor A-star ties use cost and cell order; queries do not mutate the grid or flow fields.")},
+        {"ScNavigationMask",type({field("x","number","World-pixel origin of the selected grid."),
+            field("y","number","World-pixel origin of the selected grid."),
+            field("cell_size","integer","World pixels per cell."),
+            field("width","integer","Columns per row."),field("height","integer","Number of rows."),
+            field("radius","number","Requested circular body clearance in world pixels."),
+            field("rows","string[]","Equal-width . passable / # blocked rows in local grid order.")},
+            "Read-only independent snapshot of the same clearance mask used by path and flow; terrain edits require a fresh call.")}}};
 }

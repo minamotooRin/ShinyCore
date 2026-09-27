@@ -19,6 +19,16 @@
 ---@alias ScAction 'left'|'right'|'up'|'down'|'jump'|'action'
 ---@alias ScTile '.'|'#'|'=' # Empty, solid, one-way platform.
 
+---@class ScNavigationMask
+-- Fields generated from native --api.
+---@field x number # Read-only. World-pixel origin of the selected grid.
+---@field y number # Read-only. World-pixel origin of the selected grid.
+---@field cell_size integer # Read-only. World pixels per cell.
+---@field width integer # Read-only. Columns per row.
+---@field height integer # Read-only. Number of rows.
+---@field radius number # Read-only. Requested circular body clearance in world pixels.
+---@field rows string[] # Read-only. Equal-width . passable / # blocked rows in local grid order.
+
 ---@class ScPostprocessPipeline
 -- Fields generated from native --api.
 ---@field passes integer[] # Read-only. Ordered live material handles.
@@ -1566,6 +1576,12 @@ function sc.navigation.direction(handle, x, y) end
 ---@return 'ok'|'unreachable'|'budget_exhausted' status # A blocked goal produces unreachable with zero visits.
 ---@return integer visited # Cumulative nodes expanded in this build.
 function sc.navigation.flow(gx, gy, budget, slot, radius) end
+---Read the selected grid's current walkability after terrain and optional body clearance. Rows are . for passable and # for blocked; this allocates a bounded snapshot only when called.
+---Phases: load, init, update, draw, ui_update.
+---Capacity: 16384 cells; explicit snapshot only.
+---@param radius? number # Circular body clearance in world pixels; use the same value as path/flow. Range 0..4096. Default 0.
+---@return ScNavigationMask
+function sc.navigation.mask(radius) end
 ---Deterministic four-neighbor A-star with optional circular clearance from blocked cells and grid edges. Blocked endpoints return unreachable; out-of-bounds coordinates error. Returned paths are snapshots.
 ---Phases: load, init, update, draw, ui_update.
 ---Capacity: 16384 cells.

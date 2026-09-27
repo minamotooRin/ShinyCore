@@ -8,9 +8,9 @@ import tempfile
 binary=Path(sys.argv[1]).resolve()
 api=json.loads(subprocess.check_output([str(binary),'--api'],encoding='utf-8'))
 functions={row['name'].rsplit('.',1)[1]:row['contract'] for row in api['functions'] if row['name'].startswith('sc.navigation.')}
-assert set(functions)=={'region','path','flow','direction','refresh','steer'}
+assert set(functions)=={'region','path','mask','flow','direction','refresh','steer'}
 for name in ['region','flow','refresh','steer']: assert functions[name]['phases']==['load','init','update']
-for name in ['path','direction']: assert 'draw' in functions[name]['phases'] and 'ui_update' in functions[name]['phases']
+for name in ['path','mask','direction']: assert 'draw' in functions[name]['phases'] and 'ui_update' in functions[name]['phases']
 assert functions['flow']['parameters'][2]['default']==16384
 assert functions['flow']['parameters'][3]['default']==1
 assert functions['region']['parameters'][3]['default']==8
@@ -21,6 +21,7 @@ assert [r['name'] for r in functions['flow']['returns']]==['handle','status','vi
 assert [r['name'] for r in functions['direction']['returns']]==['dx','dy','status']
 assert [r['name'] for r in functions['refresh']['returns']]==['status','visited']
 assert {f['name'] for f in api['types']['ScNavigationPath']['fields']}=={'status','visited','points'}
+assert {f['name'] for f in api['types']['ScNavigationMask']['fields']}=={'x','y','cell_size','width','height','radius','rows'}
 
 with tempfile.TemporaryDirectory(prefix='shiny-navigation-contract-') as folder:
     project=Path(folder)
@@ -32,6 +33,7 @@ local function blocked(f)
 end
 local function readonly()
     assert(nav.path(0,0,3,0).status=='ok')
+    local mask=nav.mask(); assert(mask.x==0 and mask.y==0 and mask.rows[1]=='....')
     assert(select(3,nav.direction(field,4,4))=='ok')
     for _,call in ipairs({function() nav.flow(3,0) end,function() nav.region() end,
         function() nav.refresh(field,1) end,function() nav.steer(field,{unit},2) end}) do
@@ -41,6 +43,10 @@ end
 return {gravity=0,map={tile_size=8,rows={'...#','....','....'}},init=function()
     ui_calls=0
     nav.region(-40,-24,{'....#....','....#....','....#....','.........','....#....','....#....','....#....'},8)
+    local mask=nav.mask()
+    assert(mask.x==-40 and mask.y==-24 and mask.cell_size==8 and mask.width==9 and mask.height==7
+        and mask.radius==0 and #mask.rows==7 and mask.rows[1]:sub(5,5)=='#')
+    assert(nav.mask(4.25).rows[1]:sub(1,1)=='#')
     assert(nav.path(2,3,6,3,nil,4).status=='ok')
     assert(nav.path(2,3,6,3,nil,4.25).status=='unreachable')
     local large=nav.flow(6,3,nil,nil,4.25)
@@ -51,6 +57,7 @@ return {gravity=0,map={tile_size=8,rows={'...#','....','....'}},init=function()
     local rejected=nav.path(0,0,6,3,nil,4.25)
     assert(rejected.status=='unreachable' and rejected.visited==0)
     for _,r in ipairs({-1,4097,0/0,math.huge,'4',false}) do
+        assert(not pcall(nav.mask,r))
         assert(not pcall(nav.path,2,3,6,3,nil,r))
         assert(not pcall(nav.flow,6,3,nil,2,r))
         assert(nav.direction(small,-20,4)>0)

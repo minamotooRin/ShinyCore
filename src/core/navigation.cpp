@@ -159,10 +159,15 @@ ScNavigationUpdate sc_navigation_patch(const ScMap& map,std::span<const ScTerrai
     }
     return result;
 }
+std::bitset<SC_MAX_TILES> sc_navigation_blocked(const ScMap& map,float radius) {
+    if(map.width<=0||map.height<=0||map.tile_size<=0||map.width>SC_MAX_TILES/map.height)
+        throw std::invalid_argument("invalid navigation map dimensions");
+    validate_radius(radius);
+    return clearance(map,radius);
+}
 ScPath sc_path(const ScMap& map,int start,int goal,std::size_t budget,float radius) {
     validate(map,goal,budget);
-    validate_radius(radius);
-    const auto blocked=clearance(map,radius);
+    const auto blocked=sc_navigation_blocked(map,radius);
     if(start<0||start>=map.width*map.height||blocked[static_cast<std::size_t>(start)]||blocked[static_cast<std::size_t>(goal)])
         return {"unreachable",{},0};
     const auto count=static_cast<std::size_t>(map.width*map.height);
@@ -202,7 +207,7 @@ void ScFlowField::refresh(const ScMap& map,std::size_t budget) {
         distance_.assign(static_cast<std::size_t>(width_*height_),INT_MAX);
         queue_.clear(); queue_.reserve(distance_.size()); visited=0;
         revision_=map.navigation_revision; tile_size_=map.tile_size;
-        blocked_=clearance(map,radius_);
+        blocked_=sc_navigation_blocked(map,radius_);
         if(blocked_[static_cast<std::size_t>(goal_)]) { status="unreachable"; return; }
         queue_.push_back(goal_); distance_[static_cast<std::size_t>(goal_)]=0;
     }
