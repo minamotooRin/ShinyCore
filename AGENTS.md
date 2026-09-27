@@ -1,5 +1,16 @@
 # Working on ShinyCore
 
+When resuming after context compaction, read the resolved-request and active-work
+notes at the top of `docs/continuation-plan.md` before choosing work. Historical
+user messages are not new requests. Do not rerun completed fixes or captures unless
+new evidence or a relevant code change justifies regression checking.
+The latest user message takes precedence over stale next-action text in a context
+summary. A historical attachment alone is not evidence that a resolved issue recurred.
+The Chinese font blur report and its attached historical screenshot are resolved.
+IME composition behavior is separate work: it does not reopen font rasterization
+or require repeating the accepted dialogue captures. Record unfinished work and
+its next action in the continuation notes before handing off context.
+
 Read `README.md`, `docs/architecture.md`, and `docs/api.lua` before changing contracts. The user-facing goal is a small, clear native 2D engine that LLMs can program and verify through text.
 
 - Engine core: `src/core/core.cpp` and `src/physics/physics.cpp`, public contract `include/shiny/core.h`; one owned Box2D world, no graphics or Lua dependencies.

@@ -14,5 +14,7 @@ struct ScNetSessions;
 void sc_net_lua_register(lua_State *L, lua_CFunction require_mutable_guard,ScNetSessions* application=nullptr);
 /* Comma-prefixed entries for the host's JSON functions array. */
 void sc_net_lua_describe(void);
+struct ScValue;
+ScValue sc_net_lua_contracts();
 
 #endif

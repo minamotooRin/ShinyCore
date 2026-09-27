@@ -32,7 +32,7 @@
       "name": "headless",
       "inherits": "full",
       "displayName": "Headless validation",
-      "cacheVariables": {"SHINY_GRAPHICS": "OFF", "SHINY_ADVANCED_RENDER": "OFF"}
+      "cacheVariables": {"SHINY_GRAPHICS": "OFF"}
     }
   ],
   "buildPresets": [

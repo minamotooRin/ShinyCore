@@ -2,16 +2,23 @@
 #define SHINY_CORE_H
 
 #include "shiny/input.h"
+#include "shiny/camera.h"
+#include "shiny/presentation.h"
+#include "shiny/identity.h"
+#include "shiny/particles.h"
 #include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
 inline constexpr char SC_VERSION[] = "1.0.0-dev";
 inline constexpr float SC_DT = 1.0f / 60.0f;
 inline constexpr int SC_MAX_ENTITIES = 4096;
+inline constexpr int SC_MAX_IDENTITIES = 4096;
 inline constexpr int SC_MAX_TILES = 16384;
 inline constexpr int SC_MAX_PARTICLES = 32768;
 inline constexpr int SC_MAX_TONES = 32;
@@ -35,10 +42,13 @@ struct ScBodyShape {
 };
 struct ScEntity {
     ScEntityId id{};
+    ScEntityId parent{}; // Visual attachment only; never a solver constraint or persistent reference.
+    ScPose local_pose{};
     bool alive{}, dynamic{}, solid{}, grounded{};
     float x{}, y{}, w{}, h{}, vx{}, vy{}, gravity{}, glow{};
     std::uint32_t color{};
     char tag[48]{}, sprite[128]{};
+    char persistent_id[128]{};
     int frame{}, frame_w{}, frame_h{}, layer{};
     // 0 absent, 1 static, 2 kinematic, 3 dynamic. Authored pixels, radians.
     int body_type{}, shape{}; // box, circle, capsule, convex polygon
@@ -57,13 +67,11 @@ struct ScContact { ScEntityId a{},b{}; float nx{},ny{}; bool sensor{}; int phase
 struct ScPhysics;
 struct ScPhysicsDeleter { void operator()(ScPhysics*) const noexcept; };
 
-struct ScParticle {
-    float x{}, y{}, vx{}, vy{}, life{}, max_life{}, size{};
-    std::uint32_t color{};
-};
 struct ScTone { float frequency{}, duration{}, volume{}; };
 enum ScDrawKind { SC_DRAW_RECT, SC_DRAW_CIRCLE, SC_DRAW_TEXT, SC_DRAW_CLIP, SC_DRAW_UNCLIP, SC_DRAW_IMAGE };
 struct ScDraw {
+    std::uint64_t material{};
+    bool default_material{true};
     ScDrawKind kind{SC_DRAW_RECT};
     float x{}, y{}, w{}, h{};
     std::uint32_t color{};
@@ -71,10 +79,18 @@ struct ScDraw {
     char text[512]{},font[128]{};
     float wrap{};
     int align{};
+    float source_x{},source_y{},source_w{},source_h{};
+    float slice_left{},slice_right{},slice_top{},slice_bottom{};
+    bool flip_x{},flip_y{},diagonal{};
+    bool layered{};
+    int layer{};
 };
 
 struct ScMap {
+    bool bounded{true};
     int width{48}, height{27}, tile_size{8};
+    std::bitset<SC_MAX_TILES> navigation_blocked;
+    std::uint64_t navigation_revision{};
     // '.' empty, '#' solid, '=' one-way. Only width*height cells are active.
     std::array<char, SC_MAX_TILES> tiles = [] {
         std::array<char, SC_MAX_TILES> cells{};
@@ -105,28 +121,23 @@ struct ScTerrainShape {
     bool one_way{};
     std::array<float,16> vertices{};
     int vertex_count{};
+    bool operator==(const ScTerrainShape&) const = default;
 };
 struct ScGlyph { int codepoint{},advance{}; };
 struct ScResource {
     std::string name,type,path,characters;
     int size{16};
+    int image_width{},image_height{}; // PNG header dimensions, available without a GPU.
+    bool streamed{}; // Explicit PNG residency through sc.images; optional streaming module.
     float duration{};
     mutable std::vector<ScGlyph> glyphs;
     std::vector<unsigned char> font_bytes;
 };
-struct ScAudioVoice {
-    std::uint32_t id{};
-    bool alive{},music{},loop{},paused{},persistent{},stopping{};
-    float volume{1},target_volume{1},pitch{1},fade{},position{},duration{};
-    float pan{};
-    int bus{2},priority{};
-    std::uint64_t age{};
-    char path[128]{};
-};
-struct ScAudioBus { float volume{1},target{1},fade{}; bool paused{}; };
 class ScProjectiles;
 struct ScProjectilesDeleter { void operator()(ScProjectiles*) const noexcept; };
 struct ScWorld {
+    std::unique_ptr<ScPresentation> presentation;
+    std::unique_ptr<ScIdentities> identities = std::make_unique<ScIdentities>(SC_MAX_IDENTITIES);
     std::unique_ptr<ScProjectiles,ScProjectilesDeleter> projectiles;
     std::unique_ptr<ScPhysics,ScPhysicsDeleter> physics;
     ScMap map{};
@@ -137,7 +148,7 @@ struct ScWorld {
     bool text_focus{}, clipboard_write{};
     float text_x{},text_y{};
     std::array<char,4096> clipboard_out{};
-    std::vector<ScParticle> particles = std::vector<ScParticle>(SC_MAX_PARTICLES);
+    ScParticles particles{};
     std::array<ScTone, SC_MAX_TONES> tones{};
     std::vector<ScDraw> draws = std::vector<ScDraw>(SC_MAX_DRAWS);
     int tone_count{}, draw_count{};
@@ -146,6 +157,7 @@ struct ScWorld {
     std::uint64_t tick{};
     float gravity{600}, camera_x{}, camera_y{}, ambient{0.4f};
     ScEntityId camera_target{};
+    ScCamera camera{};
     int view_width{384}, view_height{216};
     char title[128]{"ShinyCore"}, message[192]{};
     std::vector<ScContact> contacts = std::vector<ScContact>(16384);
@@ -153,30 +165,35 @@ struct ScWorld {
     char error[SC_ERROR_MAX]{};
     std::vector<ScLayer> layers;
     std::vector<ScTileGraphic> tile_graphics;
+    std::vector<ScTerrainShape> object_terrain; // Authored static objects survive tile edits.
     std::vector<ScTerrainShape> terrain_shapes;
     std::uint64_t terrain_revision{};
     std::vector<ScResource> resources;
-    std::array<ScAudioVoice,34> audio{};
-    std::array<std::uint32_t,34> audio_generations{};
-    std::array<ScAudioBus,4> audio_buses{}; // master, music, sfx, ui
-    std::array<float,4> audio_gains{1,1,1,1}; // Application preferences, independent of game bus fades.
-    std::uint64_t audio_clock{};
-    std::size_t sound_voice_limit{32};
+
 };
 
 void sc_world_init(ScWorld *world, std::uint32_t seed);
 /* Returns 0 on invalid values or capacity exhaustion; IDs are generation checked. */
-ScEntityId sc_spawn(ScWorld *world, const ScEntity *entity);
+ScEntityId sc_spawn(ScWorld *world, const ScEntity *entity,const char** error=nullptr);
+// Drafts must not alias the world pool. Success fills their new IDs;
+// failure leaves drafts and world unchanged. No storage grows here.
+// Read-only preflight, reusable by native transactions; world must not change before commit.
+std::expected<void,const char*> sc_spawn_preflight(const ScWorld&,std::span<const ScEntity> drafts);
+// Optional parents are zero (root) or one-based batch indices. Attached drafts
+// use local x/y/angle; all relationships and world poses are preflighted atomically.
+std::expected<void,const char*> sc_spawn_many(ScWorld&,std::span<ScEntity> drafts,
+                                          std::span<const std::size_t> parents={});
 ScEntity *sc_entity(ScWorld *world, ScEntityId id);
-bool sc_destroy(ScWorld *world, ScEntityId id);
+bool sc_destroy(ScWorld *world, ScEntityId id,bool deleted=true);
 ScEntityId sc_find(const ScWorld *world, const char *tag);
 void sc_input(ScWorld *world, std::uint32_t held);
-void sc_step(ScWorld *world); /* Physics + particles + camera, exactly SC_DT. */
+struct ScStepProfile;
+void sc_step(ScWorld *world, ScStepProfile* profile=nullptr); /* Exactly SC_DT; optional timings accumulate. */
 char sc_tile(const ScWorld *world, int x, int y);
 bool sc_overlap(const ScEntity *a, const ScEntity *b);
 std::uint32_t sc_random_u32(ScWorld *world);
 float sc_random(ScWorld *world);
-void sc_emit(ScWorld *world, float x, float y, int count, std::uint32_t color, float speed, float life);
+std::expected<std::size_t,const char*> sc_emit(ScWorld *world, float x, float y, int count, std::uint32_t color, float speed, float life);
 std::uint64_t sc_state_hash(const ScWorld *world);
 
 #endif

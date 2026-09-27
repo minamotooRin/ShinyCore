@@ -1,345 +1,236 @@
 #include "script_systems.h"
+#include "script_application.h"
+#include "script_particles.h"
+#include "script_projectiles.h"
+#include "script_navigation.h"
+#include "script_input.h"
+#include "script_images.h"
 #include "script_api.h"
+#include <tuple>
 #include "shiny/script.h"
 #include "shiny/script_data.h"
 #include "shiny/projectiles.h"
 #include "shiny/navigation.h"
-#include "shiny/input_replay.h"
 #include "shiny/settings.h"
+#include "shiny/physics.h"
+#ifdef SC_HAS_DEVTOOLS
+#include "../dev/inspect.h"
+#endif
 #include <cmath>
-#include <utf8proc.h>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
 
 namespace {
 ScScript* script(lua_State* L) { return *static_cast<ScScript**>(lua_getextraspace(L)); }
 void mutable_phase(lua_State* L) { if(script(L)->phase>=2) luaL_error(L,"operation requires init or update"); }
-const ScValue::Object& object(const ScValue& v) {
-    auto* p=std::get_if<ScValue::Object>(&v.data); if(!p) throw std::invalid_argument("expected object"); return *p;
-}
-double number(const ScValue& v,double lo,double hi) {
-    auto* p=std::get_if<double>(&v.data);
-    if(!p||!std::isfinite(*p)||*p<lo||*p>hi) throw std::invalid_argument("number outside allowed range");
-    return *p;
-}
-bool boolean(const ScValue& v) {
-    auto* p=std::get_if<bool>(&v.data); if(!p) throw std::invalid_argument("expected boolean"); return *p;
-}
 void read(lua_State* L,int index) {
     auto value=sc_lua_read(L,index); if(!value) throw std::invalid_argument(value.error()); script(L)->scratch=std::move(*value);
 }
-int configure(lua_State* L) {
-    if(script(L)->phase!=0) return luaL_error(L,"projectiles.configure requires initialization");
-    auto capacity=luaL_checkinteger(L,1);
-    if(capacity<1||capacity>65536) return luaL_error(L,"projectile capacity must be 1..65536");
-    auto* w=script(L)->world;
-    if(w->projectiles) return luaL_error(L,"projectiles already configured");
-    w->projectiles.reset(new ScProjectiles(static_cast<std::size_t>(capacity)));
-    return 0;
-}
-int spawn(lua_State* L) {
-    mutable_phase(L); auto* s=script(L);
-    if(!s->world->projectiles) return luaL_error(L,"configure projectiles during init first");
-    read(L,1);
-    {
-        const auto* items=std::get_if<ScValue::Array>(&s->scratch.data);
-        if(!items) throw std::invalid_argument("projectiles.spawn expects a dense array");
-        std::vector<ScProjectileSpec> batch; batch.reserve(items->size());
-        for(const auto& item:*items) {
-            ScProjectileSpec p;
-            for(const auto& [key,value]:object(item)) {
-                if(key=="x") p.x=static_cast<float>(number(value,-1e6,1e6));
-                else if(key=="y") p.y=static_cast<float>(number(value,-1e6,1e6));
-                else if(key=="vx") p.vx=static_cast<float>(number(value,-1e6,1e6));
-                else if(key=="vy") p.vy=static_cast<float>(number(value,-1e6,1e6));
-                else if(key=="ax") p.ax=static_cast<float>(number(value,-1e6,1e6));
-                else if(key=="ay") p.ay=static_cast<float>(number(value,-1e6,1e6));
-                else if(key=="radius") p.radius=static_cast<float>(number(value,.001,256));
-                else if(key=="life") p.life=static_cast<float>(number(value,.001,3600));
-                else if(key=="mask"||key=="color") {
-                    double n=number(value,0,UINT32_MAX); if(std::floor(n)!=n) throw std::invalid_argument("mask/color require integer");
-                    if(key=="mask") p.mask=static_cast<std::uint32_t>(n); else p.color=static_cast<std::uint32_t>(n);
-                }
-                else if(key=="terrain") p.terrain=boolean(value);
-                else if(key=="piercing") p.piercing=boolean(value);
-                else throw std::invalid_argument("unknown projectile field: "+key);
-            }
-            batch.push_back(p);
-        }
-        auto ids=s->world->projectiles->spawn(batch); ScValue::Array output; output.reserve(ids.size());
-        for(auto id:ids) output.push_back(ScValue{static_cast<double>(id)});
-        s->scratch=ScValue{std::move(output)};
-    }
-    sc_lua_push(L,s->scratch); return 1;
-}
-int hits(lua_State* L) {
-    auto* s=script(L);
-    {
-        ScValue::Array result;
-        if(s->world->projectiles) for(const auto& hit:s->world->projectiles->hits)
-            result.push_back(ScValue{ScValue::Object{{"projectile",ScValue{static_cast<double>(hit.projectile)}},{"target",ScValue{static_cast<double>(hit.target)}},
-                {"fraction",ScValue{static_cast<double>(hit.fraction)}},{"x",ScValue{static_cast<double>(hit.x)}},{"y",ScValue{static_cast<double>(hit.y)}}}});
-        s->scratch=ScValue{std::move(result)};
-    }
-    sc_lua_push(L,s->scratch); return 1;
-}
-int count(lua_State* L) { auto* p=script(L)->world->projectiles.get(); lua_pushinteger(L,p?static_cast<lua_Integer>(p->count):0); return 1; }
-int clear(lua_State* L) { mutable_phase(L); if(auto* p=script(L)->world->projectiles.get()) p->clear(); return 0; }
-int path(lua_State* L) {
-    const auto sx=luaL_checkinteger(L,1),sy=luaL_checkinteger(L,2);
-    const auto gx=luaL_checkinteger(L,3),gy=luaL_checkinteger(L,4);
-    auto budget=luaL_optinteger(L,5,16384); auto* s=script(L); const auto& map=s->world->map;
-    if(sx<0||sy<0||gx<0||gy<0||sx>=map.width||gx>=map.width||sy>=map.height||gy>=map.height||budget<1||budget>1048576)
-        return luaL_error(L,"navigation coordinates or budget outside range");
-    {
-        auto result=sc_path(map,static_cast<int>(sy*map.width+sx),static_cast<int>(gy*map.width+gx),static_cast<std::size_t>(budget)); ScValue::Array points;
-        for(int cell:result.cells) points.push_back(ScValue{ScValue::Object{{"x",ScValue{double(cell%map.width)}},{"y",ScValue{double(cell/map.width)}}}});
-        s->scratch=ScValue{ScValue::Object{{"status",ScValue{std::string(result.status)}},{"visited",ScValue{double(result.visited)}},{"points",ScValue{std::move(points)}}}};
-    }
-    sc_lua_push(L,s->scratch); return 1;
-}
-int pause(lua_State* L) { mutable_phase(L); luaL_checktype(L,1,LUA_TBOOLEAN); script(L)->world->simulation_paused=lua_toboolean(L,1)!=0; return 0; }
-int flow(lua_State* L) {
-    mutable_phase(L); auto* s=script(L); const auto& map=s->world->map;
-    auto x=luaL_checkinteger(L,1),y=luaL_checkinteger(L,2);
-    auto budget=luaL_optinteger(L,3,16384),slot=luaL_optinteger(L,4,1);
-    if(x<0||y<0||x>=map.width||y>=map.height||budget<1||budget>1048576||slot<1||slot>16)
-        return luaL_error(L,"flow coordinates, budget or slot outside range");
-    auto& field=s->flow_fields[static_cast<size_t>(slot-1)];
-    if(!field) field=std::make_unique<ScFlowField>();
-    field->build(map,static_cast<int>(y*map.width+x),static_cast<size_t>(budget));
-    lua_pushinteger(L,(static_cast<lua_Integer>(s->world->epoch)<<8)|slot);
-    lua_pushlstring(L,field->status.data(),field->status.size());
-    lua_pushinteger(L,static_cast<lua_Integer>(field->visited)); return 3;
-}
-ScFlowField* flow_at(lua_State* L,int argument) {
-    auto id=luaL_checkinteger(L,argument); auto* s=script(L); auto slot=id&255;
-    if(id<0||(id>>8)!=s->world->epoch||slot<1||slot>16||!s->flow_fields[static_cast<size_t>(slot-1)])
-        luaL_error(L,"invalid flow field handle");
-    return s->flow_fields[static_cast<size_t>(slot-1)].get();
-}
-int flow_direction(lua_State* L) {
-    auto* field=flow_at(L,1); double x=luaL_checknumber(L,2),y=luaL_checknumber(L,3);
-    if(!std::isfinite(x)||!std::isfinite(y)||std::fabs(x)>1e6||std::fabs(y)>1e6) return luaL_error(L,"flow position outside range");
-    auto [dx,dy]=field->direction(script(L)->world->map,static_cast<float>(x),static_cast<float>(y));
-    lua_pushnumber(L,dx); lua_pushnumber(L,dy); return 2;
-}
-int steer(lua_State* L) {
-    mutable_phase(L); auto* field=flow_at(L,1); auto* s=script(L);
-    double speed=luaL_checknumber(L,3);
-    if(!std::isfinite(speed)||speed<0||speed>1e6) return luaL_error(L,"steering speed outside range");
-    luaL_checktype(L,2,LUA_TTABLE); const size_t length=lua_rawlen(L,2);
-    if(length>s->world->entities.size()) return luaL_error(L,"steering batch exceeds entity capacity");
-    // Validate the complete batch before changing any velocity.
-    s->batch_entities.resize(length);
-    for(size_t i=0;i<length;++i) {
-        lua_rawgeti(L,2,static_cast<lua_Integer>(i+1)); auto id=luaL_checkinteger(L,-1); lua_pop(L,1);
-        auto* entity=sc_entity(s->world,static_cast<ScEntityId>(id));
-        if(!entity) return luaL_error(L,"invalid entity in steering batch");
-        s->batch_entities[i]=*entity;
-    }
-    for(const auto& value:s->batch_entities) {
-        auto* entity=sc_entity(s->world,value.id);
-        auto [dx,dy]=field->direction(s->world->map,entity->x+entity->w*.5f,entity->y+entity->h*.5f);
-        entity->vx=dx*static_cast<float>(speed); entity->vy=dy*static_cast<float>(speed);
-    }
-    lua_pushinteger(L,static_cast<lua_Integer>(length)); return 1;
-}
-int paused(lua_State* L) { lua_pushboolean(L,script(L)->world->simulation_paused); return 1; }
-int quit(lua_State* L) { mutable_phase(L); script(L)->world->exit_requested=true; return 0; }
 int watch(lua_State* L) {
-    mutable_phase(L); auto* s=script(L); const char* key=luaL_checkstring(L,1);
-    if(!*key||std::strlen(key)>128) return luaL_error(L,"watch name requires 1..128 bytes");
+    mutable_phase(L); auto* s=script(L);
+    if(lua_gettop(L)!=2||lua_type(L,1)!=LUA_TSTRING) return luaL_error(L,"watch expects a name string and value");
+    std::size_t size{}; const char* key=lua_tolstring(L,1,&size);
+    if(!size||size>128||std::memchr(key,0,size)) return luaL_error(L,"watch name requires 1..128 bytes without NUL");
     if(!s->watches.contains(key)&&s->watches.size()>=64) return luaL_error(L,"watch capacity exhausted (64)");
     read(L,2);
-    s->watches[std::string(key)]=s->scratch;
+    // Validate serialized UTF-8 and byte bounds before replacing a visible watch.
+    { auto valid=sc_json_read(sc_json_write(s->scratch));
+      if(!valid) throw std::invalid_argument(valid.error()); }
+    { auto valid=sc_json_read(sc_json_write(ScValue{std::string(key)}),1024);
+      if(!valid) throw std::invalid_argument(valid.error()); }
+    s->watches.insert_or_assign(std::string(key),std::move(s->scratch));
     return 0;
 }
-int input_snapshot(lua_State* L) { auto* s=script(L); s->scratch=sc_input_snapshot(s->world->input); sc_lua_push(L,s->scratch); return 1; }
-int mouse(lua_State* L) {
-    const auto& i=script(L)->world->input;
-    lua_pushnumber(L,i.mouse_x); lua_pushnumber(L,i.mouse_y); lua_pushboolean(L,i.mouse_inside); return 3;
-}
-int text_input(lua_State* L) { const auto& i=script(L)->world->input; lua_pushstring(L,i.text.data()); lua_pushstring(L,i.composition.data()); return 2; }
-template<int Edge> int mouse_button(lua_State* L) {
-    int id=sc_input_id(SC_MOUSE_BUTTONS,luaL_checkstring(L,1)); if(id<0) return luaL_error(L,"unknown mouse button");
-    const auto& in=script(L)->world->input; auto bits=Edge==0?in.mouse_buttons:Edge==1?in.mouse_pressed:in.mouse_released;
-    lua_pushboolean(L,(bits&(1u<<id))!=0); return 1;
-}
-template<int Edge> int keyboard(lua_State* L) {
-    size_t length=0; const char* name=luaL_checklstring(L,1,&length);
-    int id=sc_input_id(SC_KEYS,std::string_view(name,length));
-    if(lua_gettop(L)!=1||id<0) return luaL_error(L,"expected one keyboard control name");
-    const auto& in=script(L)->world->input;
-    const auto& bits=Edge==0?in.keys:Edge==1?in.key_pressed:in.key_released;
-    lua_pushboolean(L,bits[static_cast<size_t>(id)]); return 1;
-}
-ScPadInput pad_input(lua_State* L,int argument) {
-    const auto& in=script(L)->world->input;
-    if(lua_isnoneornil(L,argument)) return {in.connected,in.buttons,in.button_pressed,in.button_released,in.axes};
-    auto slot=luaL_checkinteger(L,argument);
-    if(slot<1||slot>4) luaL_error(L,"gamepad slot must be 1..4");
-    return in.pads[static_cast<size_t>(slot-1)];
-}
-template<int Edge> int pad_button(lua_State* L) {
-    size_t length=0; const char* name=luaL_checklstring(L,1,&length);
-    int id=sc_input_id(SC_BUTTONS,std::string_view(name,length));
-    if(lua_gettop(L)>2||id<0) return luaL_error(L,"unknown gamepad button or argument");
-    const auto pad=pad_input(L,2);
-    auto bits=Edge==0?pad.buttons:Edge==1?pad.pressed:pad.released;
-    lua_pushboolean(L,(bits&(1u<<id))!=0); return 1;
-}
-int pad_connected(lua_State* L) {
-    if(lua_gettop(L)>1) return luaL_error(L,"expected optional gamepad slot");
-    lua_pushboolean(L,pad_input(L,1).connected); return 1;
-}
-int pad_axis(lua_State* L) {
-    size_t length=0; const char* name=luaL_checklstring(L,1,&length);
-    int id=sc_input_id(SC_AXES,std::string_view(name,length));
-    double deadzone=luaL_optnumber(L,2,.2);
-    if(lua_gettop(L)>3||id<0||!std::isfinite(deadzone)||deadzone<0||deadzone>=1) return luaL_error(L,"invalid axis, deadzone or argument");
-    const auto pad=pad_input(L,3);
-    double value=pad.connected?pad.axes[static_cast<size_t>(id)]:0;
-    lua_pushnumber(L,std::fabs(value)<=deadzone?0:std::copysign((std::fabs(value)-deadzone)/(1-deadzone),value)); return 1;
-}
-int wheel(lua_State* L) { const auto& in=script(L)->world->input; lua_pushnumber(L,in.wheel_x); lua_pushnumber(L,in.wheel_y); return 2; }
-int boundaries(lua_State* L) {
-    size_t size=0; const char* bytes=luaL_checklstring(L,1,&size);
-    if(size>65536) return luaL_error(L,"text exceeds 65536 bytes");
-    lua_newtable(L); lua_Integer count=0; utf8proc_int32_t previous=0,state=0; size_t offset=0;
-    while(offset<size) {
-        utf8proc_int32_t code=0;
-        auto length=utf8proc_iterate(reinterpret_cast<const utf8proc_uint8_t*>(bytes+offset),static_cast<utf8proc_ssize_t>(size-offset),&code);
-        if(length<=0) return luaL_error(L,"invalid UTF-8 text");
-        if(offset==0||utf8proc_grapheme_break_stateful(previous,code,&state)) { lua_pushinteger(L,static_cast<lua_Integer>(offset+1)); lua_rawseti(L,-2,++count); }
-        previous=code; offset+=static_cast<size_t>(length);
-    }
-    lua_pushinteger(L,static_cast<lua_Integer>(size+1)); lua_rawseti(L,-2,++count); return 1;
-}
-int focus_text(lua_State* L) {
-    mutable_phase(L); auto* w=script(L)->world;
-    if(lua_isboolean(L,1)&&!lua_toboolean(L,1)) { w->text_focus=false; return 0; }
-    double x=luaL_checknumber(L,1),y=luaL_checknumber(L,2);
-    if(!std::isfinite(x)||!std::isfinite(y)||std::fabs(x)>1e6||std::fabs(y)>1e6) return luaL_error(L,"text focus coordinates outside range");
-    w->text_x=static_cast<float>(x); w->text_y=static_cast<float>(y); w->text_focus=true; return 0;
-}
-int clipboard(lua_State* L) {
-    auto* w=script(L)->world;
-    if(lua_gettop(L)==0) { lua_pushstring(L,w->input.clipboard.data()); return 1; }
-    mutable_phase(L); size_t length=0; const char* text=luaL_checklstring(L,1,&length);
-    if(length>=w->clipboard_out.size()||std::memchr(text,0,length)) return luaL_error(L,"clipboard requires at most 4095 UTF-8 bytes");
-    std::memcpy(w->clipboard_out.data(),text,length); w->clipboard_out[length]=0; w->clipboard_write=true; return 0;
-}
-const ScLuaApi input_api[]={
-    {"key_down",sc_lua_guard<keyboard<0>>,"key_down(name) -> boolean","Fixed snapshot keyboard held state."},
-    {"key_pressed",sc_lua_guard<keyboard<1>>,"key_pressed(name) -> boolean","Fixed snapshot keyboard press edge."},
-    {"key_released",sc_lua_guard<keyboard<2>>,"key_released(name) -> boolean","Fixed snapshot keyboard release edge."},
-    {"gamepad_down",sc_lua_guard<pad_button<0>>,"gamepad_down(name,slot?) -> boolean","Held button; optional stable slot 1..4, default selected controller."},
-    {"gamepad_pressed",sc_lua_guard<pad_button<1>>,"gamepad_pressed(name,slot?) -> boolean","Press edge, including taps between ticks."},
-    {"gamepad_released",sc_lua_guard<pad_button<2>>,"gamepad_released(name,slot?) -> boolean","Release edge, including device disconnection."},
-    {"gamepad_connected",sc_lua_guard<pad_connected>,"gamepad_connected(slot?) -> boolean","Read connection of selected controller or explicit slot 1..4."},
-    {"gamepad_axis",sc_lua_guard<pad_axis>,"gamepad_axis(name,deadzone?,slot?) -> number","Read normalized axis with deadzone in [0,1); default .2."},
-    {"focus_text",sc_lua_guard<focus_text>,"focus_text(x,y) / focus_text(false)","Set logical-screen IME candidate position or end text focus."},
-    {"clipboard",sc_lua_guard<clipboard>,"clipboard(text?) -> text?","Queue a clipboard write or read the recorded paste input for this tick."},
-    {"boundaries",sc_lua_guard<boundaries>,"boundaries(text) -> byte_offsets","UTF-8 grapheme starts plus end position; Lua one-based byte offsets."},
-    {"snapshot",sc_lua_guard<input_snapshot>,"snapshot() -> input","Fixed-tick input data including four pad slots, pointer and text."},
-    {"mouse",sc_lua_guard<mouse>,"mouse() -> x,y,inside","Pointer in logical viewport coordinates."},
-    {"text",sc_lua_guard<text_input>,"text() -> committed,composition","UTF-8 text for this fixed tick."},
-    {"mouse_down",sc_lua_guard<mouse_button<0>>,"mouse_down(name) -> boolean","Mouse held state."},
-    {"mouse_pressed",sc_lua_guard<mouse_button<1>>,"mouse_pressed(name) -> boolean","Mouse press edge."},
-    {"mouse_released",sc_lua_guard<mouse_button<2>>,"mouse_released(name) -> boolean","Mouse release edge."},
-    {"wheel",sc_lua_guard<wheel>,"wheel() -> x,y","Accumulated fixed-tick wheel deltas."},
-    {nullptr,nullptr,nullptr,nullptr}
-};
 #ifdef SC_HAS_STREAMING
 int stream_open(lua_State* L) {
     if(script(L)->phase!=0) return luaL_error(L,"stream.open requires initialization");
-    const char* path=luaL_checkstring(L,1);
-    if(!sc_script_validate_path(path)) return luaL_error(L,"stream index must be project-relative");
+    if(lua_gettop(L)!=1||lua_type(L,1)!=LUA_TSTRING) return luaL_error(L,"stream.open expects one path string");
+    std::size_t length=0; const char* path=lua_tolstring(L,1,&length);
+    if(length>=SC_PATH_MAX||std::memchr(path,0,length)||!sc_script_validate_path(path)) return luaL_error(L,"stream index must be project-relative");
     auto* s=script(L);
-    s->stream=std::make_unique<ScStream>(std::string(s->root)+"/"+path);
+    const auto file=std::string(s->root)+"/"+path;
+    s->stream=s->content_loader?std::make_unique<ScStream>(file,*s->content_loader):std::make_unique<ScStream>(file);
     return 0;
 }
 template<int Operation> int stream_chunk(lua_State* L) {
     mutable_phase(L); auto* s=script(L);
+    if(lua_gettop(L)!=(Operation==0?3:2)) return luaL_error(L,"unexpected stream argument count");
     if(!s->stream) return luaL_error(L,"stream is not open");
+    if(lua_type(L,1)!=LUA_TNUMBER||lua_type(L,2)!=LUA_TNUMBER) return luaL_error(L,"chunk coordinates must be numbers");
     auto x=luaL_checkinteger(L,1),y=luaL_checkinteger(L,2);
     if(x<-31250||x>31250||y<-31250||y>31250) return luaL_error(L,"chunk coordinates outside range");
-    if constexpr(Operation==0) { s->stream->request(static_cast<int>(x),static_cast<int>(y)); return 0; }
+    if constexpr(Operation==0) {
+        if(lua_type(L,3)!=LUA_TNUMBER) return luaL_error(L,"commit_frame must be a number");
+        auto frame=luaL_checkinteger(L,3);
+        if(frame<0||static_cast<std::uint64_t>(frame)<s->world->tick+(s->phase==1?1u:0u)||frame>4503599627370495LL)
+            return luaL_error(L,"commit_frame must be a future simulation tick (initialization may request tick 0)");
+        auto sequence=s->stream->request(static_cast<int>(x),static_cast<int>(y),static_cast<std::uint64_t>(frame));
+        lua_pushinteger(L,static_cast<lua_Integer>(sequence)); return 1;
+    }
     else if constexpr(Operation==1) {
-        { auto value=s->stream->get(static_cast<int>(x),static_cast<int>(y)); if(!value) throw std::runtime_error(value.error()); s->scratch=std::move(*value); }
-        sc_lua_push(L,s->scratch); return 1;
+        bool ready=false;
+        { auto value=s->stream->get(static_cast<int>(x),static_cast<int>(y)); if(!value) throw std::runtime_error(value.error());
+          ready=value->has_value(); if(ready) s->scratch=std::move(**value); }
+        if(ready) sc_lua_push(L,s->scratch); else lua_pushnil(L); return 1;
     } else { s->stream->release(static_cast<int>(x),static_cast<int>(y)); return 0; }
 }
 int stream_stats(lua_State* L) {
+    if(lua_gettop(L)!=0) return luaL_error(L,"stream.stats expects no arguments");
     auto* s=script(L); if(!s->stream) return luaL_error(L,"stream is not open");
     s->scratch=s->stream->statistics(); sc_lua_push(L,s->scratch); return 1;
 }
+int stream_failure(lua_State* L) {
+    if(lua_gettop(L)!=0) return luaL_error(L,"stream.failure expects no arguments");
+    auto* s=script(L); if(!s->stream) return luaL_error(L,"stream is not open");
+    s->scratch=s->stream->failure(); sc_lua_push(L,s->scratch); return 1;
+}
+int stream_retry(lua_State* L) {
+    auto* s=script(L); if(s->phase!=4) mutable_phase(L);
+    if(lua_gettop(L)!=1||lua_type(L,1)!=LUA_TNUMBER) return luaL_error(L,"stream.retry expects one request sequence");
+    const auto sequence=luaL_checkinteger(L,1);
+    if(sequence<1||sequence>4503599627370495LL) return luaL_error(L,"stream request sequence outside 1..2^52-1");
+    if(!s->stream) return luaL_error(L,"stream is not open");
+    s->stream->retry(static_cast<std::uint64_t>(sequence));
+    lua_pushboolean(L,true); return 1;
+}
+int stream_metadata(lua_State* L) {
+    mutable_phase(L);
+    if(lua_gettop(L)!=0) return luaL_error(L,"stream.metadata expects no arguments");
+    auto* s=script(L); if(!s->stream) return luaL_error(L,"stream is not open");
+    s->scratch=ScValue{ScValue::Object{}};
+    {
+        auto& out=std::get<ScValue::Object>(s->scratch.data);
+        for(const char* name:{"format","chunk_size","tilewidth","tileheight","layers","tilesets","parallaxoriginx","parallaxoriginy"})
+            if(const auto* value=s->stream->metadata().get(name)) out.emplace(name,*value);
+    }
+    sc_lua_push(L,s->scratch); return 1;
+}
+int stream_terrain(lua_State* L) {
+    mutable_phase(L);
+    if(lua_gettop(L)<1||lua_gettop(L)>3) return luaL_error(L,"stream.terrain expects shapes, optional navigation and entering entities");
+    auto* s=script(L); if(!s->stream) return luaL_error(L,"stream is not open");
+    const bool replace_navigation=lua_gettop(L)>=2&&!lua_isnil(L,2);
+    const bool entering=lua_gettop(L)==3&&!lua_isnil(L,3);
+    lua_createtable(L,2,0);
+    lua_pushvalue(L,1); lua_rawseti(L,-2,1);
+    if(replace_navigation) { lua_pushvalue(L,2); lua_rawseti(L,-2,2); }
+    read(L,-1); lua_pop(L,1);
+    if(entering) sc_script_prepare_spawn_batch(L,3);
+    {
+        std::vector<ScTerrainShape> shapes;
+        const auto& args=std::get<ScValue::Array>(s->scratch.data);
+        const auto* array=std::get_if<ScValue::Array>(&args[0].data);
+        const auto* empty=std::get_if<ScValue::Object>(&args[0].data);
+        if(!array&&(!empty||!empty->empty())) throw std::runtime_error("terrain requires a dense shape array");
+        if(array) {
+            if(array->size()>SC_MAX_TILES) throw std::runtime_error("terrain shape capacity exhausted");
+            shapes.reserve(array->size());
+            for(const auto& value:*array) {
+                const auto* object=std::get_if<ScValue::Object>(&value.data);
+                if(!object) throw std::runtime_error("terrain shape must be a plain object");
+                ScTerrainShape shape;
+                for(const auto& [name,field]:*object) {
+                    if(name=="one_way") {
+                        const auto* flag=std::get_if<bool>(&field.data);
+                        if(!flag) throw std::runtime_error("terrain one_way must be boolean");
+                        shape.one_way=*flag;
+                    } else if(name=="vertices") {
+                        const auto* points=std::get_if<ScValue::Array>(&field.data);
+                        if(!points||points->size()<6||points->size()>16||points->size()%2)
+                            throw std::runtime_error("terrain vertices require 3..8 x,y pairs");
+                        shape.vertex_count=static_cast<int>(points->size()/2);
+                        for(std::size_t i=0;i<points->size();++i) shape.vertices[i]=static_cast<float>((*points)[i].number(NAN));
+                    } else {
+                        const auto n=static_cast<float>(field.number(NAN));
+                        if(name=="x") shape.x=n; else if(name=="y") shape.y=n;
+                        else if(name=="w") shape.w=n; else if(name=="h") shape.h=n;
+                        else throw std::runtime_error("unknown terrain shape field: "+name);
+                    }
+                }
+                shapes.push_back(shape);
+            }
+        }
+        std::bitset<SC_MAX_TILES> blocked;
+        std::unique_ptr<ScNavigationRegion> candidate;
+        if(replace_navigation) {
+            const auto* fields=std::get_if<ScValue::Object>(&args[1].data);
+            if(!fields) throw std::runtime_error("navigation region must be a plain object");
+            double x=NAN,y=NAN,tile=8; const ScValue* rows=nullptr;
+            for(const auto& [name,value]:*fields) {
+                if(name=="x") x=value.number(NAN); else if(name=="y") y=value.number(NAN);
+                else if(name=="cell_size") tile=value.number(NAN); else if(name=="rows") rows=&value;
+                else throw std::runtime_error("unknown navigation region field: "+name);
+            }
+            if(!rows) throw std::runtime_error("navigation region requires rows");
+            candidate=sc_prepare_navigation_region(x,y,*rows,tile,shapes);
+        }
+        auto* region=replace_navigation?candidate.get():s->navigation_region.get();
+        if(region&&!replace_navigation) {
+            blocked=sc_navigation_patch(region->map,s->world->terrain_shapes,shapes,region->x,region->y).blocked;
+            if(blocked!=region->map.navigation_blocked&&region->map.navigation_revision==UINT64_MAX)
+                throw std::runtime_error("navigation revision exhausted");
+        }
+        auto result=sc_physics_replace_terrain(*s->world,shapes,entering?std::span<ScEntity>(s->batch_entities):std::span<ScEntity>{});
+        if(!result) throw std::runtime_error(result.error());
+        if(replace_navigation) {
+            s->navigation_region=std::move(candidate);
+            for(auto& field:s->flow_fields) field.reset();
+        } else if(region&&blocked!=region->map.navigation_blocked) {
+            region->map.navigation_blocked=blocked; ++region->map.navigation_revision;
+        }
+    }
+    if(entering) { sc_script_push_spawn_ids(L); lua_pushboolean(L,true); lua_insert(L,-2); return 2; }
+    lua_pushboolean(L,true); return 1;
+}
+constexpr ScLuaParameter stream_path[]={{"index_path","string"}},stream_coordinates[]={{"x","integer"},{"y","integer"}};
+constexpr ScLuaParameter stream_request_parameters[]={{"x","integer"},{"y","integer"},{"commit_frame","integer"}};
+constexpr ScLuaContract stream_open_contract{stream_path,nullptr,ScLuaPhases::initialize,"128 MiB cache; 16 MiB index; 65536 chunks",nullptr,"streaming"};
+constexpr ScLuaContract stream_request_contract{stream_request_parameters,"integer",ScLuaPhases::mutate,"1024 pending requests; coordinates -31250..31250",nullptr,"streaming"};
+constexpr ScLuaContract stream_get_contract{stream_coordinates,"table|nil",ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
+constexpr ScLuaContract stream_release_contract{stream_coordinates,nullptr,ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
+constexpr ScLuaContract stream_stats_contract{{},"table",ScLuaPhases::read,nullptr,nullptr,"streaming"};
+constexpr ScLuaContract stream_metadata_contract{{},"table",ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
+constexpr ScLuaParameter stream_terrain_parameters[]={{"shapes","table[]"},{"navigation","table|nil"},{"entities","ScEntityPatch[]|nil"}};
+constexpr ScLuaContract stream_terrain_contract{stream_terrain_parameters,"boolean,ScEntityId[]|nil",ScLuaPhases::mutate,"16384 shapes; Lua data conversion budget 256 KiB",nullptr,"streaming"};
+constexpr ScLuaParameter stream_retry_parameters[]={
+    {"sequence","integer",true,"Current failure().sequence; stale, pending, successful or unknown requests raise an error.",nullptr,1,4503599627370495.0}};
+constexpr ScLuaContract stream_failure_contract{{},"ScStreamFailure|nil",ScLuaPhases::read,nullptr,nullptr,"streaming"};
+constexpr ScLuaContract stream_retry_contract{stream_retry_parameters,"boolean",ScLuaPhases::ui_mutate,nullptr,nullptr,"streaming"};
 const ScLuaApi stream_api[]={
-    {"open",sc_lua_guard<stream_open>,"open(index_path)","Open a built map index with a single worker and 128 MiB bounded cache; init only."},
-    {"request",sc_lua_guard<stream_chunk<0>>,"request(x,y)","Pin and prefetch a 32x32 chunk."},
-    {"get",sc_lua_guard<stream_chunk<1>>,"get(x,y) -> chunk","Wait for a requested chunk without advancing simulation; absent sparse chunks are empty."},
-    {"release",sc_lua_guard<stream_chunk<2>>,"release(x,y)","Release one chunk reference; unpinned chunks may be evicted."},
-    {"stats",sc_lua_guard<stream_stats>,"stats() -> counters","Read cache budget, charged bytes, pinned and queued chunks."},
+    {"failure",sc_lua_guard<stream_failure>,"failure() -> failure|nil","Copy the first failure observed at a scheduled boundary; nil while healthy or retrying. Does not expose background completion timing or change pins/cache order.",&stream_failure_contract},
+    {"retry",sc_lua_guard<stream_retry>,"retry(sequence) -> true","Queue the current failed read again without waiting. Retains request sequence, deadline, references, cache reservation and old visible world. Clears failure until the next boundary attempt. Allowed in ui_update; draw forbidden.",&stream_retry_contract},
+    {"open",sc_lua_guard<stream_open>,"open(index_path)","Open a built map index with a single worker and 128 MiB bounded cache; load/init only.",&stream_open_contract},
+    {"request",sc_lua_guard<stream_chunk<0>>,"request(x,y,commit_frame) -> sequence","Pin and prefetch a 32x32 chunk for a planned simulation tick. Deadlines follow request order; sparse empty regions return sequence 0.",&stream_request_contract},
+    {"get",sc_lua_guard<stream_chunk<1>>,"get(x,y) -> chunk|nil","Read committed chunk data without waiting; nil until its planned boundary. Absent sparse chunks are empty. Load/init/update only.",&stream_get_contract},
+    {"release",sc_lua_guard<stream_chunk<2>>,"release(x,y)","Release one chunk reference; zero references cancel visibility. Pending cancellation drains at its planned boundary.",&stream_release_contract},
+    {"stats",sc_lua_guard<stream_stats>,"stats() -> counters","Read reserved cache bytes, visible/pinned chunks and scheduled request counts; worker completion timing is not exposed.",&stream_stats_contract},
+    {"metadata",sc_lua_guard<stream_metadata>,"metadata() -> table","Copy format, chunk_size, tilewidth, tileheight, layers, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.",&stream_metadata_contract},
+    {"terrain",sc_lua_guard<stream_terrain>,"terrain(shapes,navigation?,entities?) -> true,ids?","Atomically replace imported terrain with {x=0,y=0,w,h,one_way=false,vertices?} shapes in world pixels. Optional vertices are 3..8 local convex x,y pairs. Retain previous terrain on failure; remove finite room borders and camera clamping on success. Empty array clears imported terrain. Optional navigation {x,y,rows,cell_size=8} replaces the local grid in the same transaction and discards previous flow fields. Optional entering entity batch commits with terrain; returns IDs as second result. Invalid entities or capacity failure retain prior terrain/navigation. Load/init/update only.",&stream_terrain_contract},
     {nullptr,nullptr,nullptr,nullptr}
 };
 #endif
-const ScLuaApi projectile_api[]={
-    {"configure",sc_lua_guard<configure>,"configure(capacity)","Allocate 1..65536 bullets once during init; no Box2D bodies."},
-    {"spawn",sc_lua_guard<spawn>,"spawn(specs) -> ids","Validate a complete batch before spawning; numeric RGBA and collision mask."},
-    {"hits",sc_lua_guard<hits>,"hits() -> hits","Previous tick hits ordered by projectile, fraction and target."},
-    {"count",sc_lua_guard<count>,"count() -> integer","Current live projectile count."},
-    {"clear",sc_lua_guard<clear>,"clear()","Remove all bullets without recycling their IDs."},
-    {nullptr,nullptr,nullptr,nullptr}
-};
-const ScLuaApi nav_api[]={
-    {"flow",sc_lua_guard<flow>,"flow(gx,gy,budget?,slot?) -> id,status,visited","Build one shared target field in slot 1..16; rebuild after terrain changes."},
-    {"direction",sc_lua_guard<flow_direction>,"direction(flow,x,y) -> dx,dy","Read a normalized shared-field direction at a world position."},
-    {"steer",sc_lua_guard<steer>,"steer(flow,entities,speed) -> count","Atomically validate and steer an entity batch without per-unit Lua callbacks."},
-    {"path",sc_lua_guard<path>,"path(sx,sy,gx,gy,budget?) -> result","Deterministic A-star in tile coordinates; ok, unreachable or budget_exhausted."},
-    {nullptr,nullptr,nullptr,nullptr}
-};
-const ScLuaApi app_api[]={
-    {"pause",sc_lua_guard<pause>,"pause(boolean)","Pause physics and particles while Lua UI and input keep updating."},
-    {"paused",sc_lua_guard<paused>,"paused() -> boolean","Read simulation pause state."},
-    {"quit",sc_lua_guard<quit>,"quit()","Request orderly application shutdown."},
-    {nullptr,nullptr,nullptr,nullptr}
-};
-int settings_get(lua_State* L) {
-    auto* s=script(L);
-    if(!s->settings) return luaL_error(L,"settings service unavailable in this host");
-    s->scratch=sc_settings_value(s->settings->current);
-    sc_lua_push(L,s->scratch); return 1;
-}
-int settings_apply(lua_State* L) {
-    auto* s=script(L);
-    if(s->phase!=1||s->checking) return luaL_error(L,"settings.apply requires update outside check mode");
-    if(!s->settings) return luaL_error(L,"settings service unavailable in this host");
-    bool persist=true;
-    if(!lua_isnoneornil(L,2)) { luaL_checktype(L,2,LUA_TBOOLEAN); persist=lua_toboolean(L,2)!=0; }
-    read(L,1); bool ok=false;
-    { auto result=s->settings->apply(s->scratch,persist); ok=result.has_value(); }
-    if(!ok) { lua_pushnil(L); lua_pushstring(L,s->settings->last_error.c_str()); return 2; }
-    s->world->audio_gains=s->settings->current.volume;
-    lua_pushboolean(L,true); return 1;
-}
-int settings_error(lua_State* L) {
-    auto* s=script(L);
-    if(!s->settings) return luaL_error(L,"settings service unavailable in this host");
-    lua_pushstring(L,s->settings->last_error.c_str()); return 1;
-}
-const ScLuaApi settings_api[]={
-    {"get",sc_lua_guard<settings_get>,"get() -> settings","Read application display, volume and action binding preferences."},
-    {"apply",sc_lua_guard<settings_apply>,"apply(patch,persist?) -> true|nil,error","Validate, apply and atomically persist settings; restore previous preferences on failure. Update only; persist defaults true."},
-    {"error",sc_lua_guard<settings_error>,"error() -> string","Read the last settings load/application error; empty when none."},
-    {nullptr,nullptr,nullptr,nullptr}
-};
+#ifdef SC_HAS_DEVTOOLS
+constexpr ScLuaParameter debug_ui_parameters[]={{"name","string"},{"tree","table|nil",false}};
+const ScLuaContract debug_ui_contract{debug_ui_parameters,nullptr,ScLuaPhases::ui_mutate,"64 weakly held trees; names 1..128 bytes",nullptr,"devtools"};
+#endif
+constexpr ScLuaParameter watch_parameters[]={
+    {"name","string",true,"1..128 UTF-8 bytes without NUL; exact string type."},
+    {"value","boolean|number|string|table|nil",true,"Copied plain UTF-8 data; finite numbers, dense arrays or string-keyed objects. Nil is a retained null observation, not deletion."}};
+constexpr ScLuaContract watch_contract{watch_parameters,nullptr,ScLuaPhases::mutate,"64 names; each value at most 256 KiB and depth 16"};
 const ScLuaApi debug_api[]={
-    {"watch",sc_lua_guard<watch>,"watch(name,value)","Expose explicit bounded Lua data for diagnostic snapshots."},
+    {"watch",sc_lua_guard<watch>,"watch(name,value)","Expose a copied, bounded observation. Invalid input preserves existing watches; Lua metatables are rejected. Available without interactive devtools.",&watch_contract},
+#ifdef SC_HAS_DEVTOOLS
+    {"ui",sc_lua_guard<sc_debug_ui_register>,"ui(name,tree?)","Register a weak shiny.ui tree for inspection, or remove it with nil; devtools only.",&debug_ui_contract},
+#endif
     {nullptr,nullptr,nullptr,nullptr}
 };
 }
 void sc_script_systems_register(lua_State* L) {
+#ifdef SC_HAS_DEVTOOLS
+    sc_debug_ui_init(L);
+#endif
+    sc_script_particles_register(L);
     lua_newtable(L);
 #ifdef SC_HAS_STREAMING
     sc_api_register(L,stream_api); lua_pushboolean(L,true);
@@ -347,20 +238,37 @@ void sc_script_systems_register(lua_State* L) {
     lua_pushboolean(L,false);
 #endif
     lua_setfield(L,-2,"available"); lua_setfield(L,-2,"stream");
-    lua_newtable(L); sc_api_register(L,input_api);
-    lua_setfield(L,-2,"input");
-    lua_newtable(L); sc_api_register(L,projectile_api); lua_setfield(L,-2,"projectiles");
-    lua_newtable(L); sc_api_register(L,nav_api); lua_setfield(L,-2,"navigation");
-    lua_newtable(L); sc_api_register(L,app_api); lua_setfield(L,-2,"app");
-    lua_newtable(L); sc_api_register(L,settings_api); lua_setfield(L,-2,"settings");
+    sc_script_input_register(L);
+    sc_script_images_register(L);
+    sc_script_projectiles_register(L);
+    sc_script_navigation_register(L);
+    sc_script_application_register(L);
     lua_newtable(L); sc_api_register(L,debug_api); lua_setfield(L,-2,"debug");
 }
 void sc_script_systems_describe() {
+    sc_script_particles_describe();
 #ifdef SC_HAS_STREAMING
     sc_api_describe(stream_api,"sc.stream.");
 #endif
-    sc_api_describe(input_api,"sc.input.");
-    sc_api_describe(projectile_api,"sc.projectiles."); sc_api_describe(nav_api,"sc.navigation.");
-    sc_api_describe(app_api,"sc.app."); sc_api_describe(debug_api,"sc.debug.");
-    sc_api_describe(settings_api,"sc.settings.");
+    sc_script_input_describe();
+    sc_script_images_describe();
+    sc_script_projectiles_describe(); sc_script_navigation_describe();
+    sc_script_application_describe(); sc_api_describe(debug_api,"sc.debug.");
 }
+#ifdef SC_HAS_STREAMING
+ScValue sc_script_stream_contracts() {
+    ScValue::Array fields;
+    for(const auto& [name,type,description]:{
+        std::tuple{"sequence","integer","Original ordered request sequence, 1..2^52-1; pass to retry."},
+        std::tuple{"frame","integer","Original scheduled commit frame, 0..2^52-1; retry does not move it."},
+        std::tuple{"x","integer","Chunk column, -31250..31250."},
+        std::tuple{"y","integer","Chunk row, -31250..31250."},
+        std::tuple{"message","string","Read/decode/validation diagnostic from the failed chunk."}})
+        fields.emplace_back(ScValue::Object{{"name",ScValue{std::string(name)}},{"type",ScValue{std::string(type)}},
+            {"required",ScValue{true}},{"readonly",ScValue{true}},{"description",ScValue{std::string(description)}}});
+    ScValue record{ScValue::Object{{"fields",ScValue{std::move(fields)}},
+        {"constraints",ScValue{ScValue::Array{ScValue{std::string{
+            "Only published by owner-thread advance at a due boundary. Retrying or releasing the last failed pin clears this independent snapshot; other due chunks remain unpublished until the entire batch succeeds."}}}}}}};
+    return ScValue{ScValue::Object{{"ScStreamFailure",std::move(record)}}};
+}
+#endif

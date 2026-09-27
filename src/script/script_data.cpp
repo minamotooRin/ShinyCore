@@ -5,10 +5,9 @@
 #include <cstring>
 #include <cstdio>
 #include "shiny/path.h"
-#include "shiny/save.h"
+#include "script_save.h"
 #include "shiny/capabilities.h"
 #include "shiny/settings.h"
-#include <chrono>
 #include <stdexcept>
 
 namespace {
@@ -63,10 +62,12 @@ const char* key(lua_State* L,int index) {
 void mutable_phase(lua_State* L) { if(script(L)->phase>=2) luaL_error(L,"mutation is forbidden in draw() or migration"); }
 void error_text(ScScript* s,const char* message) { std::snprintf(s->error,sizeof s->error,"%s",message); }
 int state_get(lua_State* L) {
+    if(lua_gettop(L)!=1) return luaL_error(L,"invalid state_get argument count");
     const char* name=key(L,1); const auto* value=script(L)->state.get(name);
     if (value) sc_lua_push(L,*value); else lua_pushnil(L); return 1;
 }
 int state_set(lua_State* L) {
+    if(lua_gettop(L)!=2) return luaL_error(L,"invalid state_set argument count");
     mutable_phase(L); const char* name=key(L,1); auto* s=script(L); bool ok=false;
     try {
         auto value=sc_lua_read(L,2);
@@ -84,6 +85,7 @@ int state_set(lua_State* L) {
     return 0;
 }
 int module_load(lua_State* L) {
+    if(lua_gettop(L)!=1) return luaL_error(L,"invalid module_load argument count");
     const char* name=key(L,1); char relative[SC_PATH_MAX]{};
     auto length=std::strlen(name);
     for(size_t i=0;i<length;++i) {
@@ -97,7 +99,7 @@ int module_load(lua_State* L) {
     lua_getfield(L,LUA_REGISTRYINDEX,"shiny.modules"); lua_getfield(L,-1,name);
     if (!lua_isnil(L,-1)) return 1;
     lua_pop(L,1);
-    if(script(L)->phase==2) return luaL_error(L,"first module load is forbidden in draw()");
+    if(script(L)->phase>=2) return luaL_error(L,"first module load is forbidden in draw(), ui_update(), or migration");
     lua_getfield(L,LUA_REGISTRYINDEX,"shiny.loading"); lua_getfield(L,-1,name);
     if(lua_toboolean(L,-1)) return luaL_error(L,"circular module dependency: %s",name);
     lua_pop(L,1); lua_pushboolean(L,1); lua_setfield(L,-2,name);
@@ -111,132 +113,21 @@ int module_load(lua_State* L) {
     if(script(L)->instruction_budget<=0) return luaL_error(L,"instruction budget exceeded");
     return 1;
 }
-const char* save_slot(lua_State* L,int argument) {
-    const char* slot=key(L,argument);
-    for(const char* p=slot;*p;++p) if(!((*p>='a'&&*p<='z')||(*p>='A'&&*p<='Z')||(*p>='0'&&*p<='9')||*p=='_'||*p=='-'))
-        luaL_error(L,"slot uses letters, digits, underscore or hyphen");
-    return slot;
-}
-int save_operation(lua_State* L,bool loading) {
-    auto* s=script(L);
-    if(s->phase!=1 || s->checking) return luaL_error(L,"save operations require update(), outside --check");
-    const char* slot=save_slot(L,1);
-    bool ok=false;
-    char saved_scene[SC_PATH_MAX]{};
-    try {
-        const auto* id=s->project.get("id");
-        if (!id || id->text().empty()) throw std::runtime_error("saving requires project.id");
-        auto version=s->project.get("data_version"); double v=version?version->number(1):1;
-        auto path=s->save_directory+"/"+id->text()+"/"+slot+".json";
-        if (!loading) {
-            ScValue record(ScValue::Object{{"format",ScValue(double(SC_SAVE_FORMAT))},{"project",*id},{"data_version",ScValue(v)},
-                {"scene",ScValue(std::string(s->entry))},{"state",s->state},
-                {"frame",ScValue{double(s->world->tick)}},
-                {"saved_at",ScValue{double(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count())}}});
-            if(s->save_directory.empty()) {
-                if(!s->memory_saves.contains(slot)&&s->memory_saves.size()>=16) throw std::runtime_error("memory save capacity exhausted (16)");
-                s->memory_saves.insert_or_assign(slot,std::move(record));
-            }
-            else { auto result=sc_save_write(path,record,id->text(),v); if(!result) throw std::runtime_error(result.error()); }
-        } else {
-            if(s->pending_scene[0]) throw std::runtime_error("a scene transition is already pending");
-            ScResult<ScValue> record=std::unexpected("save slot does not exist");
-            if(s->save_directory.empty()) { auto it=s->memory_saves.find(slot); if(it!=s->memory_saves.end()) record=it->second; }
-            else record=sc_save_read(path,id->text(),v);
-            if(!record) throw std::runtime_error(record.error());
-            auto valid=sc_save_validate(*record,id->text(),v);
-            if(!valid) throw std::runtime_error(valid.error());
-            auto scene=record->get("scene"),state=record->get("state");
-            auto entry=scene->text();
-            if(entry.size()>=SC_PATH_MAX||entry.find('\0')!=std::string::npos||!sc_script_validate_path(entry.c_str())||!entry.ends_with(".lua")) throw std::runtime_error("invalid saved scene");
-            auto bounded=sc_state_validate(*state); if(!bounded) throw std::runtime_error(bounded.error());
-            s->scratch=std::move(*bounded);
-            std::snprintf(saved_scene,sizeof saved_scene,"%s",entry.c_str());
-        }
-        ok=true;
-    } catch(const std::exception& e) { error_text(s,e.what()); }
-    if(ok&&loading) {
-        s->pending_state=std::move(s->scratch); s->has_pending_state=true;
-        std::memcpy(s->pending_scene,saved_scene,sizeof saved_scene);
-    }
-    if(ok) { lua_pushboolean(L,1); return 1; }
-    lua_pushnil(L); lua_pushstring(L,s->error); return 2;
-}
-int save_write(lua_State* L) { return save_operation(L,false); }
-int save_load(lua_State* L) { return save_operation(L,true); }
-int save_read(lua_State* L) {
-    const char* slot=save_slot(L,1); auto* s=script(L); bool ok=false;
-    {
-        const auto* id=s->project.get("id");
-        if(!id) throw std::runtime_error("saving requires project.id");
-        const auto* version=s->project.get("data_version"); double v=version?version->number():1;
-        ScResult<ScValue> record=std::unexpected("save slot does not exist");
-        if(s->save_directory.empty()) { auto found=s->memory_saves.find(slot); if(found!=s->memory_saves.end()) record=found->second; }
-        else record=sc_save_read(s->save_directory+"/"+id->text()+"/"+slot+".json",id->text(),v);
-        if(record) { s->scratch=std::move(*record); ok=true; }
-        else error_text(s,record.error().c_str());
-    }
-    if(ok) { sc_lua_push(L,s->scratch); return 1; }
-    lua_pushnil(L); lua_pushstring(L,s->error); return 2;
-}
-int save_list(lua_State* L) {
-    auto* s=script(L);
-    {
-        const auto* id=s->project.get("id");
-        if(!id) throw std::runtime_error("saving requires project.id");
-        const auto* version=s->project.get("data_version"); double v=version?version->number():1;
-        std::map<std::string,ScResult<ScValue>,std::less<>> records;
-        if(s->save_directory.empty()) for(const auto& [name,value]:s->memory_saves) records.emplace(name,value);
-        else {
-            auto directory=sc_path(s->save_directory+"/"+id->text());
-            if(std::filesystem::exists(directory)) for(const auto& entry:std::filesystem::directory_iterator(directory)) {
-                if(!entry.is_regular_file()||entry.path().extension()!=".json") continue;
-                if(records.size()>=128) throw std::runtime_error("save listing exceeds 128 slots");
-                auto name=entry.path().stem().string();
-                if(name.empty()||name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos) continue;
-                records.emplace(name,sc_save_read(s->save_directory+"/"+id->text()+"/"+name+".json",id->text(),v));
-            }
-        }
-        ScValue::Array output;
-        for(auto& [name,record]:records) {
-            ScValue::Object item{{"slot",ScValue{name}},{"valid",ScValue{record.has_value()}}};
-            if(record) for(const char* field:{"scene","data_version","frame","saved_at"}) if(auto value=record->get(field)) item.emplace(field,*value);
-            if(!record) item.emplace("error",ScValue{record.error()});
-            output.push_back(ScValue{std::move(item)});
-        }
-        s->scratch=ScValue{std::move(output)};
-    }
-    sc_lua_push(L,s->scratch); return 1;
-}
-int save_delete(lua_State* L) {
-    auto* s=script(L);
-    if(s->phase!=1||s->checking) return luaL_error(L,"save operations require update(), outside --check");
-    const char* slot=save_slot(L,1);
-    {
-        const auto* id=s->project.get("id"); if(!id) throw std::runtime_error("saving requires project.id");
-        if(s->save_directory.empty()) s->memory_saves.erase(slot);
-        else {
-            auto path=s->save_directory+"/"+id->text()+"/"+slot+".json";
-            std::filesystem::remove(sc_path(path+".bak")); std::filesystem::remove(sc_path(path));
-        }
-    }
-    lua_pushboolean(L,true); return 1;
-}
+constexpr ScLuaParameter module_parameters[]={{"module","string",true,"1..128 bytes: letters, digits, underscore and dots; must resolve to a project-relative Lua path. shiny.* resolves under lib/."}};
+constexpr ScLuaContract module_contract{module_parameters,"any",ScLuaPhases::read,"First load only in load/init/update; cached reads also allowed in draw/ui_update"};
+constexpr ScLuaParameter state_get_parameters[]={{"key","string",true,"1..128 bytes without NUL."}};
+constexpr ScLuaParameter state_set_parameters[]={
+    {"key","string",true,"1..128 bytes without NUL."},
+    {"value","boolean|number|string|table|nil",true,"Copied plain UTF-8 data; nil deletes. Finite numbers, dense arrays or string-keyed objects; no metatables."}};
+constexpr ScLuaContract state_get_contract{state_get_parameters,"boolean|number|string|table|nil",ScLuaPhases::read};
+constexpr ScLuaContract state_set_contract{state_set_parameters,nullptr,ScLuaPhases::mutate,"Total state: 256 KiB serialized UTF-8 and depth 16; conversion also bounded"};
 const ScLuaApi module_api[]={
-    {"require",sc_lua_guard<module_load>,"require(module) -> value","Cached project-local module; dots map to directories, max 128 bytes. Cycles error; first load forbidden in draw."},
+    {"require",sc_lua_guard<module_load>,"require(module) -> value","Cached project-local module; nil return becomes true. Cycles fail; failed loads clear their loading marker for retry. Cached reads preserve returned object identity.",&module_contract},
     {nullptr,nullptr,nullptr,nullptr}
 };
 const ScLuaApi state_api[]={
-    {"get",sc_lua_guard<state_get>,"get(key) -> copy|nil","Read explicit cross-room state by key (1..128 bytes). Returns an independent copy."},
-    {"set",sc_lua_guard<state_set>,"set(key,value)","Atomic plain data update; nil deletes. Total 256 KiB, depth 16, finite numbers, dense arrays and UTF-8. Forbidden in draw/migration."},
-    {nullptr,nullptr,nullptr,nullptr}
-};
-const ScLuaApi save_api[]={
-    {"list",sc_lua_guard<save_list>,"list() -> slots","Sorted slot metadata; bounded to 128 disk slots, including invalid record diagnostics."},
-    {"read",sc_lua_guard<save_read>,"read(slot) -> record|nil,error","Read current-format data without changing rooms; recover from previous valid backup when needed."},
-    {"delete",sc_lua_guard<save_delete>,"delete(slot) -> true","Delete a slot and its backup; update only. Missing slots are harmless."},
-    {"write",sc_lua_guard<save_write>,"write(slot) -> true|nil,error","Atomic versioned checkpoint of state and scene; update only, disabled in check. Slot uses alnum/_/-. Headless defaults to 16 in-memory slots."},
-    {"load",sc_lua_guard<save_load>,"load(slot) -> true|nil,error","Validate and request room reconstruction with restored state, using only the current explicit format version. Does not restore VM or solver state."},
+    {"get",sc_lua_guard<state_get>,"get(key) -> copy|nil","Read explicit cross-room state by key. Returns an independent nested copy, or nil when absent.",&state_get_contract},
+    {"set",sc_lua_guard<state_set>,"set(key,value)","Atomically replace a key, or delete it with explicit nil. Failure retains all prior state. Candidate rooms mutate their own copy, published only on room commit. Forbidden in draw/ui_update/migration.",&state_set_contract},
     {nullptr,nullptr,nullptr,nullptr}
 };
 }
@@ -263,7 +154,7 @@ void sc_script_data_register(lua_State* L) {
     lua_newtable(L); lua_setfield(L,LUA_REGISTRYINDEX,"shiny.loading");
     lua_pushglobaltable(L); sc_api_register(L,module_api); lua_pop(L,1);
     lua_newtable(L); sc_api_register(L,state_api); lua_setfield(L,-2,"state");
-    lua_newtable(L); sc_api_register(L,save_api); lua_setfield(L,-2,"save");
+    sc_script_save_register(L);
 }
 void sc_script_project_load(lua_State* L) {
     auto* s=script(L); bool exists=false;
@@ -316,10 +207,18 @@ void sc_script_project_load(lua_State* L) {
                 if(n<0||n>65536||std::floor(n)!=n) throw std::runtime_error("invalid capacity: "+name);
                 auto capacity=static_cast<size_t>(n);
                 if(name=="entities" && capacity>0) { s->world->entities.resize(capacity); s->world->generations.assign(capacity,1); }
-                else if(name=="particles") s->world->particles.resize(capacity);
+                else if(name=="identities") {
+                    if(s->world->identities && s->world->identities->size()) throw std::runtime_error("configure persistent ID capacity before declaring or spawning named objects");
+                    s->world->identities.reset(capacity?new ScIdentities(capacity):nullptr);
+                }
+                else if(name=="projectiles") {
+                    if(s->world->projectiles) throw std::runtime_error("configure projectile capacity before allocating the pool");
+                    s->projectile_limit=capacity;
+                }
+                else if(name=="particles") s->world->particles.configure(capacity);
                 else if(name=="draws" && capacity>0) s->world->draws.resize(capacity);
                 else if(name=="contacts" && capacity>0) s->world->contacts.resize(capacity);
-                else if(name=="sound_voices" && capacity<=32) s->world->sound_voice_limit=capacity;
+                else if(name=="sound_voices" && capacity<=32) s->audio->sound_voice_limit=capacity;
                 else throw std::runtime_error("unknown or zero capacity: "+name);
             }
         }
@@ -327,7 +226,7 @@ void sc_script_project_load(lua_State* L) {
             const auto* id=project->get("id");
             auto initialized=s->settings->initialize(project->get("display"),s->save_directory,id?id->text():"");
             if(!initialized) throw std::runtime_error(initialized.error());
-            s->world->audio_gains=s->settings->current.volume;
+            s->audio->audio_gains=s->settings->current.volume;
         } else if(auto display=project->get("display")) {
             auto validated=sc_settings_patch(ScSettings{},*display);
             if(!validated) throw std::runtime_error("project.display: "+validated.error());
@@ -338,5 +237,5 @@ void sc_script_project_load(lua_State* L) {
     if(!ok) luaL_error(L,"project: %s",s->error);
 }
 void sc_script_data_describe() {
-    sc_api_describe(module_api,""); sc_api_describe(state_api,"sc.state."); sc_api_describe(save_api,"sc.save.");
+    sc_api_describe(module_api,""); sc_api_describe(state_api,"sc.state."); sc_script_save_describe();
 }

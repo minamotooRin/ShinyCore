@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "version": "1.0.0-dev.46",
+  "engine_version": "1.0.0-dev",
+  "contract_version": 1,
+  "hash": "sha256-text-lf",
+  "files": {
+    "docs/api.lua": "3a545b68b9432d225d30baba709b0d58893c5f2cdf17b31f454d38a31fe81c8d",
+    "lib/shiny/animation.lua": "267c1d579456b506086ac7bc241aacf6dcd7f1d24ca0e1cef481e5e7ca00a2ab",
+    "lib/shiny/input.lua": "24bde68e07639ff7a4a9a1aa0570bd47e3afdf70093b530c815650b89142229d",
+    "lib/shiny/LICENSE.txt": "5090cd7120174d2034a276d7deb4783760cec86e9642b9a3f34c3ca3aed5058c",
+    "lib/shiny/prefab.lua": "ee9a83ef8a323e19be28e72285afbf1200c58ea66562f1ffc483e7f2994b0d77",
+    "lib/shiny/rebind.lua": "d0a211887e11a31a7da49a6903941e7496edbbb0fcab3109cd1fec692c1d01f2",
+    "lib/shiny/settings.lua": "cec19b42c8394d94ffc628ca1a02c697c949e762f38acf95c706a5e65a601eec",
+    "lib/shiny/shell.lua": "3556b910a9db4f857ed6b27536f9da1f93e2bfb3c8d2fde616e368d739758645",
+    "lib/shiny/stream_objects.lua": "f02c85683f9a93bf6dbbe1e0d16054bead6c2543c5c2721f1c90c9983f0d2d55",
+    "lib/shiny/stream_regions.lua": "bb3ce2de461fa3335773b2f046d893de37888089e8281dfd550a75cf6af886d2",
+    "lib/shiny/stream_tiles.lua": "b8cc48cf9efe4e376a10a70e4672e5400ffae917d2c777726257653819ae9595",
+    "lib/shiny/stream_world.lua": "624eca86568b57fedaec4ee76be36995d62f5db71189bf0e791e64b6c51272ca",
+    "lib/shiny/textedit.lua": "701c6294e33109a048d3cd96a2f7959ae4d9e5877343ae0dd065d2cc1be899df",
+    "lib/shiny/tween.lua": "bd8afe8c3f739c16bd7678f713232ddaeba823af4d8e2d991f32c641e97cc012",
+    "lib/shiny/ui.lua": "081ae72d1d302a09fe9a8d7298720ca0462336b696a3ca2cce622cd2a92d8a57"
+  }
+}

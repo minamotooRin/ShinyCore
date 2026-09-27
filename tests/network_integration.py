@@ -83,6 +83,70 @@ class Multiplayer(unittest.TestCase):
         self.assertNotIn("DUET listening", result.stderr)
         self.assertEqual(json.loads(result.stdout)["frames"], 0)
 
+    def test_named_session_survives_room_and_paused_simulation(self):
+        host_project = self.project('named-host', '''local h
+return {update=function()
+    if not h then
+        h=assert(sc.net.host('127.0.0.1',PORT)); assert(h:persist('coop'))
+        sc.log('named listening'); sc.app.pause(true)
+    end
+    while true do
+        local e,err=h:poll(); assert(not err); if not e then break end
+        if e.type=='connect' then
+            sc.state.set('peer',e.peer); sc.state.set('port',h:port())
+            assert(h:send(e.peer,'hello')); assert(h:flush()); sc.scene('next.lua'); break
+        end
+    end
+end}'''.replace('PORT', str(self.port)))
+        (host_project/'project.lua').write_text(
+            'return {rooms={"main.lua","next.lua"}}', encoding='utf-8')
+        (host_project/'next.lua').write_text('''local h
+return {init=function()
+    h=assert(sc.net.bind('coop')); assert(h:port()==sc.state.get('port'))
+    local ok,err=pcall(h.poll,h); assert(not ok and err:find('candidate initialization'))
+    assert(h:stats().open)
+end,update=function()
+    sc.app.pause(true)
+    while true do
+        local e,err=h:poll(); assert(not err); if not e then break end
+        if e.type=='receive' then
+            assert(e.peer==sc.state.get('peer') and e.data=='ack')
+            assert(h:send(e.peer,'done')); assert(h:flush())
+            sc.log('named restored'); sc.app.quit()
+        end
+    end
+end}''', encoding='utf-8')
+        guest_project = self.project('named-guest', '''local h
+return {update=function()
+    if not h then h=assert(sc.net.join('127.0.0.1',PORT)); assert(h:persist('coop')) end
+    while true do
+        local e,err=h:poll(); assert(not err); if not e then break end
+        if e.type=='receive' then
+            if e.data=='hello' then assert(h:send(e.peer,'ack')); assert(h:flush())
+            elseif e.data=='done' then sc.log('named complete'); sc.app.quit()
+            else error('unexpected packet') end
+        end
+    end
+end}'''.replace('PORT', str(self.port)))
+        log_path = self.directory/'named.log'
+        with log_path.open('w', encoding='utf-8') as log:
+            host = subprocess.Popen(self.command(host_project, 'host.txt', 240),
+                                    stdout=subprocess.PIPE, stderr=log, text=True, encoding='utf-8')
+            self.addCleanup(self.stop, host)
+            deadline = time.monotonic()+5
+            while 'named listening' not in log_path.read_text(encoding='utf-8'):
+                if host.poll() is not None or time.monotonic()>deadline:
+                    self.fail('named host did not start: '+log_path.read_text(encoding='utf-8'))
+                time.sleep(.01)
+            guest = subprocess.run(self.command(guest_project, 'join.txt', 240),
+                                   capture_output=True, text=True, encoding='utf-8', timeout=10)
+            host.communicate(timeout=10)
+        host_log = log_path.read_text(encoding='utf-8')
+        self.assertEqual(host.returncode, 0, host_log)
+        self.assertEqual(guest.returncode, 0, guest.stderr)
+        self.assertIn('named restored', host_log)
+        self.assertIn('named complete', guest.stderr)
+
     def test_two_processes_share_authoritative_gameplay(self):
         started = time.monotonic()
         host, guest, host_log, guest_log = self.pair()

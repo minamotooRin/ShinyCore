@@ -1,0 +1,2 @@
+# No device input; isolate native playback from real mouse/keyboard state.
+0 0

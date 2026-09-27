@@ -8,6 +8,7 @@ ShinyCore sources and original LANTERN assets are MIT licensed. Dependencies are
 | Box2D | 3.1.1 | https://github.com/erincatto/box2d/tree/v3.1.1 | [MIT](licenses/box2d.txt) |
 | yyjson | 0.12.0 | https://github.com/ibireme/yyjson/tree/0.12.0 | [MIT](licenses/yyjson.txt) |
 | stb_truetype | header pinned from raylib 5.5 | https://github.com/raysan5/raylib/blob/5.5/src/external/stb_truetype.h | [MIT option](licenses/stb_truetype.txt) |
+| stb_image (optional, `SHINY_STREAMING=ON`, PNG only) | header pinned from raylib 5.5 | https://github.com/raysan5/raylib/blob/5.5/src/external/stb_image.h | [MIT option](licenses/stb_image.txt) |
 | Noto Sans SC subset (Workshop and text-input fixture) | weight 400, declared repertoire | https://github.com/google/fonts/tree/main/ofl/notosanssc | [SIL OFL](licenses/notosanssc.txt) |
 | ENet (optional, `SHINY_NETWORK=ON`) | 1.3.18 | https://github.com/lsalzman/enet/tree/v1.3.18 | [MIT](licenses/enet.txt) |
 | raylib | 5.5 | https://github.com/raysan5/raylib/releases/tag/5.5 | [zlib/libpng](licenses/raylib.txt) |
@@ -34,6 +35,7 @@ enet-v1.3.18.tar.gz 28603c895f9ed24a846478180ee72c7376b39b4bb1287b73877e5eae7d96
 box2d-v3.1.1.tar.gz fb6ef914b50f4312d7d921a600eabc12318bb3c55a0b8c0b90608fa4488ef2e4
 yyjson-0.12.0.tar.gz b16246f617b2a136c78d73e5e2647c6f1de1313e46678062985bdcf1f40bb75d
 stb_truetype.h ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab
+stb_image.h 594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3
 ```
 
 Redistributable application packages produced by `tools/package.py` include this file, the project's LICENSE, and the notice files above. macOS framework libraries are provided by the operating system and are not copied into the package.
@@ -43,3 +45,10 @@ Redistributable application packages produced by `tools/package.py` include this
 UTF-8 grapheme boundaries use utf8proc (MIT, with Unicode data license).
 Source: https://github.com/JuliaStrings/utf8proc/tree/v2.10.0
 Full notices: licenses/utf8proc.txt.
+
+## Wayfarer font
+
+Wayfarer includes the unmodified Source Han Sans SC Regular 2.004R OTF (Adobe),
+under SIL OFL 1.1. License: examples/wayfarer/assets/OFL.txt. Pinned source, size and
+SHA-256: examples/wayfarer/assets/FONT.md. This is an example resource, not an engine
+dependency; redistribution of Wayfarer must retain the accompanying license.

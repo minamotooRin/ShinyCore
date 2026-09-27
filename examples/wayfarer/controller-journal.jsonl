@@ -1,0 +1,23 @@
+{"version": 3}
+{"frame": 0, "keys": [], "gamepad": {"connected": true, "buttons": ["south"], "axes": {"left_x": 0}}}
+{"frame": 1, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0}}}
+{"frame": 2, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0}}}
+{"frame": 3, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0}}}
+{"frame": 4, "keys": [], "gamepad": {"connected": true, "buttons": ["north"], "axes": {"left_x": 0}}}
+{"frame": 5, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0}}}
+{"frame": 6, "keys": [], "gamepad": {"connected": true, "buttons": ["north"], "axes": {"left_x": 0}}}
+{"frame": 7, "keys": [], "gamepad": {"connected": true, "buttons": ["north"], "axes": {"left_x": 0}}}
+{"frame": 8, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0}}}
+{"frame": 9, "keys": [], "gamepad": {"connected": true, "buttons": ["north"], "axes": {"left_x": 0.6}}}
+{"frame": 10, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 11, "keys": ["i"], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}, "text": "i"}
+{"frame": 12, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 13, "keys": [], "gamepad": {"connected": true, "buttons": ["east"], "axes": {"left_x": 0.6}}}
+{"frame": 14, "keys": ["f6"], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 15, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0}}}
+{"frame": 16, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 17, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 18, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 19, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 20, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}
+{"frame": 21, "keys": [], "gamepad": {"connected": true, "buttons": [], "axes": {"left_x": 0.6}}}

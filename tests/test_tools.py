@@ -52,6 +52,9 @@ class ToolTests(unittest.TestCase):
         for directory in ("tools", "docs", "licenses", "examples/lantern/replays", "examples/input"):
             (root / directory).mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "tools" / "package.py", root / "tools" / "package.py")
+        shutil.copy2(ROOT / "tools" / "runtime_deps.py", root / "tools" / "runtime_deps.py")
+        shutil.copy2(ROOT / "tools" / "package_content.py", root / "tools" / "package_content.py")
+        shutil.copy2(ROOT / "tools" / "sdk.py", root / "tools" / "sdk.py")
         for name in ("LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "docs/input.md", "licenses/Lua.txt"):
             (root / name).write_text(f"fixture {name}\n", encoding="utf-8")
         (root / "examples" / "lantern" / "main.lua").write_text("return {}\n", encoding="utf-8")
@@ -65,7 +68,7 @@ class ToolTests(unittest.TestCase):
         self.cli(ROOT / "tools" / "new_game.py", destination)
         self.assertEqual(
             {path.name for path in destination.iterdir()},
-            {"main.lua", "project.lua", "game", "rooms", "smoke.replay", "README.md", "AGENTS.md", ".luarc.json", "lib", "docs"},
+            {"main.lua", "project.lua", "package.json", "shiny-sdk.json", "game", "rooms", "smoke.replay", "README.md", "AGENTS.md", ".luarc.json", "lib", "docs"},
         )
         config = json.loads((destination / ".luarc.json").read_text(encoding="utf-8"))
         self.assertEqual(config["runtime.version"], "Lua 5.4")
@@ -162,6 +165,8 @@ class ToolTests(unittest.TestCase):
         relocated.parent.mkdir()
         shutil.move(str(destination), relocated)
         packaged_binary, resources = layout(relocated)
+        report = json.loads((relocated / "package-report.json").read_text(encoding="utf-8"))
+        self.assertTrue(report["native_dependencies"]["relocation_verified"])
         checked_package = run_engine(packaged_binary, "--check", resources / "examples" / "lantern")
         self.assertTrue(checked_package["ok"])
         if os.name != "nt":
@@ -207,23 +212,56 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(json.loads(result.stdout)["ok"])
         self.assertTrue((self.base / "saved game/shiny.workshop/checkpoint.json").is_file())
 
+    def test_explicit_package_keeps_late_modules_and_checks_staged_rooms(self) -> None:
+        if BINARY is None:
+            self.skipTest("requires a real engine")
+        project = self.base / "authored"
+        project.mkdir()
+        (project / "project.lua").write_text('return {rooms={"main.lua","second.lua"}}', encoding="utf-8")
+        (project / "main.lua").write_text('return {update=function() assert(require("late")==42) end}', encoding="utf-8")
+        (project / "second.lua").write_text('return {}', encoding="utf-8")
+        (project / "late.lua").write_text('return 42', encoding="utf-8")
+        (project / "unused.lua").write_text('error("must not ship")', encoding="utf-8")
+        manifest = {"format": 1, "scripts": ["main.lua"]}
+        (project / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+        destination = self.base / "selected package"
+        failed = self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", project,
+                          "--no-strip", "--no-zip", ok=False)
+        self.assertIn("packaged game validation failed", failed.stderr)
+        self.assertFalse(destination.exists())
+        manifest["scripts"].append("second.lua")
+        (project / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", project, "--no-strip", "--no-zip")
+        binary, resources = layout(destination)
+        self.assertTrue((resources / "game/late.lua").is_file())
+        self.assertFalse((resources / "game/unused.lua").exists())
+        result = subprocess.run([str(binary), str(resources / "game"), "--headless", "--frames", "2"],
+                                cwd=self.base, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((destination / "package-report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["project_content"]["omitted_files"], ["unused.lua"])
+
     def test_package_symbols_and_unavailable_required_modules(self) -> None:
         if BINARY is None:
             self.skipTest("requires a real engine")
         project = self.base / "requirements"
         project.mkdir()
         (project / "main.lua").write_text('return {}', encoding="utf-8")
-        (project / "project.lua").write_text('return {modules={"advanced_render"}}', encoding="utf-8")
+        api=json.loads(subprocess.check_output([str(BINARY),"--api"],encoding="utf-8"))
+        unavailable=next((name for name,enabled in api["modules"].items() if not enabled),"unsupported_module")
+        (project / "project.lua").write_text('return {modules={"'+unavailable+'"}}', encoding="utf-8")
         destination = self.base / "mismatch"
         result = self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", project, ok=False)
-        self.assertIn("advanced_render", result.stderr)
+        self.assertIn(unavailable, result.stderr)
         self.assertFalse(destination.exists())
-        (project / "project.lua").write_text('return {modules={"settings"}}', encoding="utf-8")
+        required="advanced_render" if api["modules"]["advanced_render"] else "settings"
+        (project / "project.lua").write_text('return {modules={"'+required+'"}}', encoding="utf-8")
         symbols = self.base / "game.pdb"
         symbols.write_bytes(b"standalone symbol fixture")
         self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", project,
                  "--symbols", symbols, "--no-strip", "--no-zip")
         report = json.loads((destination / "package-report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["capabilities"],api["modules"])
         self.assertEqual(report["bytes"]["debug_symbols"], symbols.stat().st_size)
         self.assertEqual((destination / "debug-symbols/game.pdb").read_bytes(), symbols.read_bytes())
 

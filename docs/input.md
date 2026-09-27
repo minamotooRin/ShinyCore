@@ -134,11 +134,82 @@ Version 3 keeps `frame`, `keys`, and `gamepad`, and adds these optional fields:
   `inside`, and `buttons`/`pressed`/`released` name arrays. Black bars are outside.
 - `text`, `composition`, `clipboard`: UTF-8 strings of at most 4095 bytes.
   Text and paste are consumed once; composition persists until replaced.
+- `composition_edit`: optional `{cursor,start,finish}` positions within composition.
+  All are one-based UTF-8 byte insertion positions, in `1..#composition+1`;
+  `finish` is exclusive and `start <= finish`. Positions inside a UTF-8 codepoint
+  are rejected. Absent metadata means cursor and an empty selection at the end.
+  Snapshots always emit resolved positions; buffered composition metadata persists
+  together with its text and is replaced by the next sampled composition.
+
+- `composition_segments`: up to 128 `{start,finish,kind}` records. Positions use
+  the same byte boundaries; nonempty arrays partition the complete composition
+  without gaps or overlap. Adjacent runs may have the same kind but different
+  clauses. Kinds are `input`, `target_converted`, `converted`, `target_unconverted`,
+  `error`, and `fixed`. Omitted metadata defaults to an empty array.
+- `composition_segments_truncated`: boolean, default false. Native overflow
+  preserves text/cursor/first target range but clears all segments. True requires
+  nonempty composition and an empty segment array in replay.
+
+`local committed, composition, cursor, first, finish, segments, truncated = sc.input.text()` returns
+the same values without building the complete snapshot. It takes no arguments.
+The UI aligns the caret and target highlight to grapheme boundaries and accounts
+for newline normalization. This metadata also participates in the diagnostic hash;
+older binary hash strings are not comparison baselines.
+
+Windows reads cursor, clauses and all six conversion attributes on composition
+text, attribute, clause, cursor or result updates. UTF-16 indices are converted to
+UTF-8 positions, including surrogate pairs, in a fixed-capacity helper. Clause
+boundaries and attribute changes both start runs. Missing/invalid clauses fall
+back to attribute runs; unknown attributes use `input`. The first contiguous
+target range also remains available through `composition_edit`. The status names
+map to Microsoft's [composition attributes](https://learn.microsoft.com/en-us/windows/win32/intl/composition-string).
+See Microsoft's [composition values](https://learn.microsoft.com/en-us/windows/win32/intl/ime-composition-string-values)
+for the native message flags. Commit delivery remains owned by GLFW; ending composition
+or losing focus clears the preedit, including segmentation. A cancellation message
+with no composition flags also clears it. Linux/macOS native composition remains pending.
+
+2026-09-27: focused conversion, position validation, snapshot replay, grapheme
+highlighting, newline remapping, commit/cancel and undo checks pass in Windows
+Release and headless ASan/UBSan. `tests/native_ime_preview.py` captures two hidden,
+muted one-frame scenes from recorded metadata; actual PNGs in
+`build/ime-target-reviewed/` show the caret at the first/middle position and the
+correct highlighted Chinese segment. This does not validate real IMM messages,
+candidate windows or physical IME interaction.
+
+Segment metadata, replay and visual evidence are recorded in
+[IME segment verification](verification-ime-segments.md).
 
 The `sc.input` namespace exposes these snapshots and individual controls.
 Unslotted gamepad queries retain the selected-controller view; an optional slot
 argument addresses one of the four pads directly. See [new-systems.md](new-systems.md)
 for text editing, action profiles and settings.
+
+## Machine-readable input contract
+
+All 18 `sc.input` functions now provide structured `--api` parameters, return values,
+phases and applicable capacities. Mouse and wheel returns have distinct names;
+`ScInputSnapshot` and its five nested record types describe the actual returned fields.
+Control catalogs include `mouse_buttons`, alongside keys and gamepad names. Trigger
+axes use 0..1, sticks use -1..1. An omitted/nil slot means the selected-controller view;
+it does not mean slot 1. Deadzone defaults to 0.2 and uses an exclusive maximum of 1.
+
+Bindings live in `src/script/script_input.cpp`, independent of projectile/stream
+bindings. Argument count and types are strict: numeric strings, unknown/NUL-suffixed
+control names and extra arguments fail. `focus_text(false)` takes exactly one argument;
+numeric coordinates require exactly two finite numbers in ±1000000. Text focus and
+clipboard writes allow load/init/update/ui_update, not draw. `clipboard()` or
+`clipboard(nil)` reads the snapshot in all normal read phases; a successful write
+returns no values. Writes reject invalid UTF-8, NUL and payloads above 4095 bytes
+before changing the pending request. Grapheme queries accept valid UTF-8 up to 65536
+bytes and return one-based starts followed by `#text+1`, including `{1}` for empty text.
+
+2026-09-27: `tests/input_contracts.py` compares metadata to real nested snapshot keys
+and verifies explicit/selected pads, range endpoints, invalid arguments, detached data,
+clipboard/focus phases and release edges in a two-frame replay. It and three focused
+IME, grapheme-selection and UI-direction regressions pass in Release and ASan/UBSan.
+Generated annotations/reference match both builds; six annotated projects now pin SDK
+`1.0.0-dev.10`, and all seven existing SDK manifests pass audit. No physical device or
+native clipboard interaction is claimed by these headless checks.
 
 ## Example and tests
 

@@ -1,0 +1,5 @@
+{"version": 3}
+{"frame": 0, "keys": ["d", "e"], "gamepad": {"connected": false}}
+{"frame": 1, "keys": ["d", "up"], "gamepad": {"connected": false}}
+{"frame": 2, "keys": ["space", "i"], "gamepad": {"connected": false}}
+{"frame": 3, "keys": ["t"], "gamepad": {"connected": false}}

@@ -1,0 +1,12 @@
+{"version": 3}
+{"frame": 0, "keys": ["space"], "gamepad": {"connected": false}}
+{"frame": 1, "keys": [], "gamepad": {"connected": false}}
+{"frame": 30, "keys": ["space"], "gamepad": {"connected": false}}
+{"frame": 31, "keys": ["s"], "gamepad": {"connected": false}}
+{"frame": 32, "keys": [], "gamepad": {"connected": false}}
+{"frame": 33, "keys": ["d"], "gamepad": {"connected": false}}
+{"frame": 34, "keys": [], "gamepad": {"connected": false}}
+{"frame": 35, "keys": ["r"], "gamepad": {"connected": false}}
+{"frame": 36, "keys": [], "gamepad": {"connected": false}}
+{"frame": 37, "keys": ["l"], "gamepad": {"connected": false}}
+{"frame": 38, "keys": [], "gamepad": {"connected": false}}

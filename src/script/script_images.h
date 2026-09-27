@@ -1,0 +1,9 @@
+#pragma once
+#include "shiny/state.h"
+struct lua_State;
+class ScScript;
+void sc_script_images_register(lua_State*);
+void sc_script_images_describe();
+ScValue sc_script_images_contracts();
+bool sc_script_images_validate(ScScript&);
+bool sc_script_images_preload(ScScript&);

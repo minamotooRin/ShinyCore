@@ -325,26 +325,94 @@ static void test_script_integration(void) {
 }
 
 static void test_application_sessions() {
+    ScNetSessions failed_source([]() -> ScResult<ScNetToken> { return std::unexpected("injected entropy failure"); });
+    auto failed_vm=new_vm(&failed_source);
+    run(failed_vm.get(),"local token,err=sc.net.token(); assert(token==nil and err=='injected entropy failure')");
+    CHECK(failed_source.tokens_remaining()==63);
     ScNetSessions application;
     auto first=new_vm(&application);
+    run(first.get(),R"(
+        local seen={}
+        for i=1,64 do local token=assert(sc.net.token()); assert(#token==32 and not token:find('[^0-9a-f]') and not seen[token]); seen[token]=true end
+        local value,err=sc.net.token(); assert(value==nil and err:find('budget exhausted'))
+    )");
+    run(first.get(),"assert(sc.net.time()==0); pause_one_ms(); assert(sc.net.time()==0)");
+    application.begin_tick();
+    CHECK(application.time()>0);
+    auto first_time=application.time();
+    run(first.get(),"stamp=sc.net.time(); pause_one_ms(); assert(sc.net.time()==stamp)");
+    application.service();
+    CHECK(application.time()==first_time);
+    application.begin_tick();
+    CHECK(application.time()>first_time);
     run(first.get(),"h=assert(sc.net.host('127.0.0.1',0)); port=h:port(); assert(h:persist('coop'))");
+    run(first.get(),R"(
+        assert(h:state()==nil)
+        local data={token='retained',nested={peer=42}}; assert(h:state(data)); data.nested.peer=99
+        local copy=h:state(); assert(copy.nested.peer==42); copy.nested.peer=100
+        assert(h:state().nested.peer==42)
+        local cycle={}; cycle.self=cycle
+        for _,bad in ipairs({cycle,setmetatable({},{}),{x=0/0},{1,2},{blob=string.rep('x',65536)}}) do
+            local ok,err=h:state(bad); assert(ok==nil and type(err)=='string')
+            assert(h:state().nested.peer==42)
+        end
+        assert(h:stats().state_bytes>0 and h:stats().state_capacity==65536)
+        local original=h:state()
+        assert(h:state({x=string.rep('x',65528)})); assert(h:stats().state_bytes==65536)
+        assert(h:state({x=string.rep('x',65529)})==nil); assert(h:stats().state_bytes==65536)
+        assert(h:state({x=string.char(255)})==nil); assert(h:stats().state_bytes==65536)
+        assert(h:state(original))
+    )");
     auto port=read_port(first.get()); first.reset();
     check_bind(port,false);
     CHECK(application.entries.size()==1);
     auto second=new_vm(&application);
+    run(second.get(),"assert(sc.net.time()>0); assert(sc.net.time()==sc.net.time())");
     run(second.get(),"h=assert(sc.net.bind('coop')); port=h:port(); old=assert(sc.net.bind('coop')); assert(h:flush())");
+    run(second.get(),"assert(h:state().token=='retained'); assert(h:state(nil)); assert(h:state()==nil and h:stats().state_bytes==0)");
+    run(second.get(),"local s=assert(h:stats()); assert(s.open and s.queued==0 and s.readable==0 and s.receive_capacity==256 and s.send_remaining==64 and s.send_bytes_remaining==65536)");
     CHECK(read_port(second.get())==port);
     run(second.get(),"h:close(); assert(old:port()==nil); h=assert(sc.net.host('127.0.0.1',0)); assert(h:persist('coop')); assert(old:port()==nil)");
+    run(second.get(),"local value,err=old:state(); assert(value==nil and err); assert(h:state()==nil)");
     second.reset();
     CHECK(application.entries.size()==1);
     auto third=new_vm(&application);
+    // A terminal named entry remains inspectable and explicitly closeable.
+    auto& entry=application.entries.at("coop");
+    entry.net.reset();
+    std::snprintf(entry.fault.data(),entry.fault.size(),"test transport fault");
+    run(third.get(),"h=assert(sc.net.bind('coop')); local s=h:stats(); assert(not s.open and s.error=='test transport fault'); local e,why=h:poll(); assert(e==nil and why=='test transport fault')");
     run(third.get(),"h=assert(sc.net.bind('coop')); h:close(); assert(sc.net.bind('coop')==nil)");
     CHECK(application.entries.empty());
     check_bind(port,true);
 }
 
+static void test_state_allocation_failure() {
+    ScNetSessions application;
+    auto seed=new_vm(&application);
+    run(seed.get(),"h=assert(sc.net.host('127.0.0.1',0)); assert(h:persist('data')); local a={}; for i=1,16 do a[i]={label='item '..i} end; assert(h:state({items=a}))");
+    seed.reset();
+    unsigned failures=0,successes=0;
+    for(std::size_t threshold=0;threshold<96;++threshold) {
+        FailingAllocator allocator{false,threshold};
+        LuaVm vm{lua_newstate(failing_alloc,&allocator),lua_close};
+        CHECK(vm!=nullptr); register_api(vm.get(),&application);
+        run(vm.get(),"h=assert(sc.net.bind('data'))");
+        CHECK(luaL_loadstring(vm.get(),"local copy=h:state(); assert(#copy.items==16)")==LUA_OK);
+        allocator.armed=true;
+        auto result=lua_pcall(vm.get(),0,0,0);
+        allocator.armed=false;
+        CHECK(result==LUA_OK || result==LUA_ERRMEM);
+        if(result==LUA_ERRMEM) ++failures; else ++successes;
+        lua_settop(vm.get(),0);
+        run(vm.get(),"assert(h:state().items[16].label=='item 16')");
+    }
+    CHECK(failures>0 && successes>0);
+}
+
 int main(void) {
     test_application_sessions();
+    test_state_allocation_failure();
     test_arguments_and_limits();
     test_loopback();
     test_guard();

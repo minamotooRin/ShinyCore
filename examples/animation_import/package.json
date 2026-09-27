@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "scripts": [
+    "main.lua"
+  ],
+  "files": [
+    "README.md",
+    "AGENTS.md",
+    ".luarc.json",
+    "docs/api.lua",
+    "content/animation-hero.png",
+    "smoke.jsonl"
+  ]
+}

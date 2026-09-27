@@ -38,11 +38,14 @@ device input, including clipboard paste; the two options cannot be combined.
 Mouse positions are logical viewport coordinates and carry `inside` for black bars.
 `sc.input.boundaries(text)` returns grapheme byte boundaries, including the end.
 
-`require("shiny.ui")` supplies retained author-ID trees, rows/columns/grids,
+`require("shiny.ui")` supplies retained stable-ID trees, rows/columns/grids,
 focus, clipping, modal input boundaries, scrolling, virtual lists and text fields.
 Call `UI.layout` before the first draw, `UI.update` during fixed updates and
 `UI.draw` during drawing. `UI.set` marks layout dirty. Text layout is cached and
 long strings split into bounded native commands instead of disappearing.
+List rows can carry unique string IDs; replacing items through UI.set preserves the
+selected ID across filtering/sorting, or clears it if removed. Inspection exposes
+selected_item_id. See [list contracts](ui-lifecycle.md) for validation and events.
 Text fields support grapheme editing, selection, undo/redo, multiline input and
 clipboard shortcuts. `examples/text_input` is a native rendering fixture.
 
@@ -53,22 +56,60 @@ small and is not a general CJK font. Complex shaping, bidi and color Emoji are
 unsupported. Windows IME message integration exists; actual device/IME testing
 is still required. Linux/macOS composition is not implemented.
 
+`shiny.shell` supplies optional title/pause/settings UI. `Shell.finish(shell,
+message, {title=..., color=..., details=...})` pauses gameplay, focuses `play` and
+lays out the outcome screen during init/update. `details` is a short two-line
+summary; supplying it hides the checkpoint row to keep the panel within 384×216.
+Set the `play` text/callback before finishing. Omit the third argument for the
+simple completion screen. This helper neither saves nor restarts the game; those
+rules belong to the sample. It is included in Lua SDK `1.0.0-dev.2`.
+
 ## Batch simulation
 
-Configure bullets once in initialization with `sc.projectiles.configure(32768)`.
+Particles use [dedicated columns and stable compaction](particles.md), batch native
+drawing and atomic capacity failure. Bounded immutable emitter templates provide speed,
+lifetime and angle ranges plus size/RGBA curves; `shiny.particles` schedules fixed-update
+emission. Templates also support declared PNG regions, alpha and additive blending;
+contiguous batches preserve creation order across textures and blend modes.
+
+Configure bullets once in initialization with `sc.projectiles.configure()`.
+`project.limits.projectiles` defaults to 32768 (range 0..65536); zero disables the
+system. Configuration allocates the pool lazily and may request a smaller capacity,
+but cannot exceed the project budget. `stats()` returns limit, allocated capacity,
+used/available slots and sprite count. Exhaustion reports usage and requested count;
+the failed batch changes neither live bullets nor the next ID.
+Batch arguments use plain dense Lua arrays, including an empty array. Field values are
+strictly typed and metatables are rejected. Configuration also reserves native staging;
+spawn does not build a general state/JSON tree and is bounded by available pool slots,
+not the save-state byte limit. Lua result allocation finishes before the native commit,
+so an allocation failure cannot leave a partially spawned batch.
 `spawn(specs)` validates a batch of x/y, vx/vy, ax/ay, radius, life, mask, numeric
 RGBA color, terrain and piercing fields. `hits()` returns the previous completed
 step's hits ordered by projectile, distance fraction and target. `count()` and
-`clear()` inspect/reset the batch. Targets use authored AABBs; current terrain
-blocking uses ASCII cells. Atlas projectile rendering and general collision
-geometry remain outstanding.
+`clear()` inspect/reset the batch. Targets use authored AABBs. Terrain blocking
+includes ASCII cells and committed Tiled tile rectangles/convex polygons with
+circle sweeps, flips and offsets. A revision-cached grid avoids per-bullet full-map
+scans. One-way rectangles use one-pixel thickness and block bullets from either side.
+Atlas projectile rendering supports registered PNG regions and stable transparent order
+([contract](projectile-atlas.md)). Exact target body shapes and streamed terrain remain outstanding.
 
-`sc.navigation.path(sx,sy,gx,gy,budget)` returns status, visited count and points.
+`sc.navigation.path(sx,sy,gx,gy,budget)` returns a table with status, visited count
+and points in zero-based grid cells. Blocked endpoints return `unreachable`.
 `flow(gx,gy,budget,slot)` builds one shared field in slot 1..16 and returns handle,
-status, visited. `direction(flow,x,y)` samples it in world coordinates.
-`steer(flow,ids,speed)` validates all IDs before assigning batch velocities.
+status, visited. `direction(flow,x,y)` returns dx, dy and field status in world coordinates.
+Tile passability edits invalidate shared fields; `refresh(flow,budget)` resumes bounded
+BFS work. Stale/incomplete fields return zero directions. See [refresh contract](navigation-refresh.md).
+`steer(flow,ids,speed)` validates a plain dense batch of distinct live IDs before
+assigning velocities. Slot replacement produces a new generation-checked handle;
+refresh preserves it. Region/room changes invalidate existing handles.
 Rebuild a field after terrain changes. Incremental dirty-region maintenance is
 not yet implemented. Lua retains decision-making and behavior state machines.
+Finite Tiled tile collision rectangles and convex polygons now contribute a separate
+conservative navigation mask, including flips and pixel offsets. Geometry edits publish
+the mask atomically; unchanged passability retains valid shared fields. Body-radius
+clearance, finite object-layer collision navigation and local dirty-region updates
+remain outstanding. Streamed terrain can publish a local navigation region in the
+same transaction; unloaded cells are blocked by the streaming modules.
 
 ## Content building and streaming
 
@@ -90,13 +131,14 @@ concave object polygons. It is not yet wired into the full map drawing, collisio
 and persistent-object lifecycle; the direct runtime Tiled reader still has its
 older restricted format contract.
 
-Build with `SHINY_STREAMING=ON` to enable `sc.stream.open(index_path)` in init,
-`request(x,y)`, `get(x,y)`, `release(x,y)` and `stats()`. One background thread
-reads and decodes CPU data. `get` waits without advancing simulation; missing
-sparse chunks are empty. The charged cache budget is 128 MiB; pinned exhaustion
-is an error. Disk waits currently block the host and do **not** meet the requested
-33.3 ms streaming-frame guarantee. GPU/physics commit, loading barriers, state
-export/reload and delayed/out-of-order fault acceptance remain unfinished.
+Build with `SHINY_STREAMING=ON` to enable `sc.stream.open(index_path)` in init.
+`request(x,y,commit_frame)` prefetches for a planned simulation tick;
+`get(x,y)` returns committed data or nil without waiting. The host suspends
+simulation at an unready boundary while continuing native presentation/input.
+`release` balances pins and `stats` reports deterministic reservation/publication
+counters. Index format 3 includes exact chunk byte counts and stores objects in their owning chunks. See
+[streaming](streaming.md) for ordering, cancellation, limits and remaining
+GPU/physics/object integration. This is not the 33.3 ms map-load acceptance.
 
 ## Saves, audio and networking
 
@@ -118,7 +160,12 @@ uses centered black bars; smaller-than-logical windows use fractional fit.
 Native `--capture` exports the actual window framebuffer, including scaling and
 black bars, rather than resizing the internal render target.
 
-Save format 2 uses exact project data versions. `sc.save.write(slot)` creates an
+`sc.save.write_chunks(slot, changes)` adds atomic per-chunk explicit state;
+`read_chunk(slot, key)` reads a bounded record from the selected checkpoint.
+See [chunk saves](chunk-saves.md) for snapshot recovery, capacities and the
+current synchronous IO limitation.
+
+Save format 3 uses exact project data versions. `sc.save.write(slot)` creates an
 atomic record and preserves a previous valid `.bak`; damaged bytes never replace
 a good backup. `load` reconstructs the room; `read` returns data, `list` returns
 sorted slot metadata and `delete` removes main and backup. Writes/deletes require
@@ -135,8 +182,22 @@ With `SHINY_NETWORK=ON`, `session:persist(name)` transfers socket ownership to t
 application. A new room calls `sc.net.bind(name)`; collecting bindings does not
 close the socket. Explicit close invalidates all old bindings, even if the name
 is later reused. Candidate initialization can bind/read but cannot poll, flush,
-send, disconnect, close or create sockets. The four-player protocol, reconnect
-tokens and weak-network acceptance are not yet implemented.
+send, disconnect, close or create sockets. The host services named sessions even
+while simulation waits; fixed updates expose at most 64 of 256 buffered events.
+`session:stats()` reports queue and send budgets; overflow terminates the session
+with an explicit error. See [networking](networking.md). `sc.net.time()` samples
+application monotonic time at fixed updates; `shiny.rejoin` supplies bounded
+30-second player reservations and token validation across rooms. See
+[rejoining](rejoining.md). `sc.net.token()` issues 128 OS-random bits independently
+of gameplay RNG, bounded to 64 attempts per fixed update. The complete four-player
+protocol and weak-network reconnect acceptance remain unfinished.
+Named session `state()` stores explicit bounded protocol data separately from
+gameplay checkpoints; replacement is atomic and candidate initialization is read-only.
+
+`shiny.snapshot` provides bounded position snapshot interpolation with uint32
+sequence handling, explicit membership changes and no extrapolation. Its offline
+visual example is `examples/snapshot`; see [snapshot contract](snapshots.md).
+Server clock estimation and the four-player game protocol remain game-level work.
 
 ## Agent tooling
 
@@ -144,20 +205,32 @@ tokens and weak-network acceptance are not yet implemented.
 up to 64 bounded named values. `tools/compare_traces.py` reports the first differing
 frame/path with a float tolerance; it skips only top-level diagnostic hashes and
 engine version. `tools/scenario.py` checks authored snapshot assertions.
-`--profile` currently reports wall time including pacing; it is **not** the final
-CPU/GPU acceptance profiler. Interactive debugging is not implemented.
+`--profile` separates CPU phases from presentation/pacing, records asynchronous
+GPU samples, pool occupancy and process resident memory. `tools/profile_report.py`
+checks measured intervals, percentiles and explicit limits; see [profiling](profiling.md)
+for the format and remaining measurement gaps. Optional `--debug-stdio` supports
+frame/source stepping, breakpoints, stack/local-table pagination, watches and UI
+inspection without evaluating Lua expressions. See [debug protocol](debug-stdio.md)
+for limits, `--debug-load` startup stops and remaining native-panel acceptance gaps.
 
 `tools/new_game.py` copies `lib/shiny` and local LuaLS docs into each project.
-`tools/api_docs.py` generates supplemental declarations from native metadata;
-rich table annotations still contain hand-maintained definitions checked by
-contract tests. The complete field/default/phase metadata schema remains work.
+`--api.contract_version=1` includes native entity patch/read/batch-record field
+contracts and structured parameters, returns and phases for nine entity functions.
+Typed member tables drive scalar validation, defaults and reads. `tools/api_docs.py`
+generates those LuaLS definitions and [reference tables](api-reference.md); use a
+network/streaming-enabled binary and `--reference docs/api-reference.md --check`
+to detect stale documentation. Tests also check the four project-local SDK copies.
+Other rich types, optional/default arguments, structured error codes and the
+remaining function contracts still need conversion; absent/null contracts are not
+claims of complete coverage.
 
 ## Build and package inspection
 
 `CMakePresets.json` provides Ninja Release configure/build/test presets named
 `lightweight`, `full`, and `headless`. The full preset requests all modules;
-advanced rendering and interactive debugging are still unavailable and produce
-a configure warning. Always inspect `--api.modules` for actual capabilities.
+materials, normal maps, geometry shadows, postprocessing and interactive debugging
+are available when enabled. Complete advanced-render acceptance remains pending.
+Always inspect `--api.modules` and debugger ready capabilities for actual support.
 
 `tools/package.py` reads the executable's real API contract before copying and
 checks custom games using `--check-all`, including their required modules. Its

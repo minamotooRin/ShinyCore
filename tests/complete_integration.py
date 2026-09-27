@@ -59,9 +59,14 @@ end,draw=function() UI.draw(ui) end}
     state=json.loads(result.stdout)
     assert state['watches']['verified'] and state['projectile_hits']==1
 
+modules=json.loads(subprocess.check_output([str(binary),'--api'],encoding='utf-8'))['modules']
 for name in ('crossing','wayfarer','barrage'):
+    if name=='wayfarer' and not modules['streaming']:
+        print('wayfarer: requires streaming build; sample smoke not run')
+        continue
     project=root/'examples'/name
-    for arguments in (['--check-all'],['--headless','--frames','180','--replay',str(project/'smoke.jsonl')]):
-        result=subprocess.run([str(binary),str(project),*arguments],capture_output=True,text=True,encoding="utf-8",timeout=30)
-        if result.returncode: raise AssertionError(f'{name}: {result.stderr}')
-print('complete integration: batch atomicity, graphemes, modules, projectiles and sample smoke passed')
+    with tempfile.TemporaryDirectory(prefix='shiny-sample-saves-') as saves:
+        for arguments in (['--check-all'],['--headless','--frames','180','--replay',str(project/'smoke.jsonl'),'--save-dir',saves]):
+            result=subprocess.run([str(binary),str(project),*arguments],capture_output=True,text=True,encoding="utf-8",timeout=30)
+            if result.returncode: raise AssertionError(f'{name}: {result.stderr}')
+print('complete integration: batch atomicity, graphemes, modules, projectiles and available sample smoke passed')

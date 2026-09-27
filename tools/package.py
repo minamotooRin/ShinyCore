@@ -16,6 +16,11 @@ import subprocess
 import sys
 import zipfile
 
+from runtime_deps import audit as audit_runtimes, relocate as relocate_runtimes
+from runtime_deps import verify_relocated
+from package_content import closure as content_closure
+from sdk import audit as audit_sdk
+
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_NAME = "ShinyCore.app"
@@ -85,9 +90,9 @@ def preflight(binary: Path, destination: Path, make_zip: bool, with_network: boo
     return archive, metadata
 
 
-def write_report(destination: Path, binary: Path, metadata: dict) -> None:
+def write_report(destination: Path, binary: Path, metadata: dict, dependencies: dict, content: dict | None, sdk: dict | None) -> None:
     """Record shipped bytes, including a per-file inventory that can be audited after moving."""
-    sizes = dict.fromkeys(("engine", "resources", "standard_library", "game_code", "debug_symbols", "other"), 0)
+    sizes = dict.fromkeys(("engine", "runtime_libraries", "resources", "standard_library", "game_code", "debug_symbols", "other"), 0)
     files = []
     for path in sorted(destination.rglob("*")):
         if not path.is_file():
@@ -95,6 +100,8 @@ def write_report(destination: Path, binary: Path, metadata: dict) -> None:
         relative = path.relative_to(destination).as_posix()
         if path == binary:
             category = "engine"
+        elif path.parent == binary.parent and path.name in dependencies["runtime_files"]:
+            category = "runtime_libraries"
         elif "debug-symbols" in path.relative_to(destination).parts:
             category = "debug_symbols"
         elif "/lib/shiny/" in "/" + relative:
@@ -113,9 +120,12 @@ def write_report(destination: Path, binary: Path, metadata: dict) -> None:
     report = {"format": 1, "engine_version": metadata["version"],
               "capabilities": metadata["modules"], "platform": platform.system(), "machine": platform.machine(),
               "bytes": sizes, "total_bytes": sum(sizes.values()), "files": files,
+              "native_dependencies": dependencies,
+              "project_content": content or {"mode": "conservative copy"},
+              "lua_sdk": sdk,
               "notes": ["Totals exclude package-report.json and the ZIP container.",
                         "Debug-symbol bytes count supplied separate files; embedded symbols remain in engine bytes.",
-                        "Authored project files are copied conservatively; unused resources are not automatically removed."]}
+                        "Explicit project package.json selects content; without it authored files are copied conservatively."]}
     (destination / "package-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -138,8 +148,12 @@ def copy_resources(destination: Path, with_network: bool = False, custom: bool =
 
 
 def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
-            with_network: bool = False, project: Path | None = None, symbols: tuple[Path, ...] = ()) -> tuple[Path, Path | None]:
+            with_network: bool = False, project: Path | None = None, symbols: tuple[Path, ...] = (),
+            runtimes: tuple[tuple[Path,Path], ...] = ()) -> tuple[Path, Path | None]:
     archive, metadata = preflight(binary, destination, make_zip, with_network, project is not None)
+    dependencies = audit_runtimes(binary, runtimes)
+    content = content_closure(project) if project is not None else None
+    sdk = audit_sdk(project, metadata) if project is not None else None
     if len({path.name.casefold() for path in symbols}) != len(symbols):
         raise OSError("debug symbol filenames must be unique")
     for path in symbols:
@@ -190,7 +204,13 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
                 launch_hint = "Run ./run-lantern.sh to play."
         copy_resources(resources, with_network, project is not None)
         if project is not None:
-            shutil.copytree(project, resources / "game", ignore=shutil.ignore_patterns(".git", "build*", "__pycache__", ".cache", "saves", "*.pyc"))
+            if content is None:
+                shutil.copytree(project, resources / "game", ignore=shutil.ignore_patterns(".git", "build*", "__pycache__", ".cache", "saves", "*.pyc"))
+            else:
+                for item in content["files"]:
+                    target = resources / "game" / item["path"]
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(project / item["path"], target)
             if system == "Darwin":
                 executable(macos / "launch", MAC_LAUNCH.replace("examples/lantern", "game"))
                 (destination / "run-lantern.command").rename(destination / "run-game.command")
@@ -203,6 +223,16 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             launch_hint = "Launch the bundled game with " + ("ShinyCore.app" if system == "Darwin" else "run-game.bat" if system == "Windows" else "run-game.sh") + "."
         shutil.copy2(binary, copied_binary)
         executable(copied_binary)
+        bundled_runtimes = []
+        if runtimes:
+            runtime_licenses = resources / "licenses" / "runtime"
+            runtime_licenses.mkdir()
+            for library, notice in runtimes:
+                target = copied_binary.parent / library.name
+                license_target = runtime_licenses / (library.name + ".txt")
+                shutil.copy2(library, target)
+                shutil.copy2(notice, license_target)
+                bundled_runtimes.append((target, license_target))
         if symbols:
             (destination / "debug-symbols").mkdir()
             for path in symbols:
@@ -214,6 +244,16 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             if result.returncode:
                 detail = result.stderr.strip() or result.stdout.strip()
                 raise OSError(f"strip failed: {detail}; retry with --no-strip for this executable")
+        relocate_runtimes(copied_binary, dependencies)
+        dependencies = audit_runtimes(copied_binary, tuple(bundled_runtimes))
+        verify_relocated(dependencies)
+        dependencies['relocation_verified'] = True
+        if project is not None:
+            sdk = audit_sdk(resources / "game", metadata)
+            checked = subprocess.run([str(copied_binary), "--check-all", str(resources / "game")],
+                                     capture_output=True, text=True, encoding="utf-8", timeout=60)
+            if checked.returncode:
+                raise OSError("packaged game validation failed: " + checked.stderr)
         relative_binary = copied_binary.relative_to(destination).as_posix()
         if system != "Windows":
             relative_binary = "./" + relative_binary
@@ -236,11 +276,13 @@ Game source, assets, API documentation, and all dependency license notices are
 beside the examples directory at {resources.relative_to(destination).as_posix()}.
 The launchers work independently of the source checkout and working directory.
 '''
+        if system == "Windows":
+            readme += "\nWindows requirement: Windows 10 version 1903 or newer (process UTF-8 paths).\n"
         if with_network:
             duet = (resources / "examples" / "duet").relative_to(destination).as_posix()
             readme += f'\nNative multiplayer demo (open twice; Z hosts, X joins):\n  "{relative_binary}" "{duet}"\nSee docs/networking.md beside the bundled examples.\n'
         (destination / "README.txt").write_text(readme, encoding="utf-8")
-        write_report(destination, copied_binary, metadata)
+        write_report(destination, copied_binary, metadata, dependencies, content, sdk)
         if make_zip:
             with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED, compresslevel=9) as output:
                 archive_created = True
@@ -264,13 +306,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--with-network-examples", action="store_true", help="include DUET and network docs; requires a network-enabled executable")
     parser.add_argument("--project", type=Path, help="validate and bundle an authored game with its own launcher")
     parser.add_argument("--symbols", type=Path, action="append", default=[], help="include a separate symbol file (repeatable)")
+    parser.add_argument("--runtime", type=Path, nargs=2, action="append", default=[], metavar=("LIBRARY", "LICENSE"),
+                        help="bundle an explicit native runtime and its redistribution notice (repeatable)")
     args = parser.parse_args(argv)
     binary = Path(args.binary).expanduser().resolve()
     destination = Path(os.path.abspath(os.path.expanduser(args.destination)))
     try:
         copied_binary, archive = package(binary, destination, strip=not args.no_strip,
                                         make_zip=not args.no_zip, with_network=args.with_network_examples, project=args.project,
-                                        symbols=tuple(args.symbols))
+                                        symbols=tuple(args.symbols), runtimes=tuple(tuple(pair) for pair in args.runtime))
     except (OSError, zipfile.BadZipFile) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

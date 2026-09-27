@@ -150,12 +150,21 @@ struct ScPadInput {
     std::uint32_t buttons{},pressed{},released{};
     std::array<float,6> axes{};
 };
+// One-based UTF-8 insertion positions; finish is exclusive. Zero means unavailable.
+struct ScCompositionEdit { int cursor{},start{},finish{}; };
+inline constexpr std::string_view SC_COMPOSITION_KINDS[]={"input","target_converted","converted","target_unconverted","error","fixed"};
+struct ScCompositionSegment { std::uint16_t start{},finish{}; std::uint8_t kind{}; };
+inline constexpr std::size_t SC_COMPOSITION_SEGMENTS=128;
 struct ScDeviceInput {
     std::array<ScPadInput,4> pads{};
     float mouse_x{},mouse_y{},mouse_dx{},mouse_dy{},wheel_x{},wheel_y{};
     bool mouse_inside{};
     std::uint32_t mouse_buttons{},mouse_pressed{},mouse_released{};
     std::array<char,4096> text{},composition{},clipboard{};
+    ScCompositionEdit composition_edit{};
+    std::array<ScCompositionSegment,SC_COMPOSITION_SEGMENTS> composition_segments{};
+    std::size_t composition_segment_count{};
+    bool composition_segments_truncated{};
 
     std::bitset<512> keys{}, key_pressed{}, key_released{};
     bool connected{};
@@ -167,6 +176,7 @@ struct ScDeviceInput {
         for(auto& pad:pads) pad.pressed=pad.released=0;
     }
 };
+ScCompositionEdit sc_composition_edit(const ScDeviceInput&) noexcept;
 struct ScWorld;
 std::uint32_t sc_device_actions(const ScDeviceInput& input);
 float sc_gamepad_axis(const ScDeviceInput& input,int axis,float deadzone);

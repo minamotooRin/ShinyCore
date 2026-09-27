@@ -1,11 +1,16 @@
 #include "shiny/project.h"
 #include "shiny/text.h"
 #include "shiny/physics.h"
+#include "shiny/navigation.h"
+#ifdef SC_HAS_ADVANCED_RENDER
+#include "shiny/material.h"
+#endif
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+#include <numbers>
 #include <stdexcept>
 
 namespace {
@@ -94,6 +99,68 @@ std::string property(const ScValue& v,const std::string& name,std::string fallba
     }
     return fallback;
 }
+void object_terrain(std::vector<ScTerrainShape>& output,const ScValue& object) {
+    const auto collision=property(object,"collision","empty");
+    if(collision=="empty") return;
+    if(collision!="solid"&&collision!="one_way") throw std::runtime_error("unknown collision property: "+collision);
+    for(const auto* field:{"gid","polyline","text"})
+        if(object.get(field)) throw std::runtime_error("static object collision requires a rectangle or convex polygon");
+    for(const auto* field:{"ellipse","capsule","point"})
+        if(boolean(at(object,field))) throw std::runtime_error("static object collision requires a rectangle or convex polygon");
+    ScTerrainShape shape;
+    shape.one_way=collision=="one_way";
+    const double x=number(at(object,"x")),y=number(at(object,"y"));
+    double angle=number(at(object,"rotation"));
+    if(!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(angle)||
+       std::abs(x)>1000000||std::abs(y)>1000000||std::abs(angle)>1000000)
+        throw std::runtime_error("object collision transform outside range");
+    angle=std::remainder(angle,360.0);
+    const auto* polygon=object.get("polygon");
+    if(shape.one_way&&(polygon||angle!=0)) throw std::runtime_error("one_way object requires an unrotated rectangle");
+    std::array<double,16> points{};
+    int count=4;
+    if(polygon) {
+        const auto& vertices=array(*polygon);
+        if(vertices.size()<3||vertices.size()>8) throw std::runtime_error("object polygon requires 3..8 convex vertices; decompose concave geometry offline");
+        count=static_cast<int>(vertices.size());
+        for(size_t i=0;i<vertices.size();++i) {
+            points[2*i]=number(at(vertices[i],"x"));
+            points[2*i+1]=number(at(vertices[i],"y"));
+        }
+    } else {
+        const double width=number(at(object,"width")),height=number(at(object,"height"));
+        if(!std::isfinite(width)||!std::isfinite(height)||width<.16||height<.16||width>4096||height>4096)
+            throw std::runtime_error("object collision dimensions must be 0.16..4096");
+        points={0,0,width,0,width,height,0,height};
+    }
+    const double radians=angle*std::numbers::pi/180;
+    // Exact quarter turns must not block a neighboring cell through trig rounding.
+    const auto snap=[](double value) { return std::abs(value-std::round(value))<1e-12?std::round(value):value; };
+    const double c=snap(std::cos(radians)),s=snap(std::sin(radians));
+    double left=1000000,top=1000000,right=-1000000,bottom=-1000000;
+    for(size_t i=0;i<static_cast<size_t>(count);++i) {
+        const double px=points[2*i],py=points[2*i+1];
+        const double tx=x+c*px-s*py,ty=y+s*px+c*py;
+        if(!std::isfinite(tx)||!std::isfinite(ty)||std::abs(tx)>1000000||std::abs(ty)>1000000)
+            throw std::runtime_error("object collision vertex outside range");
+        points[2*i]=tx; points[2*i+1]=ty;
+        left=std::min(left,tx); top=std::min(top,ty); right=std::max(right,tx); bottom=std::max(bottom,ty);
+    }
+    if(right-left<.16||bottom-top<.16||right-left>4096||bottom-top>4096)
+        throw std::runtime_error("object collision bounds must be 0.16..4096");
+    shape.x=static_cast<float>(left); shape.y=static_cast<float>(top);
+    shape.w=static_cast<float>(right-left); shape.h=static_cast<float>(bottom-top);
+    if(polygon||angle!=0) {
+        shape.vertex_count=count;
+        for(size_t i=0;i<static_cast<size_t>(count);++i) {
+            shape.vertices[2*i]=static_cast<float>(points[2*i]-left);
+            shape.vertices[2*i+1]=static_cast<float>(points[2*i+1]-top);
+        }
+        if(!sc_physics_polygon_valid(shape.vertices.data(),count)) throw std::runtime_error("object collision must be a distinct convex polygon");
+    }
+    if(output.size()>=SC_MAX_TILES) throw std::runtime_error("terrain collider capacity exceeded");
+    output.push_back(shape);
+}
 void tileset(ScWorld* w,const ScValue& record,const std::string& root,const std::string& map_path) {
     int first=integer(at(record,"firstgid"),1,0x0fffffff);
     std::string path=map_path; ScValue set=record;
@@ -138,7 +205,7 @@ const ScTileGraphic* sc_tile_graphic(const ScWorld* w,std::uint32_t gid) {
     auto it=std::lower_bound(w->tile_graphics.begin(),w->tile_graphics.end(),gid,[](const ScTileGraphic& a,uint32_t b){ return a.gid<b; });
     return it!=w->tile_graphics.end()&&it->gid==gid?&*it:nullptr;
 }
-ScResult<void> sc_project_tiles(ScWorld* w) {
+ScResult<void> sc_project_tiles(ScWorld* w,ScNavigationRegion* region,bool local_update) {
     try {
         std::vector<ScTerrainShape> shapes;
         for(const auto& layer:w->layers) for(size_t i=0;i<layer.cells.size();++i) {
@@ -160,9 +227,30 @@ ScResult<void> sc_project_tiles(ScWorld* w) {
             }
             if(!shapes.empty()&&!s.vertex_count) {
                 auto& previous=shapes.back();
-                if(!previous.vertex_count&&previous.one_way==s.one_way&&previous.y==s.y&&previous.h==s.h&&previous.x+previous.w==s.x) { previous.w+=s.w; continue; }
+                const float chunk=32.f*w->map.tile_size;
+                if(!previous.vertex_count&&previous.one_way==s.one_way&&previous.y==s.y&&previous.h==s.h&&
+                   previous.x+previous.w==s.x&&std::floor(previous.x/chunk)==std::floor(s.x/chunk)) {
+                    previous.w+=s.w; continue;
+                }
             }
             shapes.push_back(s);
+        }
+        if(w->object_terrain.size()>SC_MAX_TILES-shapes.size()) return std::unexpected("terrain collider capacity exceeded");
+        shapes.insert(shapes.end(),w->object_terrain.begin(),w->object_terrain.end());
+        auto blocked=local_update?sc_navigation_patch(w->map,w->terrain_shapes,shapes).blocked:
+            sc_navigation_obstacles(w->map,shapes);
+        std::bitset<SC_MAX_TILES> region_blocked;
+        if(region) region_blocked=local_update?sc_navigation_patch(region->map,w->terrain_shapes,shapes,region->x,region->y).blocked:
+            sc_navigation_obstacles(region->map,shapes,region->x,region->y);
+        if((blocked!=w->map.navigation_blocked&&w->map.navigation_revision==UINT64_MAX)||
+           (region&&region_blocked!=region->map.navigation_blocked&&region->map.navigation_revision==UINT64_MAX))
+            return std::unexpected("navigation revision exhausted");
+        if(w->terrain_revision==UINT64_MAX) return std::unexpected("terrain revision exhausted");
+        if(blocked!=w->map.navigation_blocked) {
+            w->map.navigation_blocked=blocked; ++w->map.navigation_revision;
+        }
+        if(region&&region_blocked!=region->map.navigation_blocked) {
+            region->map.navigation_blocked=region_blocked; ++region->map.navigation_revision;
         }
         w->terrain_shapes=std::move(shapes); ++w->terrain_revision; return {};
     } catch(const std::exception& e) { return std::unexpected(e.what()); }
@@ -176,7 +264,7 @@ ScResult<ScValue> sc_project_map(ScWorld* w,const std::string& root,const std::s
         int tile=integer(at(map,"tilewidth"),1,256);
         if(integer(at(map,"tileheight"),1,256)!=tile) throw std::runtime_error("map cells must be square");
         w->map.width=width; w->map.height=height; w->map.tile_size=tile; w->map.tiles.fill('.');
-        w->layers.clear(); w->tile_graphics.clear();
+        w->layers.clear(); w->tile_graphics.clear(); w->object_terrain.clear();
         for(const auto& set:array(at(map,"tilesets"))) tileset(w,set,root,path);
         std::sort(w->tile_graphics.begin(),w->tile_graphics.end(),[](const auto& a,const auto& b){ return a.gid<b.gid; });
         for(size_t i=1;i<w->tile_graphics.size();++i) if(w->tile_graphics[i-1].gid==w->tile_graphics[i].gid) throw std::runtime_error("overlapping tileset GID ranges");
@@ -202,11 +290,26 @@ ScResult<ScValue> sc_project_map(ScWorld* w,const std::string& root,const std::s
                 }
                 w->layers.push_back(std::move(output));
             } else if(type=="objectgroup") {
-                if(number(at(layer,"offsetx"))!=0||number(at(layer,"offsety"))!=0) throw std::runtime_error("object layer offsets unsupported");
+                const double ox=number(at(layer,"offsetx")),oy=number(at(layer,"offsety"));
+                if(!std::isfinite(ox)||!std::isfinite(oy)||std::abs(ox)>1000000||std::abs(oy)>1000000)
+                    throw std::runtime_error("invalid object layer offset: "+name);
                 for(const auto& object:array(at(layer,"objects"))) {
                     if(object.get("template")) throw std::runtime_error("Tiled object templates unsupported");
                     if(objects.size()>=SC_MAX_TILES) throw std::runtime_error("map object capacity exceeded");
-                    objects.push_back(object);
+                    try {
+                        auto copy=object;
+                        auto* fields=std::get_if<ScValue::Object>(&copy.data);
+                        if(!fields) throw std::runtime_error("expected object");
+                        const double x=number(at(object,"x"))+ox,y=number(at(object,"y"))+oy;
+                        if(!std::isfinite(x)||!std::isfinite(y)||std::abs(x)>1000000||std::abs(y)>1000000)
+                            throw std::runtime_error("object position outside range");
+                        (*fields)["x"]=ScValue{x}; (*fields)["y"]=ScValue{y};
+                        object_terrain(w->object_terrain,copy);
+                        objects.push_back(std::move(copy));
+                    } catch(const std::exception& e) {
+                        throw std::runtime_error("layer "+name+", object "+sc_json_write(at(object,"id"))+
+                            " at ("+sc_json_write(at(object,"x"))+","+sc_json_write(at(object,"y"))+"): "+e.what());
+                    }
                 }
             } else throw std::runtime_error("unsupported layer type: "+type);
         }
@@ -225,15 +328,43 @@ ScResult<void> sc_project_resources(ScWorld* w,const ScValue& project,const std:
             if(!fields) throw std::runtime_error("resource declaration must be an object");
             for(const auto& [key,value]:*fields) {
                 (void)value;
-                if(key!="type"&&key!="path"&&key!="characters"&&key!="size") throw std::runtime_error("unknown resource field: "+key);
+                if(key!="type"&&key!="path"&&key!="characters"&&key!="size"&&key!="stream") throw std::runtime_error("unknown resource field: "+key);
             }
             ScResource r; r.name=name; r.type=at(v,"type").text(); r.path=relative("project.lua",at(v,"path").text());
-            if(r.type!="image"&&r.type!="sound"&&r.type!="music"&&r.type!="font") throw std::runtime_error("unknown resource type: "+r.type);
+            if(r.type!="image"&&r.type!="sound"&&r.type!="music"&&r.type!="font"&&r.type!="shader") throw std::runtime_error("unknown resource type: "+r.type);
+            if(const auto* field=v.get("stream")) {
+                const auto* enabled=std::get_if<bool>(&field->data);
+                if(!enabled||r.type!="image") throw std::runtime_error("resources."+name+".stream requires an image and a boolean");
+                r.streamed=*enabled;
+#ifndef SC_HAS_STREAMING
+                if(r.streamed) throw std::runtime_error("streamed images require SHINY_STREAMING=ON");
+#endif
+            }
+            if(r.type=="shader") {
+#ifdef SC_HAS_ADVANCED_RENDER
+                sc_shader_source(root,r.path);
+#else
+                throw std::runtime_error("shader resources require SHINY_ADVANCED_RENDER=ON");
+#endif
+            }
             if(!std::filesystem::is_regular_file(std::filesystem::path(root)/r.path)) throw std::runtime_error("resource missing: "+r.path);
             r.characters=at(v,"characters").text(); r.size=v.get("size")?integer(at(v,"size"),1,128):16;
             if(v.get("characters")&&!std::holds_alternative<std::string>(at(v,"characters").data)) throw std::runtime_error("font characters must be UTF-8 text");
             if(r.type!="font"&&(v.get("characters")||v.get("size"))) throw std::runtime_error("characters and size require a font resource");
             if(r.type=="font") { auto loaded=sc_font_load(r,root); if(!loaded) throw std::runtime_error(loaded.error()); }
+            if(r.type=="image") {
+                std::ifstream input(std::filesystem::path(root)/r.path,std::ios::binary);
+                unsigned char header[24]{}; input.read(reinterpret_cast<char*>(header),sizeof header);
+                if(input.gcount()>=8&&std::memcmp(header,"\x89PNG\r\n\x1a\n",8)==0) {
+                    auto word=[&](int i) { return (uint32_t(header[i])<<24)|(uint32_t(header[i+1])<<16)|(uint32_t(header[i+2])<<8)|header[i+3]; };
+                    if(input.gcount()!=24||word(8)!=13||std::memcmp(header+12,"IHDR",4)||word(16)==0||word(20)==0||word(16)>8192||word(20)>8192)
+                        throw std::runtime_error("invalid bounded PNG header: "+r.path);
+                    r.image_width=static_cast<int>(word(16)); r.image_height=static_cast<int>(word(20));
+                }
+                if(r.streamed&&!r.image_width) throw std::runtime_error("streamed image must be PNG: "+r.path);
+                for(const auto& old:w->resources) if(old.type=="image"&&old.path==r.path&&old.streamed!=r.streamed)
+                    throw std::runtime_error("image aliases must use the same stream setting: "+r.path);
+            }
             if(r.type=="sound"||r.type=="music") r.duration=audio_duration(root+"/"+r.path,r.type=="music");
             w->resources.push_back(std::move(r));
         }

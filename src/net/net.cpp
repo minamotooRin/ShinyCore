@@ -1,9 +1,11 @@
 #include "shiny/net.h"
+#include "../platform/net_token.h"
 
 #include <enet/enet.h>
 #include <algorithm>
 #include <climits>
 #include <cstdlib>
+#include <cstdio>
 #include <utility>
 
 namespace {
@@ -217,4 +219,71 @@ std::expected<int, std::string> ScNet::rtt(std::uint32_t id) const {
     const auto* peer = impl_->find_peer(id);
     if (!peer) return std::unexpected("peer is not connected");
     return static_cast<int>(std::min<enet_uint32>(peer->roundTripTime, INT_MAX));
+}
+
+void ScNetSessions::Entry::fail(const char* message) noexcept {
+    std::snprintf(fault.data(), fault.size(), "%s", message);
+    net.reset();
+    head=queued=readable=0;
+}
+
+void ScNetSessions::Entry::service() noexcept {
+    if (!net) return;
+    try {
+        for (std::size_t i=0; i<SC_NET_TICK_MESSAGES; ++i) {
+            auto event=net->poll();
+            if (!event) { fail(event.error().c_str()); return; }
+            if (!*event) return;
+            if (queued==events.size()) {
+                fail("application receive queue exhausted (256 events)");
+                return;
+            }
+            events[(head+queued)%events.size()]=**event;
+            ++queued;
+        }
+    } catch (...) { fail("application network service failed"); }
+}
+
+void ScNetSessions::Entry::begin_tick() noexcept {
+    readable=std::min(queued, SC_NET_TICK_MESSAGES);
+    sent_messages=sent_bytes=0;
+}
+
+std::expected<std::optional<ScNetEvent>, std::string> ScNetSessions::Entry::poll() {
+    if (fault[0]) return std::unexpected(fault.data());
+    if (!net) return std::unexpected("network session is closed");
+    if (!readable) return std::optional<ScNetEvent>{};
+    auto event=events[head];
+    head=(head+1)%events.size();
+    --queued; --readable;
+    return event;
+}
+
+std::expected<void, std::string> ScNetSessions::Entry::send(
+    std::uint32_t peer, ScNetChannel channel, std::span<const std::uint8_t> data) {
+    if (fault[0]) return std::unexpected(fault.data());
+    if (!net) return std::unexpected("network session is closed");
+    if (sent_messages==SC_NET_TICK_MESSAGES || data.size()>SC_NET_TICK_BYTES-sent_bytes)
+        return std::unexpected("application send budget exhausted for this tick");
+    auto result=net->send(peer, channel, data);
+    if (result) { ++sent_messages; sent_bytes+=data.size(); }
+    return result;
+}
+
+void ScNetSessions::service() noexcept {
+    for (auto& [name,entry]:entries) entry.service();
+}
+void ScNetSessions::begin_tick() noexcept {
+    token_attempts_=0;
+    time_=std::chrono::duration<double>(std::chrono::steady_clock::now()-started_).count();
+    for (auto& [name,entry]:entries) entry.begin_tick();
+}
+
+ScNetSessions::ScNetSessions(TokenSource source) noexcept
+    : token_source_(source?source:sc_platform_net_token) {}
+
+ScResult<ScNetToken> ScNetSessions::token() {
+    if(token_attempts_==SC_NET_TICK_TOKENS) return std::unexpected("token budget exhausted for this tick (64 attempts)");
+    ++token_attempts_;
+    return token_source_();
 }

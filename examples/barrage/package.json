@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "scripts": [
+    "main.lua"
+  ],
+  "files": [
+    "README.md",
+    "AGENTS.md",
+    ".luarc.json",
+    "docs/api.lua",
+    "smoke.jsonl",
+    "challenge.jsonl",
+    "gamepad.jsonl",
+    "assets/chime.wav",
+    "assets/keeper.png",
+    "assets/arena-v1.png",
+    "assets/arena-prompt.txt",
+    "assets/README.md",
+    "assets/theme.ogg",
+    "assets/wisp.png",
+    "scenario.json",
+    "failure.jsonl",
+    "assets/audio/shot.wav",
+    "assets/audio/hit.wav",
+    "assets/audio/break.wav",
+    "assets/audio/dash.wav",
+    "assets/audio/hurt.wav",
+    "assets/audio/heal.wav",
+    "assets/audio/wave.wav",
+    "assets/audio/win.wav",
+    "assets/audio/lose.wav"
+  ]
+}

@@ -1,6 +1,7 @@
 #include "shiny/net_lua.h"
 #include "script_api.h"
 #include "shiny/net.h"
+#include "shiny/script_data.h"
 
 extern "C" {
 #include <lauxlib.h>
@@ -23,15 +24,19 @@ struct NetSession {
     char name[64]{};
     std::uint64_t generation{};
 
-    ScNet* get() const noexcept {
-        if(owned) return owned.get();
+    ScNetSessions::Entry* entry() const noexcept {
         if(!*name||!context->application) return nullptr;
         auto found=context->application->entries.find(name);
-        return found!=context->application->entries.end()&&found->second.generation==generation?found->second.net.get():nullptr;
+        return found!=context->application->entries.end()&&found->second.generation==generation?&found->second:nullptr;
+    }
+    ScNet* get() const noexcept {
+        if(owned) return owned.get();
+        auto* binding=entry();
+        return binding?binding->net.get():nullptr;
     }
     void close(bool explicit_close=false) noexcept {
         if(owned) { owned.reset(); --context->live; }
-        if(explicit_close&&*name&&get()) context->application->entries.erase(name);
+        if(explicit_close&&entry()) context->application->entries.erase(name);
         name[0]=0;
     }
     ~NetSession() { close(); }
@@ -164,12 +169,13 @@ static int session_poll(lua_State *L) {
     arg_count(L, 1, 1);
     require_mutable(L);
     NetSession *session = session_at(L);
-    if (!session->get()) return failure(L, "network session is closed");
+    auto* binding=session->entry();
+    if (!binding && !session->get()) return failure(L, "network session is closed");
     ScNetEvent event{};
     static_assert(std::is_trivially_destructible_v<ScNetEvent>);
     bool status = false;
     char error[SC_NET_ERROR_MAX]{};
-    bool success = native_call(error, [&] { return session->get()->poll(); },
+    bool success = native_call(error, [&] { return binding?binding->poll():session->get()->poll(); },
         [&](auto &result) { if (*result) { event = **result; status = true; } });
     if (!success) return failure(L, error);
     if (!status) { lua_pushnil(L); return 1; }
@@ -209,11 +215,12 @@ static int session_send(lua_State *L) {
         else if (length != 8 || memcmp(name, "reliable", 8) != 0)
             return luaL_argerror(L, 4, "expected 'reliable' or 'state'");
     }
-    if (!session->get()) return failure(L, "network session is closed");
+    auto* binding=session->entry();
+    if (!binding && !session->get()) return failure(L, "network session is closed");
     char error[SC_NET_ERROR_MAX]{};
     if (!native_call(error, [&] {
-            return session->get()->send(peer, channel,
-                std::span{reinterpret_cast<const std::uint8_t *>(data), size});
+            auto bytes=std::span{reinterpret_cast<const std::uint8_t *>(data), size};
+            return binding?binding->send(peer,channel,bytes):session->get()->send(peer,channel,bytes);
         })) return failure(L, error);
     lua_pushboolean(L, true);
     return 1;
@@ -266,9 +273,51 @@ static int session_rtt(lua_State *L) {
 }
 
 static const char* session_name(lua_State* L,int index) {
-    size_t size=0; const char* name=luaL_checklstring(L,index,&size);
+    if(lua_type(L,index)!=LUA_TSTRING) luaL_argerror(L,index,"expected session name string");
+    size_t size=0; const char* name=lua_tolstring(L,index,&size);
     if(size==0||size>=64||std::memchr(name,0,size)) luaL_argerror(L,index,"session name requires 1..63 bytes");
     return name;
+}
+static int session_stats(lua_State* L) {
+    arg_count(L,1,1);
+    auto* entry=session_at(L)->entry();
+    if(!entry) return failure(L,"stats requires a live named application session");
+    lua_createtable(L,0,11);
+    const auto field=[&](const char* name,std::size_t value) {
+        lua_pushinteger(L,static_cast<lua_Integer>(value)); lua_setfield(L,-2,name);
+    };
+    field("queued",entry->queued); field("readable",entry->readable);
+    field("receive_capacity",SC_NET_RECEIVE_CAPACITY);
+    field("service_budget",SC_NET_TICK_MESSAGES);
+    field("receive_tick_budget",SC_NET_TICK_MESSAGES);
+    field("send_remaining",SC_NET_TICK_MESSAGES-entry->sent_messages);
+    field("send_bytes_remaining",SC_NET_TICK_BYTES-entry->sent_bytes);
+    field("state_bytes",entry->state_bytes); field("state_capacity",SC_NET_STATE_BYTES);
+    lua_pushboolean(L,entry->net!=nullptr); lua_setfield(L,-2,"open");
+    if(entry->fault[0]) { lua_pushstring(L,entry->fault.data()); lua_setfield(L,-2,"error"); }
+    return 1;
+}
+static int session_state(lua_State* L) {
+    arg_count(L,1,2);
+    const bool writing=lua_gettop(L)==2;
+    if(writing) require_mutable(L);
+    auto* entry=session_at(L)->entry();
+    if(!entry) return failure(L,"state requires a live named application session");
+    if(!writing) { sc_lua_push(L,entry->state); return 1; }
+    char error[SC_NET_ERROR_MAX]{};
+    if(!native_call(error,[&]() -> std::expected<void,std::string> {
+        if(lua_isnil(L,2)) { entry->state=ScValue{}; entry->state_bytes=0; return {}; }
+        auto value=sc_lua_read(L,2);
+        if(!value) return std::unexpected(value.error());
+        auto checked=sc_state_validate(*value);
+        if(!checked) return std::unexpected(checked.error());
+        auto bytes=sc_json_write(*checked).size();
+        if(bytes>SC_NET_STATE_BYTES) return std::unexpected("session state exceeds 64 KiB");
+        entry->state=std::move(*checked);
+        entry->state_bytes=bytes;
+        return {};
+    })) return failure(L,error);
+    lua_pushboolean(L,true); return 1;
 }
 static int session_persist(lua_State* L) {
     arg_count(L,2,2); require_mutable(L);
@@ -278,6 +327,7 @@ static int session_persist(lua_State* L) {
     if(!session->owned) return failure(L,"only a live local session can be persisted");
     if(application->entries.size()>=SC_NET_LUA_MAX_SESSIONS) return failure(L,"application session capacity exhausted");
     if(application->entries.contains(name)) return failure(L,"session name already bound");
+    if(application->next_generation==UINT64_MAX) return failure(L,"application session generations exhausted");
     {
         // Allocate the entry before transferring ownership; exceptions preserve the socket.
         auto [entry,inserted]=application->entries.try_emplace(name);
@@ -303,34 +353,84 @@ static int net_bind(lua_State* L) {
     return 1;
 }
 
-struct NetEntry {
-    const char *name;
-    lua_CFunction function;
-    const char *signature, *description;
-};
+static int net_time(lua_State* L) {
+    arg_count(L,0,0);
+    auto* context=static_cast<NetContext*>(lua_touserdata(L,lua_upvalueindex(1)));
+    if(!context->application) return failure(L,"application network clock unavailable in this host");
+    lua_pushnumber(L,context->application->time());
+    return 1;
+}
+static int net_token(lua_State* L) {
+    arg_count(L,0,0); require_mutable(L);
+    auto* context=static_cast<NetContext*>(lua_touserdata(L,lua_upvalueindex(1)));
+    if(!context->application) return failure(L,"application token service unavailable in this host");
+    ScNetToken token{};
+    char error[SC_NET_ERROR_MAX]{};
+    if(!native_call(error,[&] { return context->application->token(); },
+                         [&](auto& result) { token=*result; })) return failure(L,error);
+    lua_pushlstring(L,token.data(),32); return 1;
+}
 
-static const NetEntry constructors[] = {
-    {"bind",sc_lua_guard<net_bind>,"sc.net.bind(name) -> session|nil,error","Borrow an application session by name, including during candidate initialization."},
-    {"host", sc_lua_guard<net_host>, "sc.net.host(bind_ipv4, port[, max_peers=8]) -> session|nil, error", "Bind numeric IPv4; port 0 selects a free port. Maximum 4 live sessions per VM and 32 peers per host; forbidden in draw."},
-    {"join", sc_lua_guard<net_join>, "sc.net.join(ipv4, port) -> session|nil, error", "Start an asynchronous IPv4 connection; poll both endpoints until connect. Forbidden in draw."},
+const ScValue peers_default{8.0}, reason_default{0.0}, channel_default{std::string("reliable")};
+constexpr ScLuaParameter name_parameters[]={{"name","string",true,"Exact string, 1..63 bytes without NUL. Case-sensitive application-local name."}};
+const ScLuaParameter host_parameters[]={
+    {"bind_ipv4","string",true,"Numeric dotted IPv4 only; 0.0.0.0 binds all interfaces, 127.0.0.1 loopback."},
+    {"port","integer",true,"Local port; zero asks the OS for a free port.",nullptr,0,65535},
+    {"max_peers","integer|nil",false,"Omitted/nil uses 8.",&peers_default,1,SC_NET_MAX_PEERS}};
+constexpr ScLuaParameter join_parameters[]={
+    {"ipv4","string",true,"Numeric dotted IPv4 only; no DNS."},
+    {"port","integer",true,"Remote port.",nullptr,1,65535}};
+constexpr ScLuaParameter peer_parameters[]={{"peer","integer",true,"Live endpoint-local peer ID, not an entity handle.",nullptr,1,UINT32_MAX}};
+const ScLuaParameter send_parameters[]={
+    {"peer","integer",true,"Zero broadcasts to established peers; fails when none exist.",nullptr,0,UINT32_MAX},
+    {"data","string",true,"Binary string, 0..1200 bytes including NUL; never a Lua table."},
+    {"channel","ScNetChannel|nil",false,"Omitted/nil uses reliable. State is unreliable sequenced on a separate channel.",&channel_default}};
+const ScLuaParameter disconnect_parameters[]={
+    peer_parameters[0],{"reason","integer|nil",false,"Omitted/nil uses zero.",&reason_default,0,UINT32_MAX}};
+constexpr ScLuaParameter state_parameters[]={{"value","table<string,ScData>|nil",false,"Omitted reads a copy; explicit nil clears; a plain object atomically replaces protocol state."}};
+constexpr const char* network_mutation="Network side effects require load/init/update outside check mode and candidate initialization; forbidden in draw/ui_update";
+constexpr ScLuaContract token_contract{{},"string|nil",ScLuaPhases::mutate,"64 OS-random token attempts per application fixed update; each success is 32 lowercase hex characters","string|nil","network"};
+constexpr ScLuaContract time_contract{{},"number|nil",ScLuaPhases::read,nullptr,"string|nil","network"};
+constexpr ScLuaContract bind_contract{name_parameters,"ScNetSession|nil",ScLuaPhases::read,"Borrowed bindings do not consume additional session slots","string|nil","network"};
+const ScLuaContract host_contract{host_parameters,"ScNetSession|nil",ScLuaPhases::mutate,"4 combined live local/named sessions per VM context; host peers 1..32","string|nil","network"};
+constexpr ScLuaContract join_contract{join_parameters,"ScNetSession|nil",ScLuaPhases::mutate,"4 combined live local/named sessions per VM context","string|nil","network"};
+constexpr ScLuaContract state_contract{state_parameters,"table<string,ScData>|boolean|nil",ScLuaPhases::read,"Named sessions only; 64 KiB JSON, depth 16; excluded from checkpoints/automatic trace","string|nil","network","value",ScLuaPhases::mutate,{},ScLuaMutationWhen::present};
+constexpr ScLuaContract stats_contract{{},"ScNetStats|nil",ScLuaPhases::read,"Named sessions only; terminal entries remain inspectable until explicit close","string|nil","network"};
+constexpr ScLuaContract persist_contract{name_parameters,"boolean|nil",ScLuaPhases::mutate,"At most 4 named sessions; duplicate names fail without transferring socket ownership","string|nil","network"};
+constexpr ScLuaContract poll_contract{{},"ScNetEvent|nil",ScLuaPhases::mutate,"Named receive FIFO 256; at most 64 readable events per fixed update. Nil alone means empty; nil,error means failure","string|nil","network"};
+const ScLuaContract send_contract{send_parameters,"boolean|nil",ScLuaPhases::mutate,"Named session: 64 successful sends / 65536 bytes per tick; broadcast charges one payload. Transport: 256 queued commands per peer","string|nil","network"};
+constexpr ScLuaContract flush_contract{{},"boolean|nil",ScLuaPhases::mutate,network_mutation,"string|nil","network"};
+const ScLuaContract disconnect_contract{disconnect_parameters,"boolean|nil",ScLuaPhases::mutate,network_mutation,"string|nil","network"};
+constexpr ScLuaContract close_contract{{},nullptr,ScLuaPhases::mutate,network_mutation,nullptr,"network"};
+constexpr ScLuaContract port_contract{{},"integer|nil",ScLuaPhases::read,"Local bound UDP port, 1..65535","string|nil","network"};
+constexpr ScLuaContract rtt_contract{peer_parameters,"integer|nil",ScLuaPhases::read,"Nonnegative round-trip estimate in milliseconds","string|nil","network"};
+
+static const ScLuaApi constructors[] = {
+    {"token",sc_lua_guard<net_token>,"sc.net.token() -> token|nil,error","Issue 128 OS-random bits as 32 lowercase hex characters; 64 attempts per application fixed update. Independent of gameplay RNG. Forbidden in draw/ui_update, check mode and candidate initialization.",&token_contract},
+    {"time",sc_lua_guard<net_time>,"sc.net.time() -> seconds|nil,error","Read monotonic application seconds sampled at the last fixed-update boundary; room changes do not reset it. Not replay time.",&time_contract},
+    {"bind",sc_lua_guard<net_bind>,"sc.net.bind(name) -> session|nil,error","Borrow an application session by name, including during candidate initialization.",&bind_contract},
+    {"host", sc_lua_guard<net_host>, "sc.net.host(bind_ipv4, port[, max_peers=8]) -> session|nil, error", "Bind numeric IPv4; port 0 selects a free port. Maximum 4 combined local/named sessions per VM context and 32 peers per host; forbidden in draw/ui_update, check mode and candidate initialization.",&host_contract},
+    {"join", sc_lua_guard<net_join>, "sc.net.join(ipv4, port) -> session|nil, error", "Start an asynchronous IPv4 connection; poll both endpoints until connect. Forbidden in draw/ui_update, check mode and candidate initialization.",&join_contract},
     {NULL, NULL, NULL, NULL}
 };
 
-static const NetEntry methods[] = {
-    {"persist",sc_lua_guard<session_persist>,"session:persist(name) -> true|nil,error","Transfer socket ownership to the application; room teardown no longer closes it."},
-    {"poll", sc_lua_guard<session_poll>, "session:poll() -> event|nil, error", "Service networking without waiting; event type is connect, receive or disconnect, with local peer ID. Forbidden in draw."},
-    {"send", sc_lua_guard<session_send>, "session:send(peer, data[, channel='reliable']) -> true|nil, error", "Queue 0..1200 binary bytes; reliable is ordered, state is unreliable sequenced. Peer 0 broadcasts; forbidden in draw."},
-    {"flush", sc_lua_guard<session_flush>, "session:flush() -> true|nil, error", "Send queued outgoing packets without waiting; forbidden in draw."},
-    {"disconnect", sc_lua_guard<session_disconnect>, "session:disconnect(peer[, reason=0]) -> true|nil, error", "Begin graceful disconnect; keep polling for disconnect. Forbidden in draw."},
-    {"close", sc_lua_guard<session_close>, "session:close()", "Immediately release the socket and pending packets; idempotent. Local sessions also close on collection; named sessions survive VM close. Forbidden in draw."},
-    {"port", sc_lua_guard<session_port>, "session:port() -> integer|nil, error", "Read the local UDP port; a closed session returns nil and an error."},
-    {"rtt", sc_lua_guard<session_rtt>, "session:rtt(peer) -> integer|nil, error", "Read round-trip milliseconds for a connected local peer ID."},
+static const ScLuaApi methods[] = {
+    {"state",sc_lua_guard<session_state>,"session:state([object_or_nil]) -> object|true|nil,error","Read a copy or atomically replace named session protocol state (64 KiB JSON, depth 16). Nil clears it; excluded from saves and automatic trace. Writes forbidden in draw/ui_update, check mode and candidate initialization.",&state_contract},
+    {"stats",sc_lua_guard<session_stats>,"session:stats() -> stats|nil,error","Read named application session queue, remaining tick budgets and terminal error; unavailable on local sessions.",&stats_contract},
+    {"persist",sc_lua_guard<session_persist>,"session:persist(name) -> true|nil,error","Transfer socket ownership to the application; room teardown no longer closes it. Mutating operation; forbidden in draw/ui_update, check mode and candidate initialization.",&persist_contract},
+    {"poll", sc_lua_guard<session_poll>, "session:poll() -> event|nil, error", "Read one event without waiting. Named sessions expose at most 64 queued events per fixed update; local sessions service transport directly. Forbidden in draw/ui_update, check mode and candidate initialization.",&poll_contract},
+    {"send", sc_lua_guard<session_send>, "session:send(peer, data[, channel='reliable']) -> true|nil, error", "Queue 0..1200 binary bytes; reliable is ordered, state is unreliable sequenced. Peer 0 broadcasts; forbidden in draw/ui_update, check mode and candidate initialization.",&send_contract},
+    {"flush", sc_lua_guard<session_flush>, "session:flush() -> true|nil, error", "Send queued outgoing packets without waiting; forbidden in draw/ui_update, check mode and candidate initialization.",&flush_contract},
+    {"disconnect", sc_lua_guard<session_disconnect>, "session:disconnect(peer[, reason=0]) -> true|nil, error", "Begin graceful disconnect; keep polling for disconnect. Forbidden in draw/ui_update, check mode and candidate initialization.",&disconnect_contract},
+    {"close", sc_lua_guard<session_close>, "session:close()", "Immediately release the socket and pending packets; idempotent. Local sessions also close on collection; named sessions survive VM close. Forbidden in draw/ui_update, check mode and candidate initialization.",&close_contract},
+    {"port", sc_lua_guard<session_port>, "session:port() -> integer|nil, error", "Read the local UDP port; a closed session returns nil and an error.",&port_contract},
+    {"rtt", sc_lua_guard<session_rtt>, "session:rtt(peer) -> integer|nil, error", "Read round-trip milliseconds for a connected local peer ID.",&rtt_contract},
     {NULL, NULL, NULL, NULL}
 };
 
-static void add_functions(lua_State *L, const NetEntry *entries, int context,
+static void add_functions(lua_State *L, const ScLuaApi *entries, int context,
                           lua_CFunction guard) {
-    for (const NetEntry *entry = entries; entry->name; ++entry) {
+    for (const ScLuaApi *entry = entries; entry->name; ++entry) {
         lua_pushvalue(L, context);
         if (guard) lua_pushcfunction(L, guard); else lua_pushnil(L);
         lua_pushcclosure(L, entry->function, 2);
@@ -370,10 +470,41 @@ void sc_net_lua_register(lua_State *L, lua_CFunction guard,ScNetSessions* applic
 }
 
 void sc_net_lua_describe(void) {
-    const NetEntry *groups[] = {constructors, methods};
-    const char *prefixes[] = {"sc.net.", "ScNetSession:"};
-    for (size_t group = 0; group < 2; ++group)
-        for (const NetEntry *entry = groups[group]; entry->name; ++entry)
-            printf(",{\"name\":\"%s%s\",\"signature\":\"%s\",\"description\":\"%s\"}",
-                   prefixes[group], entry->name, entry->signature, entry->description);
+    sc_api_describe(constructors,"sc.net."); sc_api_describe(methods,"ScNetSession:");
+}
+ScValue sc_net_lua_contracts() {
+    using V=ScValue; V::Array events,stats;
+    auto field=[](const char* name,const char* type,bool required,const char* description) {
+        return V::Object{{"name",V{std::string(name)}},{"type",V{std::string(type)}},
+            {"required",V{required}},{"readonly",V{true}},{"description",V{std::string(description)}}};
+    };
+    events.emplace_back(field("type","'connect'|'receive'|'disconnect'",true,"Event discriminator; no uniform ordering across channels."));
+    auto peer=field("peer","integer",true,"Endpoint-local connection ID. Failed connection attempts may disconnect with peer zero.");
+    peer.emplace("minimum",V{0.0});peer.emplace("maximum",V{double(UINT32_MAX)});events.emplace_back(std::move(peer));
+    auto data=field("data","string",false,"Receive only; binary-safe, including NUL.");
+    data.emplace("maximum_bytes",V{double(SC_NET_MAX_PAYLOAD)});events.emplace_back(std::move(data));
+    events.emplace_back(field("channel","ScNetChannel",false,"Receive only."));
+    auto reason=field("reason","integer",false,"Disconnect only; application reason or zero for transport loss.");
+    reason.emplace("minimum",V{0.0});reason.emplace("maximum",V{double(UINT32_MAX)});events.emplace_back(std::move(reason));
+    auto number=[&](const char* name,double minimum,double maximum,const char* description) {
+        auto out=field(name,"integer",true,description);
+        out.emplace("minimum",V{minimum});out.emplace("maximum",V{maximum});stats.emplace_back(std::move(out));
+    };
+    number("queued",0,SC_NET_RECEIVE_CAPACITY,"Buffered events, including the readable prefix.");
+    number("readable",0,SC_NET_TICK_MESSAGES,"Events remaining in the current fixed-update batch.");
+    number("receive_capacity",SC_NET_RECEIVE_CAPACITY,SC_NET_RECEIVE_CAPACITY,"Allocated FIFO event capacity.");
+    number("service_budget",SC_NET_TICK_MESSAGES,SC_NET_TICK_MESSAGES,"Maximum transport events read per host service iteration.");
+    number("receive_tick_budget",SC_NET_TICK_MESSAGES,SC_NET_TICK_MESSAGES,"Maximum events published per fixed update.");
+    number("send_remaining",0,SC_NET_TICK_MESSAGES,"Successful sends remaining this tick; failed calls do not consume budget.");
+    number("send_bytes_remaining",0,SC_NET_TICK_BYTES,"Application payload bytes remaining this tick.");
+    number("state_bytes",0,SC_NET_STATE_BYTES,"Serialized protocol object size; zero when cleared.");
+    number("state_capacity",SC_NET_STATE_BYTES,SC_NET_STATE_BYTES,"Protocol-state JSON byte limit.");
+    stats.emplace_back(field("open","boolean",true,"False for a retained terminal entry; stats/state remain readable until close."));
+    stats.emplace_back(field("error","string",false,"Terminal queue/transport diagnostic, omitted when healthy."));
+    V::Object types;
+    types.emplace("ScNetEvent",V::Object{{"fields",V{std::move(events)}},{"constraints",V{V::Array{
+        V{std::string("Connect: type/peer. Receive: type/peer/data/channel. Disconnect: type/peer/reason.")}}}}});
+    types.emplace("ScNetStats",V::Object{{"fields",V{std::move(stats)}},{"constraints",V{V::Array{
+        V{std::string("Copied snapshot for named sessions only; queued/readable are cleared on terminal failure. Binding generation prevents same-name replacements reviving old handles.")}}}}});
+    return V{std::move(types)};
 }

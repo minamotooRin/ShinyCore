@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "scripts": [
+    "title.lua",
+    "main.lua"
+  ],
+  "files": [
+    "README.md",
+    "AGENTS.md",
+    ".luarc.json",
+    "docs/api.lua",
+    "smoke.jsonl",
+    "journal.jsonl",
+    "travel.jsonl",
+    "walkthrough.jsonl",
+    "assets/chime.wav",
+    "assets/FONT.md",
+    "assets/keeper.png",
+    "assets/OFL.txt",
+    "assets/README.md",
+    "assets/SourceHanSansSC-Regular.otf",
+    "assets/theme.ogg",
+    "assets/tiles.png",
+    "assets/wisp.png",
+    "scenario.json",
+    "gamepad.jsonl",
+    "controller-journal.jsonl",
+    "assets/landmarks-v1.png"
+  ],
+  "stream_maps": [
+    "maps/world/index.json"
+  ]
+}

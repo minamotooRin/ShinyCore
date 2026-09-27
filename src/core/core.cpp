@@ -1,11 +1,16 @@
 #include "shiny/core.h"
 #include "shiny/physics.h"
 #include "shiny/projectiles.h"
+#include "shiny/profile.h"
+#include "shiny/identity.h"
+#include "shiny/attachment.h"
+#include "../profile_clock.h"
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <numbers>
 #include <optional>
@@ -44,16 +49,27 @@ void sc_world_init(ScWorld *world, std::uint32_t seed) {
     if (seed) world->rng = seed;
 }
 
-ScEntityId sc_spawn(ScWorld *world, const ScEntity *entity) {
-    if (!world || !entity_valid(entity) || !sc_physics_body_valid(*entity)) return 0;
+ScEntityId sc_spawn(ScWorld *world, const ScEntity *entity,const char** error) {
+    auto fail=[&](const char* reason)->ScEntityId { if(error) *error=reason; return 0; };
+    if(error) *error=nullptr;
+    if (!world || !entity_valid(entity) || !sc_physics_body_valid(*entity)) return fail("invalid entity geometry");
+    const auto* end=static_cast<const char*>(std::memchr(entity->persistent_id,0,sizeof entity->persistent_id));
+    if(!end) return fail("persistent_id is too long");
+    std::string_view persistent_id(entity->persistent_id,static_cast<std::size_t>(end-entity->persistent_id));
+    if(!persistent_id.empty() && !sc_identity_name_valid(persistent_id)) return fail("invalid persistent_id");
     for (std::size_t i = 0; i < world->entities.size(); ++i) {
         if (world->entities[i].alive) continue;
         /* Copy first: callers may pass an entity in this world's own pool. */
         ScEntity copy = *entity;
+        copy.parent=0; copy.local_pose={}; // A new handle never inherits runtime relationships.
         std::uint32_t generation = world->generations[i] & SC_GENERATION_MASK;
         if (!generation) continue; // Exhausted slots never resurrect stale handles.
-        world->generations[i] = generation;
         copy.id = (ScEntityId{world->epoch} << 32) | (ScEntityId{generation} << 16) | i;
+        if(!persistent_id.empty()) {
+            if(!world->identities) return fail("persistent object registry is disabled");
+            if(auto result=world->identities->bind(persistent_id,copy.id);!result) return fail(result.error());
+        }
+        world->generations[i] = generation;
         copy.alive = true;
         copy.grounded = false;
         copy.tag[sizeof(copy.tag) - 1] = '\0';
@@ -61,7 +77,51 @@ ScEntityId sc_spawn(ScWorld *world, const ScEntity *entity) {
         world->entities[i] = copy;
         return copy.id;
     }
-    return 0;
+    return fail("entity capacity exhausted");
+}
+
+std::expected<void,const char*> sc_spawn_preflight(const ScWorld& world,std::span<const ScEntity> drafts) {
+    if(drafts.empty()) return {};
+    const std::less<const ScEntity*> before;
+    if(!world.entities.empty()&&before(drafts.data(),world.entities.data()+world.entities.size())&&
+       before(world.entities.data(),drafts.data()+drafts.size()))
+        return std::unexpected("spawn drafts must not alias world entities");
+    std::size_t available=0,new_names=0;
+    for(std::size_t i=0;i<world.entities.size();++i)
+        if(!world.entities[i].alive&&(world.generations[i]&SC_GENERATION_MASK)) ++available;
+    if(drafts.size()>available) return std::unexpected("entity capacity exhausted");
+    for(std::size_t i=0;i<drafts.size();++i) {
+        const auto& entity=drafts[i];
+        if(!entity_valid(&entity)||!sc_physics_body_valid(entity)) return std::unexpected("invalid entity geometry");
+        const auto* end=static_cast<const char*>(std::memchr(entity.persistent_id,0,sizeof entity.persistent_id));
+        if(!end) return std::unexpected("persistent_id is too long");
+        const std::string_view name(entity.persistent_id,static_cast<std::size_t>(end-entity.persistent_id));
+        if(name.empty()) continue;
+        if(!sc_identity_name_valid(name)) return std::unexpected("invalid persistent_id");
+        if(!world.identities) return std::unexpected("persistent object registry is disabled");
+        const auto* record=world.identities->find(name);
+        if(record&&record->status==ScIdentityStatus::active) return std::unexpected("persistent_id is already active");
+        for(std::size_t j=0;j<i;++j)
+            if(name==drafts[j].persistent_id) return std::unexpected("duplicate persistent_id in spawn batch");
+        if(!record) ++new_names;
+    }
+    if(world.identities&&new_names>world.identities->capacity()-world.identities->size())
+        return std::unexpected("persistent object capacity exhausted");
+    return {};
+}
+std::expected<void,const char*> sc_spawn_many(ScWorld& world,std::span<ScEntity> drafts,std::span<const std::size_t> parents) {
+    if(auto result=sc_spawn_preflight(world,drafts);!result) return result;
+    if(auto result=sc_attachment_batch_preflight(drafts,parents);!result) return result;
+    // Preflight covers every failure of sc_spawn. No callbacks, allocations or
+    // solver steps occur between validation and commit.
+    for(auto& draft:drafts) draft.id=sc_spawn(&world,&draft);
+    for(std::size_t i=0;i<parents.size();++i) if(parents[i]) {
+        auto* child=sc_entity(&world,drafts[i].id);
+        child->parent=drafts[parents[i]-1].id;
+        child->local_pose={drafts[i].x,drafts[i].y,drafts[i].angle};
+    }
+    if(!parents.empty()) sc_attachments_sync(world);
+    return {};
 }
 
 ScEntity *sc_entity(ScWorld *world, ScEntityId id) {
@@ -73,9 +133,14 @@ ScEntity *sc_entity(ScWorld *world, ScEntityId id) {
                ? entity : nullptr;
 }
 
-bool sc_destroy(ScWorld *world, ScEntityId id) {
+bool sc_destroy(ScWorld *world, ScEntityId id,bool deleted) {
     ScEntity *entity = sc_entity(world, id);
     if (!entity) return false;
+    sc_attachments_sync(*world);
+    for(auto& child:world->entities) if(child.alive&&child.parent==id) {
+        child.parent=0; child.local_pose={}; sc_presentation_snap(*world,child.id);
+    }
+    if(world->identities && entity->persistent_id[0]) world->identities->release(entity->persistent_id,id,deleted);
     auto slot = sc_entity_slot(id);
     *entity = ScEntity{};
     std::uint32_t generation = (world->generations[slot] + 1) & SC_GENERATION_MASK;
@@ -102,8 +167,8 @@ void sc_input(ScWorld *world, std::uint32_t held) {
 }
 
 char sc_tile(const ScWorld *world, int x, int y) {
-    if (!world || !map_valid(&world->map) || x < 0 || y < 0 ||
-        x >= world->map.width || y >= world->map.height) return '#';
+    if (!world || !map_valid(&world->map)) return '#';
+    if (x < 0 || y < 0 || x >= world->map.width || y >= world->map.height) return world->map.bounded?'#':'.';
     return world->map.tiles[static_cast<std::size_t>(y * world->map.width + x)];
 }
 
@@ -130,113 +195,32 @@ float sc_random(ScWorld *world) {
     return static_cast<float>(sc_random_u32(world) >> 8) * (1.0f / 16777216.0f);
 }
 
-static float visual_random(ScWorld* w) {
-    auto x=w->visual_rng; x^=x<<13; x^=x>>17; x^=x<<5; w->visual_rng=x;
-    return static_cast<float>(x>>8)*(1.0f/16777216.0f);
+std::expected<std::size_t,const char*> sc_emit(ScWorld* world,float x,float y,int count,
+    std::uint32_t color,float speed,float life) {
+    if(!world||count<0) return std::unexpected("invalid particle world or count");
+    return world->particles.emit(world->visual_rng,x,y,static_cast<std::size_t>(count),color,speed,life);
 }
 
-void sc_emit(ScWorld *world, float x, float y, int count, std::uint32_t color,
-             float speed, float life) {
-    if (!world || count <= 0 || !std::isfinite(x) || !std::isfinite(y) ||
-        std::fabs(x) > SC_VALUE_LIMIT || std::fabs(y) > SC_VALUE_LIMIT ||
-        !std::isfinite(speed) || speed < 0 || speed > SC_VALUE_LIMIT ||
-        !std::isfinite(life) || life <= 0 || life > SC_VALUE_LIMIT) return;
-    for (auto &slot : world->particles) {
-        if (count == 0) break;
-        ScParticle *particle = &slot;
-        if (particle->life > 0) continue;
-        float angle = visual_random(world) * (2.0f * std::numbers::pi_v<float>);
-        float velocity = speed * (0.35f + 0.65f * visual_random(world));
-        float duration = life * (0.6f + 0.4f * visual_random(world));
-        *particle = ScParticle{
-            .x = x, .y = y,
-            .vx = std::cos(angle) * velocity, .vy = std::sin(angle) * velocity,
-            .life = duration, .max_life = duration,
-            .size = 1 + std::floor(visual_random(world) * 3), .color = color
-        };
-        --count;
-    }
-}
-
-static void step_particles(ScWorld *world) {
-    double gravity = std::isfinite(world->gravity) ? world->gravity : 0;
-    for (auto &slot : world->particles) {
-        ScParticle *particle = &slot;
-        if (!(particle->life > 0)) continue;
-        if (!std::isfinite(particle->life) || !std::isfinite(particle->x) ||
-            !std::isfinite(particle->y) || !std::isfinite(particle->vx) ||
-            !std::isfinite(particle->vy)) {
-            particle->life = 0;
-            continue;
-        }
-        particle->life = std::fmax(0.0f, particle->life - SC_DT);
-        if (particle->life == 0) continue;
-        particle->vy = clamp_float(static_cast<double>(particle->vy) + gravity * 0.15 * SC_DT,
-                                   -SC_VALUE_LIMIT, SC_VALUE_LIMIT);
-        particle->x = clamp_float(static_cast<double>(particle->x) + static_cast<double>(particle->vx) * SC_DT,
-                                   -SC_VALUE_LIMIT, SC_VALUE_LIMIT);
-        particle->y = clamp_float(static_cast<double>(particle->y) + static_cast<double>(particle->vy) * SC_DT,
-                                   -SC_VALUE_LIMIT, SC_VALUE_LIMIT);
-    }
-}
-
-static void step_camera(ScWorld *world, bool valid_map) {
-    double maximum_x = valid_map
-        ? std::fmax(0, static_cast<double>(world->map.width) * world->map.tile_size -
-                   std::fmax(0, world->view_width)) : 0;
-    double maximum_y = valid_map
-        ? std::fmax(0, static_cast<double>(world->map.height) * world->map.tile_size -
-                   std::fmax(0, world->view_height)) : 0;
-    if (!std::isfinite(world->camera_x)) world->camera_x = 0;
-    if (!std::isfinite(world->camera_y)) world->camera_y = 0;
-    ScEntity *target = sc_entity(world, world->camera_target);
-    if (target && entity_valid(target)) {
-        double desired_x = std::fmax(0, std::fmin(maximum_x,
-            static_cast<double>(target->x) + target->w * 0.5 - std::fmax(0, world->view_width) * 0.5));
-        double desired_y = std::fmax(0, std::fmin(maximum_y,
-            static_cast<double>(target->y) + target->h * 0.5 - std::fmax(0, world->view_height) * 0.5));
-        world->camera_x = clamp_float(world->camera_x +
-                                       (desired_x - world->camera_x) * 0.16,
-                                       0, maximum_x);
-        world->camera_y = clamp_float(world->camera_y +
-                                       (desired_y - world->camera_y) * 0.16,
-                                       0, maximum_y);
-    } else {
-        world->camera_x = clamp_float(world->camera_x, 0, maximum_x);
-        world->camera_y = clamp_float(world->camera_y, 0, maximum_y);
-        if (world->camera_target) world->camera_target = 0;
-    }
-}
-
-void sc_step(ScWorld *world) {
+void sc_step(ScWorld *world, ScStepProfile* profile) {
     if (!world) return;
-    bool valid_map = map_valid(&world->map);
+    sc_presentation_capture(*world);
     if (!world->simulation_paused) {
-        sc_physics_step(world);
-        for(auto& e:world->entities) if(e.alive&&!e.body_type&&!e.dynamic) {
-            e.x=clamp_float(e.x+static_cast<double>(e.vx)*SC_DT,-SC_VALUE_LIMIT,SC_VALUE_LIMIT);
-            e.y=clamp_float(e.y+static_cast<double>(e.vy)*SC_DT,-SC_VALUE_LIMIT,SC_VALUE_LIMIT);
+        { ScProfileScope timing(profile?&profile->physics_ms:nullptr); sc_physics_step(world); }
+        {
+            ScProfileScope timing(profile?&profile->entities_ms:nullptr);
+            for(auto& e:world->entities) if(e.alive&&!e.parent&&!e.body_type&&!e.dynamic) {
+                e.x=clamp_float(e.x+static_cast<double>(e.vx)*SC_DT,-SC_VALUE_LIMIT,SC_VALUE_LIMIT);
+                e.y=clamp_float(e.y+static_cast<double>(e.vy)*SC_DT,-SC_VALUE_LIMIT,SC_VALUE_LIMIT);
+            }
+            sc_attachments_sync(*world);
         }
+        ScProfileScope timing(profile?&profile->projectiles_ms:nullptr);
         if(world->projectiles) world->projectiles->step(*world);
     }
-    for(auto& bus:world->audio_buses) if(bus.fade>0) {
-        bus.volume+=(bus.target-bus.volume)*std::min(1.0f,SC_DT/bus.fade);
-        bus.fade=std::max(0.0f,bus.fade-SC_DT);
-    }
-    for(auto& voice:world->audio) if(voice.alive&&!voice.paused&&!world->audio_buses[0].paused&&!world->audio_buses[static_cast<size_t>(voice.bus)].paused) {
-        if(voice.fade>0) {
-            float part=std::min(1.0f,SC_DT/voice.fade);
-            voice.volume+=(voice.target_volume-voice.volume)*part;
-            voice.fade=std::max(0.0f,voice.fade-SC_DT);
-            if(voice.stopping&&voice.fade==0) voice.alive=false;
-        }
-        voice.position+=SC_DT*voice.pitch;
-        if(voice.duration>0&&voice.position>=voice.duration) {
-            if(voice.loop) voice.position=std::fmod(voice.position,voice.duration); else voice.alive=false;
-        }
-    }
-    if (!world->simulation_paused) step_particles(world);
-    step_camera(world, valid_map);
+    if(world->simulation_paused) sc_attachments_sync(*world);
+    { ScProfileScope timing(profile?&profile->particles_ms:nullptr);
+      if (!world->simulation_paused) world->particles.step(world->gravity,SC_DT); }
+    sc_camera_step(*world);
     ++world->tick;
 }
 
@@ -275,6 +259,7 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
     if (!world) return 0;
     std::uint64_t hash = UINT64_C(14695981039346656037);
     const ScMap *map = &world->map;
+    hash_byte(&hash,map->bounded);
     hash_u32(&hash, static_cast<std::uint32_t>(map->width));
     hash_u32(&hash, static_cast<std::uint32_t>(map->height));
     hash_u32(&hash, static_cast<std::uint32_t>(map->tile_size));
@@ -292,6 +277,11 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
         hash_byte(&hash, entity->alive);
         if (!entity->alive) continue;
         hash_u64(&hash, entity->id);
+        if(entity->parent) {
+            hash_u64(&hash,entity->parent);
+            hash_float(&hash,entity->local_pose.x); hash_float(&hash,entity->local_pose.y);
+            hash_float(&hash,entity->local_pose.angle);
+        }
         hash_byte(&hash, entity->dynamic);
         hash_byte(&hash, entity->solid);
         hash_byte(&hash, entity->grounded);
@@ -301,6 +291,7 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
         hash_float(&hash, entity->gravity); hash_float(&hash, entity->glow);
         hash_u32(&hash, entity->color);
         hash_string(&hash, entity->tag);
+        hash_string(&hash, entity->persistent_id);
         hash_string(&hash, entity->sprite);
         hash_u32(&hash, static_cast<std::uint32_t>(entity->frame));
         hash_u32(&hash, static_cast<std::uint32_t>(entity->frame_w));
@@ -324,15 +315,23 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
             for(int k=0;k<shape.vertex_count*2;++k) hash_float(&hash,shape.vertices[static_cast<size_t>(k)]);
         }
     }
-    for (const auto &slot : world->particles) {
-        const ScParticle *particle = &slot;
-        bool active = particle->life > 0;
-        hash_byte(&hash, active);
-        if (!active) continue;
-        hash_float(&hash, particle->x); hash_float(&hash, particle->y);
-        hash_float(&hash, particle->vx); hash_float(&hash, particle->vy);
-        hash_float(&hash, particle->life); hash_float(&hash, particle->max_life);
-        hash_float(&hash, particle->size); hash_u32(&hash, particle->color);
+    if(world->identities) {
+        hash_u64(&hash,world->identities->capacity());
+        for(const auto& record:world->identities->records()) if(record.status!=ScIdentityStatus::absent) {
+            hash_string(&hash,record.name); hash_u64(&hash,record.entity);
+            hash_u32(&hash,static_cast<std::uint32_t>(record.status));
+        }
+    }
+    const auto& particles=world->particles;
+    for(std::size_t i=0;i<particles.capacity();++i) {
+        const bool active=i<particles.count;
+        hash_byte(&hash,active);
+        if(!active) continue;
+        hash_float(&hash,particles.x[i]); hash_float(&hash,particles.y[i]);
+        hash_float(&hash,particles.vx[i]); hash_float(&hash,particles.vy[i]);
+        hash_float(&hash,particles.life[i]); hash_float(&hash,particles.max_life[i]);
+        hash_float(&hash,particles.size[i]); hash_u32(&hash,particles.color[i]);
+        hash_byte(&hash,particles.emitter[i]);
     }
     hash_u32(&hash, world->held); hash_u32(&hash, world->pressed);
     for (const auto& key:SC_KEYS) {
@@ -352,6 +351,16 @@ std::uint64_t sc_state_hash(const ScWorld *world) {
         for(float axis:pad.axes) hash_float(&hash,axis);
     }
     hash_string(&hash,input.text); hash_string(&hash,input.composition); hash_string(&hash,input.clipboard);
+    const auto edit=sc_composition_edit(input);
+    hash_u32(&hash,static_cast<std::uint32_t>(edit.cursor));
+    hash_u32(&hash,static_cast<std::uint32_t>(edit.start)); hash_u32(&hash,static_cast<std::uint32_t>(edit.finish));
+    const auto segment_count=std::min(input.composition_segment_count,SC_COMPOSITION_SEGMENTS);
+    hash_u32(&hash,static_cast<std::uint32_t>(segment_count));
+    hash_u32(&hash,input.composition_segments_truncated);
+    for(std::size_t i=0;i<segment_count;++i) {
+        const auto& segment=input.composition_segments[i];
+        hash_u32(&hash,segment.start); hash_u32(&hash,segment.finish); hash_u32(&hash,segment.kind);
+    }
     hash_u32(&hash, world->released); hash_u32(&hash, world->rng);
     hash_u64(&hash, world->tick);
     hash_float(&hash, world->gravity); hash_float(&hash, world->camera_x);

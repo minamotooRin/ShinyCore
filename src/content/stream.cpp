@@ -4,120 +4,166 @@
 #include <cmath>
 #include <climits>
 #include <stdexcept>
+#include <algorithm>
 
 namespace {
+constexpr std::uint64_t max_sequence=(std::uint64_t{1}<<52)-1;
 int integer(const ScValue* v,int low,int high) {
-    if(!v||!std::holds_alternative<double>(v->data)) throw std::runtime_error("stream index requires integer coordinates");
+    if(!v||!std::holds_alternative<double>(v->data)) throw std::runtime_error("stream index requires integer coordinates or byte counts");
     double n=v->number();
-    if(n<low||n>high||std::floor(n)!=n) throw std::runtime_error("stream index integer outside range");
+    if(!std::isfinite(n)||n<low||n>high||std::floor(n)!=n) throw std::runtime_error("stream index integer outside range");
     return static_cast<int>(n);
 }
+void coordinates(int x,int y) {
+    if(x<-31250||x>31250||y<-31250||y>31250) throw std::runtime_error("chunk coordinates outside range");
 }
-ScStream::ScStream(const std::string& path,std::size_t budget) : budget_(budget) {
+}
+ScStream::ScStream(const std::string& path,std::size_t budget,Reader reader)
+    : ScStream(path,budget,nullptr,std::move(reader)) {}
+ScStream::ScStream(const std::string& path,ScContentLoader& loader,std::size_t budget)
+    : ScStream(path,budget,&loader,{}) {}
+ScStream::ScStream(const std::string& path,std::size_t budget,ScContentLoader* loader,Reader reader) : budget_(budget) {
     if(budget<65536||budget>128u*1024u*1024u) throw std::invalid_argument("stream cache budget must be 64 KiB..128 MiB");
     auto index=sc_json_file(path,16*1024*1024,32);
     if(!index) throw std::runtime_error(index.error());
-    if(integer(index->get("format"),1,1)!=1||integer(index->get("chunk_size"),32,32)!=32) throw std::runtime_error("unsupported stream format");
+    if(!index->get("format")||index->get("format")->number()!=3)
+        throw std::runtime_error("unsupported stream index format; expected 3");
+    integer(index->get("chunk_size"),32,32);
+    layout_.width=integer(index->get("tilewidth"),1,256); layout_.height=integer(index->get("tileheight"),1,256);
+    const auto* layers=index->get("layers");
+    const auto* declared=layers?std::get_if<ScValue::Array>(&layers->data):nullptr;
+    if(!declared||declared->size()>1000) throw std::runtime_error("stream index requires at most 1000 layers");
+    for(std::size_t i=0;i<declared->size();++i)
+        if(const auto* type=(*declared)[i].get("type");type&&type->text()=="objectgroup") layout_.object_layers.set(i);
     const auto parent=sc_path(path).parent_path().generic_u8string();
-    root_.assign(reinterpret_cast<const char*>(parent.data()),parent.size());
+    const std::string root(reinterpret_cast<const char*>(parent.data()),parent.size());
     const auto* chunks=index->get("chunks");
     const auto* list=chunks?std::get_if<ScValue::Array>(&chunks->data):nullptr;
-    if(!list||list->size()>1048576) throw std::runtime_error("stream index requires bounded chunks");
+    if(!list||list->size()>65536) throw std::runtime_error("stream index requires at most 65536 chunks");
     for(const auto& chunk:*list) {
         Key key{integer(chunk.get("x"),-31250,31250),integer(chunk.get("y"),-31250,31250)};
         auto source=chunk.get("path"); auto relative=source?source->text():"";
-        if(relative.empty()||relative.find_first_of("/\\:")!=std::string::npos||relative=="."||relative=="..") throw std::runtime_error("chunk path must be a filename");
-        Entry entry; entry.path=root_+"/"+relative;
+        if(relative.empty()||relative.size()>255||relative.find('\0')!=relative.npos||relative.find_first_of("/\\:")!=relative.npos||relative=="."||relative=="..")
+            throw std::runtime_error("chunk path must be a filename");
+        Entry entry; entry.path=root+"/"+relative;
+        entry.bytes=static_cast<std::size_t>(integer(chunk.get("bytes"),1,2*1024*1024));
         if(!entries_.emplace(key,std::move(entry)).second) throw std::runtime_error("duplicate stream chunk");
     }
     metadata_=std::move(*index);
-    worker_=std::jthread([this]{
-        try { work(); } catch(...) { { std::lock_guard lock(mutex_); stopping_=true; } condition_.notify_all(); }
-    });
+    if(loader) loader_=loader;
+    else { owned_loader_=std::make_unique<ScContentLoader>(std::move(reader)); loader_=owned_loader_.get(); }
 }
 ScStream::~ScStream() {
-    { std::lock_guard lock(mutex_); stopping_=true; }
-    condition_.notify_all();
-    if(worker_.joinable()) worker_.join();
+    for(const auto& [key,entry]:entries_) if(entry.ticket) loader_->cancel(entry.ticket);
 }
-void ScStream::request(int x,int y) {
-    std::lock_guard lock(mutex_);
+std::uint64_t ScStream::request(int x,int y,std::uint64_t frame) {
+    coordinates(x,y);
+    if(frame<frame_||frame>max_sequence) throw std::runtime_error("stream commit frame outside supported range");
     auto found=entries_.find({x,y});
-    if(found==entries_.end()) return; // Absent sparse chunks are empty, not pending terrain.
+    if(found==entries_.end()) return 0; // Known empty sparse regions need no disk gate.
     auto& entry=found->second;
     if(entry.references==UINT_MAX) throw std::runtime_error("chunk reference overflow");
-    ++entry.references; entry.stamp=++clock_;
-    if(!entry.ready&&!entry.queued) {
-        if(queue_.size()>=1024) { --entry.references; throw std::runtime_error("chunk request queue exhausted"); }
-        entry.queued=true; queue_.push_back(found->first); condition_.notify_one();
+    if(entry.references) {
+        if(entry.pending&&entry.frame!=frame) throw std::runtime_error("pending chunk already has a different commit frame");
+        ++entry.references; return entry.sequence;
     }
+    if(entry.pending) throw std::runtime_error("chunk cancellation awaits its scheduled boundary");
+    if(pending_.size()>=1024||sequence_==max_sequence) throw std::runtime_error("chunk request capacity exhausted");
+    if(!pending_.empty()&&entries_.at(pending_.back()).frame>frame) throw std::runtime_error("chunk commit frames must follow request order");
+    // Reserve before IO. Eligibility and LRU change only on the simulation thread,
+    // never as a consequence of which disk operation completes first.
+    if(!entry.charge) {
+        const auto charge=entry.bytes*64;
+        if(charge>budget_) throw std::runtime_error("chunk exceeds cache allocation budget");
+        std::size_t available=budget_-resident_;
+        for(const auto& [key,cached]:entries_) if(!cached.references&&!cached.pending) available+=cached.charge;
+        if(available<charge) throw std::runtime_error("cache budget exhausted by pinned or scheduled chunks");
+        while(resident_+charge>budget_) {
+            auto victim=entries_.end();
+            for(auto it=entries_.begin();it!=entries_.end();++it)
+                if(it->second.charge&&!it->second.references&&!it->second.pending&&
+                   (victim==entries_.end()||it->second.stamp<victim->second.stamp)) victim=it;
+            auto& old=victim->second; resident_-=old.charge; old.charge=0; old.ready=false;
+            old.value=std::unexpected("evicted");
+        }
+        entry.charge=charge; resident_+=charge;
+    }
+    pending_.push_back(found->first);
+    try { if(!entry.ready) entry.ticket=loader_->submit(entry.path,entry.bytes,x,y,layout_); }
+    catch(...) { pending_.pop_back(); throw; }
+    entry.pending=true; entry.references=1; entry.sequence=++sequence_; entry.frame=frame; entry.stamp=++clock_;
+    return entry.sequence;
 }
-ScResult<ScValue> ScStream::get(int x,int y) {
-    std::unique_lock lock(mutex_);
+ScResult<bool> ScStream::advance(std::uint64_t frame) {
+    if(frame<frame_||frame>max_sequence) return std::unexpected("stream frame must advance monotonically");
+    frame_=frame;
+    // Preflight the entire due prefix, then publish it atomically in request order.
+    std::size_t due=0;
+    for(const auto& key:pending_) {
+        auto& entry=entries_.at(key);
+        if(entry.frame>frame) break;
+        if(!entry.ready) {
+            auto result=loader_->take_chunk(entry.ticket);
+            if(!result) return false;
+            entry.value=std::move(*result); entry.ticket=0; entry.ready=true;
+        }
+        if(entry.references&&!entry.value) {
+            failed_=key;
+            return std::unexpected("chunk request "+std::to_string(entry.sequence)+": "+entry.value.error());
+        }
+        ++due;
+    }
+    for(std::size_t i=0;i<due;++i) {
+        auto& entry=entries_.at(pending_.front()); pending_.pop_front();
+        entry.pending=false; entry.visible=entry.references>0; entry.stamp=++clock_;
+        if(!entry.value||!entry.references) {
+            resident_-=entry.charge; entry.charge=0; entry.ready=false; entry.value=std::unexpected("released");
+        }
+    }
+    failed_.reset();
+    return true;
+}
+ScResult<std::optional<ScValue>> ScStream::get(int x,int y) {
+    coordinates(x,y);
     auto found=entries_.find({x,y});
-    if(found==entries_.end()) return ScValue{ScValue::Object{{"x",ScValue{double(x)}},{"y",ScValue{double(y)}},{"layers",ScValue{ScValue::Object{}}}}};
+    if(found==entries_.end()) return ScResult<std::optional<ScValue>>{std::in_place,std::in_place,ScValue::Object{
+        {"x",ScValue{double(x)}},{"y",ScValue{double(y)}},{"layers",ScValue{ScValue::Object{}}},{"objects",ScValue{ScValue::Array{}}}}};
     auto& entry=found->second;
     if(!entry.references) return std::unexpected("request chunk before get");
-    condition_.wait(lock,[&]{return stopping_||entry.ready;});
-    if(stopping_) return std::unexpected("stream closed");
-    entry.stamp=++clock_; return entry.value;
+    if(!entry.visible) return ScResult<std::optional<ScValue>>{std::in_place,std::nullopt};
+    entry.stamp=++clock_;
+    return ScResult<std::optional<ScValue>>{std::in_place,std::in_place,*entry.value};
 }
 void ScStream::release(int x,int y) {
-    std::lock_guard lock(mutex_);
+    coordinates(x,y);
     auto found=entries_.find({x,y});
     if(found==entries_.end()) return;
-    if(!found->second.references) throw std::runtime_error("unbalanced chunk release");
-    --found->second.references;
+    auto& entry=found->second;
+    if(!entry.references) throw std::runtime_error("unbalanced chunk release");
+    if(!--entry.references) {
+        entry.visible=false;
+        if(failed_&&*failed_==found->first) failed_.reset();
+    }
+}
+ScValue ScStream::failure() const {
+    if(!failed_) return {};
+    const auto& entry=entries_.at(*failed_);
+    return ScValue{ScValue::Object{{"sequence",ScValue{double(entry.sequence)}},{"frame",ScValue{double(entry.frame)}},
+        {"x",ScValue{double(failed_->x)}},{"y",ScValue{double(failed_->y)}},{"message",ScValue{entry.value.error()}}}};
+}
+void ScStream::retry(std::uint64_t sequence) {
+    if(!failed_||entries_.at(*failed_).sequence!=sequence)
+        throw std::runtime_error("retry requires the current failed chunk request sequence");
+    auto& entry=entries_.at(*failed_);
+    // Enqueue first: allocation failure leaves the reported failure untouched.
+    entry.ticket=loader_->submit(entry.path,entry.bytes,failed_->x,failed_->y,layout_);
+    entry.ready=false;
+    failed_.reset();
 }
 ScValue ScStream::statistics() const {
-    std::lock_guard lock(mutex_); std::size_t loaded=0,pinned=0;
-    for(const auto& [key,entry]:entries_) { (void)key; loaded+=entry.ready&&entry.value.has_value(); pinned+=entry.references>0; }
+    std::size_t loaded=0,pinned=0;
+    for(const auto& [key,entry]:entries_) { loaded+=entry.visible; pinned+=entry.references>0; }
     return ScValue{ScValue::Object{{"resident_bytes",ScValue{double(resident_)}},{"budget_bytes",ScValue{double(budget_)}},
-        {"loaded",ScValue{double(loaded)}},{"pinned",ScValue{double(pinned)}},{"queued",ScValue{double(queue_.size())}}}};
-}
-void ScStream::work() {
-    for(;;) {
-        Key key{}; std::string path;
-        {
-            std::unique_lock lock(mutex_); condition_.wait(lock,[&]{return stopping_||!queue_.empty();});
-            if(stopping_) return;
-            key=queue_.front(); queue_.pop_front(); path=entries_.at(key).path;
-        }
-        ScResult<ScValue> result=std::unexpected("chunk read failed"); std::size_t charge=0;
-        try {
-            // A conservative upper bound includes strings, map nodes and parsed values.
-            auto bytes=std::filesystem::file_size(sc_path(path));
-            if(bytes>budget_/64) result=std::unexpected("chunk exceeds cache allocation budget");
-            else { charge=static_cast<std::size_t>(bytes)*64; result=sc_json_file(path,budget_/64,20); }
-            if(result) {
-                if(integer(result->get("x"),-31250,31250)!=key.x||integer(result->get("y"),-31250,31250)!=key.y)
-                    throw std::runtime_error("chunk coordinates disagree with index");
-                auto layers=result->get("layers");
-                auto object=layers?std::get_if<ScValue::Object>(&layers->data):nullptr;
-                if(!object||object->size()>64) result=std::unexpected("chunk requires at most 64 layers");
-                else for(const auto& [name,value]:*object) {
-                    (void)name; auto cells=std::get_if<ScValue::Array>(&value.data);
-                    if(!cells||cells->size()!=1024) { result=std::unexpected("chunk layers require 1024 cells"); break; }
-                    for(const auto& cell:*cells) {
-                        double n=cell.number(-1);
-                        if(n<0||n>UINT32_MAX||std::floor(n)!=n) { result=std::unexpected("invalid chunk GID"); break; }
-                    }
-                    if(!result) break;
-                }
-            }
-        } catch(const std::exception& error) { result=std::unexpected(error.what()); }
-        {
-            std::lock_guard lock(mutex_); auto& entry=entries_.at(key);
-            while(result&&resident_+charge>budget_) {
-                auto victim=entries_.end();
-                for(auto it=entries_.begin();it!=entries_.end();++it)
-                    if(it->second.ready&&it->second.charge&&!it->second.references&&(victim==entries_.end()||it->second.stamp<victim->second.stamp)) victim=it;
-                if(victim==entries_.end()) { result=std::unexpected("cache budget exhausted by pinned chunks"); break; }
-                resident_-=victim->second.charge; victim->second.value=std::unexpected("evicted"); victim->second.charge=0; victim->second.ready=false;
-            }
-            entry.charge=result?charge:0; resident_+=entry.charge;
-            entry.value=std::move(result); entry.ready=true; entry.queued=false;
-        }
-        condition_.notify_all();
-    }
+        {"loaded",ScValue{double(loaded)}},{"pinned",ScValue{double(pinned)}},{"queued",ScValue{double(pending_.size())}},
+        {"last_sequence",ScValue{double(sequence_)}}}};
 }

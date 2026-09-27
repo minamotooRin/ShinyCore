@@ -3,6 +3,7 @@
 **小型原生 2D 引擎 · C++23 + Lua · 为人和 LLM Agent 共同开发设计**
 
 当前工作树为 **1.0 开发中版本，尚未完成完整版验收**。新增系统与限制见 [开发状态](docs/implementation-status.md) 和 [新增接口](docs/new-systems.md)。
+性能诊断使用 `--profile` 和 [采样报告工具](docs/profiling.md)，区分 CPU 处理、GPU 时间与限帧等待。
 
 ShinyCore 提供固定 60 Hz 模拟、Box2D 刚体、Tiled 地图、跨房间数据与磁盘检查点、精灵图集、音频文件和中英文字体。游戏就是一个可读、可回放的 Lua 项目；角色控制、动画、收集和关卡规则保持在普通 Lua 模块中。
 
@@ -17,15 +18,45 @@ ctest --test-dir build --output-on-failure
 ./build/shiny examples/workshop
 ```
 
-Windows 可使用现代 MSVC、GCC/MinGW，或 LLVM-MinGW + Ninja。Visual Studio 多配置构建使用 `cmake --build build --config Release`，程序在 `build/Release/shiny.exe`。更换编译器时使用新的构建目录。Linux 图形构建需要 GLFW 对应的 OpenGL/X11 开发库，CI 提供安装配置。
+Windows 可使用现代 MSVC、GCC/MinGW，或 LLVM-MinGW + Ninja。 Windows 运行目标为 10 1903 或更新版本；可执行文件内嵌 UTF-8 进程清单，命令行及文件路径支持中文等 Unicode 字符。Visual Studio 多配置构建使用 `cmake --build build --config Release`，程序在 `build/Release/shiny.exe`。更换编译器时使用新的构建目录。Linux 图形构建需要 GLFW 对应的 OpenGL/X11 开发库，CI 提供安装配置。
 
-也可使用 Ninja 预设：`cmake --preset lightweight`、`cmake --build --preset lightweight`、`ctest --preset lightweight`。另有 `full` 与 `headless` 预设。`full` 请求全部模块，但高级渲染与交互调试仍未实现，配置会给出提示，`--api` 继续如实报告不可用。运行开发工具和测试需 Python 3.11+，图集构建和截图检查依赖 `python -m pip install -r tools/requirements.txt`；发行游戏不需要 Python。
+也可使用 Ninja 预设：`cmake --preset lightweight`、`cmake --build --preset lightweight`、`ctest --preset lightweight`。另有 `full` 与 `headless` 预设。`full` 请求全部模块。高级渲染已提供独立的 [材质/片元着色器能力](docs/materials.md)及[最多四 pass 后处理链](docs/postprocess.md)，附 Bloom、调色、扭曲示例；[几何遮挡与软阴影](docs/lighting.md)已接入，[法线贴图](docs/normal-maps.md)已接入，已完成[定向原生视觉检查](docs/verification-advanced-render.md)，完整 GPU 验收仍待完成；开发工具提供 `--debug-stdio` 协议，支持帧步进、Lua 行断点、步入/步过/步出及调用栈、局部变量和显式状态分页检查；并可用 `--debug-keys` 下的 F4 打开原生检查面板（Agent 可通过 panel 命令选择页面；已有隐藏截图检查，实体按键待验收），详见 [调试协议](docs/debug-stdio.md)。`--api` 报告构建模块，连接后的 ready 事件列出已实现命令。运行开发工具和测试需 Python 3.11+，图集构建和截图检查依赖 `python -m pip install -r tools/requirements.txt`；发行游戏不需要 Python。
 
 Windows 已使用 LLVM-MinGW 22.1.8 实测 ASan/UBSan；[检测结果与复现命令](docs/sanitizer-verification.md)包含运行库 PATH 和遇错退出设置。
 
 Workshop 展示中文 UI、Tiled 图层、箱子、斜坡、移动平台、Lua 动画和存档。A/D 移动，Space 跳跃，Down+Space 穿透单向平台，E 保存，Up 读取，走到右端切换房间。原创 Lantern 和可选联机示例 Duet 仍保留。
 
+`shiny examples/tween` 演示普通 Lua 数值的顺序、并行、等待和取消；固定更新推进，
+契约及定向验证见[补间组合](docs/tween.md)。
+
+`shiny.animation` 提供[精灵序列、速度与入帧事件](docs/animation.md)，Barrage 的
+角色和敌人已接入；动画数据为普通 Lua 表，推进发生在固定更新中。
+
+完整构建的 181 个注册函数现均带结构化调用契约，见[核心 API 语义](docs/core-api.md)。
+复杂资源格式与开放数据字典仍需结合各模块文档；这不是完整版验收声明。
+
+[应用与共享状态契约](docs/application-state.md)说明暂停、设置补丁、跨房间状态、
+观察数据和模块缓存的行为；这些调用的类型与阶段也可通过 `--api` 获取。
+
+批量弹体的[字段、容量与调用阶段](docs/projectiles.md)可直接从 `--api` 读取，
+并同步生成项目内 LuaLS 注解；批量错误保留原有弹体与序号。
+
+实体可通过 `sc.presentation.attach` 建立[原生视觉附着](docs/attachments.md)，
+支持物理更新后自动跟随和嵌套旋转插值；对象持久引用与存档仍使用显式数据。
+运行 `shiny examples/attachments` 可体验保存、解除附着、重置和读档；示例通过
+对象持久 ID 重建关系，`sc.spawn_many` 同时预检实体与父子关系。
+
+`shiny examples/snapshot` 展示 20 Hz 位置快照的延迟插值、丢包和断流保持；
+它是无需网络的可视化示例，模块契约见 [快照插值](docs/snapshots.md)。
+
+`shiny examples/constellation` 是[四人主机权威协作示例](examples/constellation/README.md)，
+覆盖 20 Hz 快照插值、跨房间及临时令牌重连，需要启用网络模块。
+
 默认所有键交给游戏，关闭窗口退出。显式使用 `--debug-keys` 后启用 F1 统计、F2 实体边界、F3 光照、F5 重载、P 暂停、O 单步、Esc 退出。F5 和切换房间会重建 VM 与世界，继承显式 `sc.state`；候选脚本、资源或窗口尺寸校验失败时，图形运行保留旧场景并报告错误。
+
+样例视觉检查可使用 `python tools/capture_samples.py build/full/shiny.exe --output build/captures --case wayfarer-dialogue`。
+它通过 `--capture-hidden --capture FILE.png --frames N --mute` 生成真实原生截图，窗口保持隐藏且不获取焦点；
+仍需要图形驱动/显示环境，不是无窗口模拟。输出目录须为新目录；检查范围及限制见[视觉记录](docs/verification-sample-visuals.md)。
 
 ## 当前能力
 
@@ -33,16 +64,19 @@ Workshop 展示中文 UI、Tiled 图层、箱子、斜坡、移动平台、Lua �
 | --- | --- |
 | 模拟 | 固定 60 Hz、输入边沿、种子随机数、回放和 JSON 诊断摘要 |
 | 物理 | 统一 Box2D；静态/运动学/动态身体，矩形/圆/胶囊/凸多边形及最多 4 个复合形状 |
-| 交互 | 刚体推挤、斜坡、单向平台、传感器、射线、过滤、距离/转轴/竖直滑动关节 |
+| 交互 | 刚体推挤、斜坡、单向平台、传感器、真实形状重叠/平移扫掠/射线、过滤、距离/转轴/竖直滑动关节 |
 | 地图 | Tiled 有限正交 `.tmj`、内嵌/外置图集、图块层与对象层、运行时编辑；兼容 ASCII 地图 |
 | 脚本 | 项目内 `require` 缓存、严格字段校验、独立 VM、Lua 控制器与动画片段 |
-| 状态 | 深拷贝跨房间数据、存档槽、原子替换与有效备份；严格版本匹配，不接受旧格式 |
+| 状态 | 深拷贝跨房间数据、[存档槽](docs/saves.md)、原子替换与有效备份；严格版本匹配，不接受旧格式 |
 | 设置 | 窗口/无边框、整数/平滑缩放、VSync、四路音量、动作绑定；独立持久化及应用失败回退 |
-| 图像 | PNG 图集、旋转/翻转、整数倍像素缩放、图层、相机、粒子与近似点光源 |
+| 图像 | PNG 图集、旋转/翻转、图层、[相机跟随/缩放/旋转/震动](docs/camera.md)、[显示插值](docs/presentation.md)、粒子与光照 |
 | 音频 | WAV 音效 32 声部、Ogg Vorbis 音乐 2 流、音量/音高/循环/暂停/淡入淡出；保留合成音调 |
 | 文字 | 声明 TTF/OTF 字库、UTF-8、回退、换行/对齐；无窗口与图形共用度量 |
 | Agent 工作流 | `--api`、LuaLS 注解、`--check-all`、脚手架、回放、截图、自定义游戏打包 |
-| 可选网络 | ENet 原生 UDP、可靠/状态通道、Lua 会话、主机权威双人示例；默认关闭 |
+| 可选网络 | ENet 原生 UDP、可靠/状态通道、应用级会话、双人及四人主机权威示例；默认关闭 |
+
+`shiny examples/ui_panels` 展示[九宫格皮肤与九点锚定](examples/ui_panels/README.md)，
+只需默认轻量构建；图片边角保持尺寸，UI 仍由普通 Lua 数据描述。
 
 ## 文本优先的开发流程
 
@@ -59,6 +93,7 @@ python tools/new_game.py ../my-game
 - [Agent 开发指南](docs/llm-guide.md)
 - [架构与运行语义](docs/architecture.md)
 - [Workshop / Tiled 工作流](examples/workshop/README.md)
+- [Aseprite PNG＋JSON 动画导入](docs/aseprite.md)
 - [联机协议与 API](docs/networking.md)
 - [当前开发树验证与限制](docs/verification-complete-dev.md)
 
@@ -88,9 +123,17 @@ python tools/package.py build/shiny dist/MyGame --project examples/workshop
 
 Windows 生成 BAT 启动器，Linux 生成 shell 启动器，macOS 生成 `.app`；均包含游戏、文档、许可和 ZIP，拒绝覆盖已有目标。不传 `--project` 时打包 Lantern；`--with-network-examples` 需要网络开启的引擎。包对应构建它的系统与 CPU，签名、公证和商店发行流程由项目负责。
 
+打包时审计原生运行库；非系统库通过 `--runtime LIBRARY LICENSE` 显式携带，
+缺失或架构不匹配时失败。报告分列二进制、运行库、资源、Lua 库和符号大小。
+项目的 `package.json` 可显式选择房间、资源和动态模块；普通 Lua 依赖和流式地图块
+自动收集，裁剪后再次检查包内项目。脚手架及三款样例已提供清单。
+本地 `shiny-sdk.json` 记录标准模块版本、要求的引擎版本和文件哈希；
+打包会拒绝未记录的修改，定制模块可显式登记为项目自己的 SDK 版本。
+平台依赖及当前验证范围见 [发行依赖](docs/packaging.md)。
+
 ## 范围与兼容性
 
-引擎没有自建关卡 GUI；关卡编辑使用 Tiled 的明确子集。没有复杂文字塑形、任意 Lua VM/物理世界快照、完整刚体编辑器或主机平台导出。移动平台和跳跃手感由 Lua 控制器处理。光照遮挡仍使用 ASCII 实心格，不包含 Tiled 多边形和动态身体。
+引擎没有自建关卡 GUI；关卡编辑使用 Tiled 的明确子集。没有复杂文字塑形、任意 Lua VM/物理世界快照、完整刚体编辑器或主机平台导出。移动平台和跳跃手感由 Lua 控制器处理。默认光照遮挡使用 ASCII 实心格；高级模块支持地图多边形与动态身体遮挡，原生显示仍待验收。
 
 默认世界容量：4096 实体、16384 格内存地图、16 图块层、32768 粒子、4096 绘制指令、64 纹理。实体、粒子与绘制等容量可在 project.limits 配置。独立弹体系统仅在配置后分配。Lua 16 MiB，每回调 100 万条指令；显式状态最多 256 KiB、深度 16。脚本和原生资源必须可信，这些限制不是安全沙箱。
 

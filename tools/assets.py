@@ -19,12 +19,21 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 1
+VERSION = 10
 CHUNK = 32
 
 
 def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def png_size(content, context, maximum=8192):
+    if len(content)<24 or content[:8]!=b'\x89PNG\r\n\x1a\n' or content[12:16]!=b'IHDR':
+        raise ValueError(f"{context} requires a PNG image")
+    width,height=struct.unpack('>II',content[16:24])
+    if not 1<=width<=maximum or not 1<=height<=maximum:
+        raise ValueError(f"{context} dimensions must be 1..{maximum}")
+    return width,height
 
 
 def project_path(root, relative):
@@ -71,6 +80,15 @@ def triangulate(points):
         vertices.reverse()
     def cross(a,b,c):
         return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])
+    edges=list(zip(vertices,vertices[1:]+vertices[:1]))
+    for i,(a,b) in enumerate(edges):
+        for j in range(i+1,len(edges)):
+            if j==i+1 or (i==0 and j==len(edges)-1): continue
+            c,d=edges[j]
+            if (max(min(a[0],b[0]),min(c[0],d[0]))<=min(max(a[0],b[0]),max(c[0],d[0])) and
+                max(min(a[1],b[1]),min(c[1],d[1]))<=min(max(a[1],b[1]),max(c[1],d[1])) and
+                cross(a,b,c)*cross(a,b,d)<=0 and cross(c,d,a)*cross(c,d,b)<=0):
+                raise ValueError("self-intersecting polygon")
     triangles = []
     while len(vertices) > 3:
         for i,b in enumerate(vertices):
@@ -83,8 +101,44 @@ def triangulate(points):
             triangles.append([a,b,c]); vertices.pop(i); break
         else:
             raise ValueError("cannot decompose polygon; check intersections and duplicate vertices")
+    if cross(*vertices)<=1e-8: raise ValueError("degenerate polygon remainder")
     triangles.append(vertices)
     return triangles
+
+
+def tile_collision(group):
+    """Bake object rotation and concave decomposition into tile-local triangles."""
+    shapes=[]
+    for obj in group.get("objects",[]):
+        try:
+            if any(key in obj for key in ("polyline","point","gid","text","template")):
+                raise ValueError("tile collision requires a rectangle, ellipse or polygon")
+            x=obj.get("x",0)+group.get("offsetx",0)
+            y=obj.get("y",0)+group.get("offsety",0)
+            angle=math.radians(obj.get("rotation",0))
+            if not all(math.isfinite(v) and abs(v)<=1e6 for v in (x,y,angle)):
+                raise ValueError("invalid collision transform")
+            points=obj.get("polygon")
+            if points is None:
+                w,h=obj.get("width",0),obj.get("height",0)
+                if not all(math.isfinite(v) and .16<=v<=4096 for v in (w,h)):
+                    raise ValueError("collision dimensions must be 0.16..4096")
+                if obj.get("ellipse"):
+                    points=[{"x":w*(1+math.cos(i*math.tau/16))/2,"y":h*(1+math.sin(i*math.tau/16))/2} for i in range(16)]
+                else:
+                    points=[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":h},{"x":0,"y":h}]
+            c,s=math.cos(angle),math.sin(angle)
+            for triangle in triangulate(points):
+                vertices=[]
+                for px,py in triangle:
+                    tx,ty=x+c*px-s*py,y+s*px+c*py
+                    if abs(tx)>1e6 or abs(ty)>1e6: raise ValueError("collision vertex outside range")
+                    vertices.extend((tx,ty))
+                shapes.append(vertices)
+            if len(shapes)>16384: raise ValueError("tile collision exceeds 16384 triangles")
+        except (ValueError,TypeError,KeyError) as error:
+            raise ValueError(f"object {obj.get('id','?')} at ({obj.get('x',0)},{obj.get('y',0)}): {error}") from error
+    return shapes
 
 
 def tiled(root, source, read):
@@ -95,33 +149,132 @@ def tiled(root, source, read):
     tw,th = data["tilewidth"],data["tileheight"]
     if type(tw) is not int or type(th) is not int or not 1 <= tw <= 256 or not 1 <= th <= 256:
         raise ValueError(f"{source}: invalid tile size")
-    sets=[]
-    for item in data.get("tilesets", []):
-        item=dict(item)
-        directory=path.parent
+    sets=[]; external_sets={}
+    def relative(owner,reference):
+        if not isinstance(reference,str) or not reference:
+            raise ValueError(f"{owner.relative_to(root)}: nonempty resource path required")
+        return project_path(root,str(owner.parent/reference))
+    def load_set(item,owner):
+        item=dict(item); directory=owner.parent; external=None
         if "source" in item:
-            external=project_path(root,str((path.parent/item["source"]).relative_to(root)))
-            item={**json.loads(read(external)), "firstgid":item["firstgid"]}; directory=external.parent
+            external=relative(owner,item["source"])
+            item={**json.loads(read(external)),"firstgid":item["firstgid"]}; directory=external.parent
         if "image" in item:
             image=project_path(root,str((directory/item["image"]).relative_to(root)))
             read(image); item["image"]=image.relative_to(root).as_posix()
+        for tile in item.get("tiles",[]):
+            if "objectgroup" in tile:
+                try: tile["collision_shapes"]=tile_collision(tile["objectgroup"])
+                except ValueError as error:
+                    raise ValueError(f"{source}: tileset {item.get('name','?')} tile {tile.get('id','?')}: {error}") from error
+            if "image" in tile:
+                image=project_path(root,str((directory/tile["image"]).relative_to(root)))
+                width,height=png_size(read(image),f"{source}: tileset {item.get('name','?')} tile {tile.get('id','?')}",4096)
+                tile.update(image=image.relative_to(root).as_posix(),imagewidth=width,imageheight=height)
         sets.append(item)
-    blocks={}; layers=[]; objects=[]
+        if external:
+            if external in external_sets: raise ValueError(f"{source}: duplicate external tileset {external.relative_to(root)}")
+            external_sets[external]=item
+        return item
+    for item in data.get("tilesets",[]): load_set(item,path)
+    def extent(item):
+        count=item.get("tilecount",0)
+        ids=[tile.get("id",-1) for tile in item.get("tiles",[])]
+        if type(count) is not int or count<0 or any(type(i) is not int or i<0 for i in ids):
+            raise ValueError("invalid template tileset tile IDs/count")
+        return max([count,*(i+1 for i in ids)])
+    def template_gid(gid,definition,owner):
+        if type(gid) is not int or not 1<=gid<=0xffffffff or gid&0x10000000:
+            raise ValueError("invalid orthogonal template object gid")
+        if not isinstance(definition,dict) or "source" not in definition:
+            raise ValueError("tile template requires an external tileset")
+        first=definition.get("firstgid")
+        if type(first) is not int or not 1<=first<=0x0fffffff or (gid&0x0fffffff)<first:
+            raise ValueError("invalid template tileset firstgid")
+        external=relative(owner,definition["source"])
+        item=external_sets.get(external)
+        if item is None:
+            next_gid=max([1,*(entry["firstgid"]+extent(entry) for entry in sets)])
+            item=load_set({"source":str(external),"firstgid":next_gid},owner)
+        local=(gid&0x0fffffff)-first
+        if ("image" in item and local>=item.get("tilecount",0)) or (
+                "image" not in item and not any(tile.get("id")==local for tile in item.get("tiles",[]))):
+            raise ValueError("template object gid does not name a tileset tile")
+        mapped=item["firstgid"]+local
+        if not 1<=mapped<=0x0fffffff or item["firstgid"]+extent(item)-1>0x0fffffff:
+            raise ValueError("template tileset exceeds supported GID range")
+        return (gid&0xe0000000)|mapped
+    def properties(values,owner):
+        if not isinstance(values,list): raise ValueError("properties must be an array")
+        result={}
+        for value in values:
+            if not isinstance(value,dict) or not isinstance(value.get("name"),str) or not value["name"]:
+                raise ValueError("property requires a nonempty name")
+            prop=dict(value);name=prop["name"]
+            if name in result: raise ValueError(f"duplicate property {name}")
+            result[name]=(prop,owner)
+        return result
+    def object_data(instance):
+        base={};defaults={}
+        if "template" in instance:
+            owner=relative(path,instance["template"])
+            template=json.loads(read(owner))
+            if not isinstance(template,dict) or template.get("type")!="template" or not isinstance(template.get("object"),dict):
+                raise ValueError(f"{owner.relative_to(root)}: expected a JSON object template")
+            base=dict(template["object"])
+            if "template" in base: raise ValueError(f"{owner.relative_to(root)}: nested templates are unsupported")
+            defaults=properties(base.get("properties",[]),owner)
+            if "gid" in base and "gid" not in instance:
+                base["gid"]=template_gid(base["gid"],template.get("tileset"),owner)
+        defaults.update(properties(instance.get("properties",[]),path))
+        obj={**base,**instance,"id":instance.get("id")}
+        obj.pop("template",None)
+        resolved=[]
+        for name,(prop,owner) in sorted(defaults.items()):
+            if prop.get("type")=="file":
+                reference=prop.get("value")
+                if not isinstance(reference,str): raise ValueError(f"property {name}: file value must be a string")
+                if reference:
+                    dependency=relative(owner,reference);read(dependency)
+                    prop["value"]=dependency.relative_to(root).as_posix()
+            resolved.append(prop)
+        if resolved or "properties" in obj: obj["properties"]=resolved
+        return obj
+    blocks={}; layers=[]; identities=set()
+    def block_at(x,y):
+        return blocks.setdefault((x,y),{"layers":{},"objects":[]})
     def walk(items,parent):
         for original in items:
             layer=dict(original)
             name=parent.get("name", "")+layer.get("name",str(layer.get("id",0)))
-            inherited={"name":name,"opacity":parent.get("opacity",1)*layer.get("opacity",1),
+            context=f"{source}:{name}"
+            def numeric(field,default,low,high):
+                value=layer.get(field,default)
+                if type(value) not in (int,float) or not math.isfinite(value) or not low<=value<=high:
+                    raise ValueError(f"{context}: invalid {field}")
+                return value
+            if type(layer.get("visible",True)) is not bool: raise ValueError(f"{context}: visible must be boolean")
+            if layer.get("mode","normal")!="normal": raise ValueError(f"{context}: unsupported layer blend mode")
+            if "transparentcolor" in layer: raise ValueError(f"{context}: transparentcolor requires a PNG alpha channel instead")
+            color=layer.get("tintcolor","#FFFFFFFF")
+            if not isinstance(color,str) or not re.fullmatch(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})",color):
+                raise ValueError(f"{context}: tintcolor requires #RRGGBB or #AARRGGBB")
+            if len(color)==7: color="#FF"+color[1:]
+            tint=tuple(a*int(color[1+i*2:3+i*2],16)/255 for i,a in enumerate(parent.get("_tint",(1,1,1,1))))
+            inherited={"name":name,"opacity":parent.get("opacity",1)*numeric("opacity",1,0,1),
                        "visible":parent.get("visible",True) and layer.get("visible",True),
-                       "offsetx":parent.get("offsetx",0)+layer.get("offsetx",0),
-                       "offsety":parent.get("offsety",0)+layer.get("offsety",0),
-                       "parallaxx":parent.get("parallaxx",1)*layer.get("parallaxx",1),
-                       "parallaxy":parent.get("parallaxy",1)*layer.get("parallaxy",1)}
+                       "offsetx":parent.get("offsetx",0)+numeric("offsetx",0,-1e6,1e6),
+                       "offsety":parent.get("offsety",0)+numeric("offsety",0,-1e6,1e6),
+                       "parallaxx":parent.get("parallaxx",1)*numeric("parallaxx",1,-100,100),
+                       "parallaxy":parent.get("parallaxy",1)*numeric("parallaxy",1,-100,100)}
+            for field,limit in (("offsetx",1e6),("offsety",1e6),("parallaxx",100),("parallaxy",100)):
+                if abs(inherited[field])>limit: raise ValueError(f"{context}: inherited {field} outside supported range")
             kind=layer["type"]
             if kind=="group":
-                walk(layer.get("layers",[]),{**inherited,"name":name+"/"}); continue
+                walk(layer.get("layers",[]),{**inherited,"name":name+"/","_tint":tint}); continue
             index=len(layers)
-            layers.append({**inherited,"type":kind,"order":index})
+            layers.append({**inherited,"type":kind,"order":index,
+                           "tintcolor":"#"+"".join(f"{math.floor(channel*255+.5):02X}" for channel in tint)})
             if kind=="tilelayer":
                 pieces=layer.get("chunks") or [{"x":0,"y":0,"width":layer["width"],"height":layer["height"],"data":layer["data"]}]
                 for piece in pieces:
@@ -136,28 +289,55 @@ def tiled(root, source, read):
                         if not gid: continue
                         x=piece["x"]+at%piece["width"]; y=piece["y"]+at//piece["width"]
                         bx,by=x//CHUNK,y//CHUNK
-                        block=blocks.setdefault((bx,by),{})
-                        cells=block.setdefault(str(index),[0]*(CHUNK*CHUNK))
+                        cells=block_at(bx,by)["layers"].setdefault(str(index),[0]*(CHUNK*CHUNK))
                         cells[(y%CHUNK)*CHUNK+x%CHUNK]=gid
             elif kind=="objectgroup":
                 for original_object in layer.get("objects",[]):
-                    obj=dict(original_object)
-                    if "template" in obj:
-                        template=project_path(root,str((path.parent/obj["template"]).relative_to(root)))
-                        obj={**json.loads(read(template))["object"],**obj}; obj.pop("template",None)
-                    obj["x"]=obj.get("x",0)+inherited["offsetx"]; obj["y"]=obj.get("y",0)+inherited["offsety"]
-                    obj["author_id"]=f"{name}:{obj['id']}"
+                    context=f"{source}:{name}: object {original_object.get('id', '?')}"
+                    try: obj=object_data(original_object)
+                    except (ValueError,KeyError,TypeError,OSError) as error:
+                        raise ValueError(f"{context}: {error}") from error
+                    if type(obj.get("id")) is not int or not 1<=obj["id"]<=0xffffffff:
+                        raise ValueError(f"{context}: id must be a positive uint32")
+                    for axis,size in (("x",tw),("y",th)):
+                        position,offset=obj.get(axis,0),inherited["offset"+axis]
+                        if any(type(v) not in (int,float) or not math.isfinite(v) for v in (position,offset)):
+                            raise ValueError(f"{context}: {axis} must be finite")
+                        obj[axis]=position+offset
+                        if not math.isfinite(obj[axis]) or abs(obj[axis]/size)>1000000:
+                            raise ValueError(f"{context}: {axis} outside supported coordinates")
+                    identity=f"{name}:{obj['id']}"
+                    if (not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,127}",identity)
+                            or any(part in ("", ".", "..") for part in identity.split("/"))):
+                        raise ValueError(f"{context}: persistent_id requires a valid ASCII layer path")
+                    if identity in identities: raise ValueError(f"{context}: duplicate persistent_id {identity}")
+                    identities.add(identity)
+                    obj["persistent_id"]=identity; obj["layer"]=index
                     if "polygon" in obj:
                         try: obj["triangles"]=triangulate(obj["polygon"])
                         except ValueError as error: raise ValueError(f"{source}:{name}: object {obj['id']} at ({obj['x']},{obj['y']}): {error}") from error
-                    objects.append(obj)
+                    block=block_at(math.floor(obj["x"]/(tw*CHUNK)),math.floor(obj["y"]/(th*CHUNK)))
+                    if len(block["objects"])>=4096: raise ValueError(f"{context}: chunk exceeds 4096 objects")
+                    block["objects"].append(obj)
             elif kind=="imagelayer":
                 image=project_path(root,str((path.parent/layer["image"]).relative_to(root)))
-                read(image); layers[-1]["image"]=image.relative_to(root).as_posix()
+                content=read(image)
+                width,height=png_size(content,f"{source}:{name}: image layer")
+                layers[-1].update(image=image.relative_to(root).as_posix(),imagewidth=width,imageheight=height)
+                for field in ("repeatx","repeaty"):
+                    value=layer.get(field,False)
+                    if type(value) is not bool: raise ValueError(f"{source}:{name}: {field} must be boolean")
+                    layers[-1][field]=value
             else:
                 raise ValueError(f"{source}:{name}: unsupported layer type {kind}")
     walk(data.get("layers",[]),{})
-    metadata={"format":1,"chunk_size":CHUNK,"tilewidth":tw,"tileheight":th,"tilesets":sets,"layers":layers,"objects":objects,"chunks":[]}
+    if len(layers)>1000 or len(blocks)>65536: raise ValueError(f"{source}: stream layer or chunk capacity exceeded")
+    metadata={"format":3,"chunk_size":CHUNK,"tilewidth":tw,"tileheight":th,"tilesets":sets,"layers":layers,"chunks":[]}
+    for field in ("parallaxoriginx","parallaxoriginy"):
+        value=data.get(field,0)
+        if type(value) not in (int,float) or not math.isfinite(value) or abs(value)>1000000:
+            raise ValueError(f"{source}: invalid {field}")
+        metadata[field]=value
     return metadata,blocks
 
 
@@ -167,21 +347,42 @@ def build(manifest: Path, output: Path):
     def read(path):
         content=path.read_bytes(); dependencies[path.relative_to(root).as_posix()]=hashlib.sha256(content).hexdigest(); return content
     spec=json.loads(read(manifest.resolve()))
-    if set(spec)-{"atlases","maps","animations"}:
+    if not isinstance(spec,dict) or set(spec)-{"atlases","maps","animations"}:
         raise ValueError("unknown asset manifest fields")
     for group in ("atlases","maps","animations"):
+        if not isinstance(spec.get(group,{}),dict): raise ValueError(f"{manifest.name}:{group}: requires an object")
         for name in spec.get(group,{}):
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",name): raise ValueError("asset names use letters, digits, underscore or hyphen")
     maps={name:tiled(root,path,read) for name,path in spec.get("maps",{}).items()}
-    animations={}
+    animations={};animation_images={}
+    if spec.get("animations"):
+        # Resolve sibling tools even when assets.py is loaded through importlib by an Agent.
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        try: import aseprite
+        finally: sys.path.pop(0)
     for name,path in spec.get("animations",{}).items():
+        if not isinstance(path,str): raise ValueError(f"{manifest.name}:animations.{name}: requires a JSON path")
         animation_path=project_path(root,path)
-        source=json.loads(read(animation_path))
-        image=source.get("meta",{}).get("image")
-        if image: read(project_path(root,str((animation_path.parent/image).relative_to(root))))
-        frames=source["frames"]
-        if isinstance(frames,dict): frames=list(frames.values())
-        animations[name]={"frames":[{"rect":f["frame"],"duration":f["duration"]/1000} for f in frames],"tags":source.get("meta",{}).get("frameTags",[])}
+        def unique_object(pairs):
+            obj={}
+            for key,value in pairs:
+                if key in obj: raise ValueError(f"{path}: duplicate JSON key {key!r}")
+                obj[key]=value
+            return obj
+        try: source=json.loads(read(animation_path),object_pairs_hook=unique_object)
+        except json.JSONDecodeError as error: raise ValueError(f"{path}:{error.lineno}:{error.colno}: {error.msg}") from error
+        if not isinstance(source,dict) or not isinstance(source.get("meta"),dict):
+            raise ValueError(f"{path}:meta: requires an object")
+        image=source["meta"].get("image")
+        if not isinstance(image,str) or not image or "\\" in image:
+            raise ValueError(f"{path}:meta.image: requires a relative PNG path")
+        try: image_path=project_path(root,str((animation_path.parent/image).relative_to(root)))
+        except (ValueError,OSError) as error: raise ValueError(f"{path}:meta.image: {error}") from error
+        png=read(image_path);png_size(png,f"{path}:meta.image")
+        animations[name],animation_images[name]=aseprite.load(source,png,path)
+        animations[name]["image"]=f"animation-{name}.png"
+        animations[name]["module"]="animations.lua"
     for atlas in spec.get("atlases",{}).values():
         for path in atlas["images"].values(): read(project_path(root,path))
     digest=hashlib.sha256(canonical({"version":VERSION,"spec":spec,"inputs":dependencies}).encode()).hexdigest()
@@ -191,6 +392,10 @@ def build(manifest: Path, output: Path):
     output.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".assets-",dir=output) as temp:
         stage=Path(temp); index={"format":VERSION,"digest":digest,"inputs":dependencies,"atlases":{},"maps":{},"animations":animations}
+        for name,image in sorted(animation_images.items()):
+            image.save(stage/animations[name]["image"])
+        if animations:
+            (stage/"animations.lua").write_text(aseprite.lua_catalog(animations),encoding="utf-8")
         for name,atlas in sorted(spec.get("atlases",{}).items()):
             from PIL import Image
             width=atlas.get("width",2048)
@@ -214,8 +419,10 @@ def build(manifest: Path, output: Path):
             index["atlases"][name]={"image":filename,"regions":placements}
         for name,(metadata,blocks) in sorted(maps.items()):
             folder=stage/f"map-{name}"; folder.mkdir()
-            for (x,y),layers in sorted(blocks.items()):
-                filename=f"{x}_{y}.json"; content=canonical({"x":x,"y":y,"layers":layers})
+            for (x,y),block in sorted(blocks.items()):
+                if len(block["layers"])>64: raise ValueError(f"map {name}: chunk ({x},{y}) exceeds 64 tile layers")
+                filename=f"{x}_{y}.json"; content=canonical({"x":x,"y":y,**block})
+                if len(content.encode())>2*1024*1024: raise ValueError(f"map {name}: chunk ({x},{y}) exceeds 2 MiB")
                 (folder/filename).write_text(content,encoding="utf-8")
                 metadata["chunks"].append({"x":x,"y":y,"path":filename,"bytes":len(content.encode())})
             (folder/"index.json").write_text(canonical(metadata),encoding="utf-8")
@@ -230,7 +437,11 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest",type=Path); parser.add_argument("output",type=Path)
     args=parser.parse_args()
-    print(json.dumps({"ok":True,"directory":str(build(args.manifest,args.output))}))
+    try:
+        directory=build(args.manifest,args.output)
+    except (ValueError,OSError) as error:
+        parser.exit(1,json.dumps({"ok":False,"code":"asset_build","error":str(error)})+"\n")
+    print(json.dumps({"ok":True,"directory":str(directory)}))
 
 
 if __name__=="__main__": main()

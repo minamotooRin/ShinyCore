@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "scripts": [
+    "main.lua",
+    "rooms/mill.lua",
+    "rooms/beacon.lua"
+  ],
+  "files": [
+    "README.md",
+    "AGENTS.md",
+    ".luarc.json",
+    "docs/api.lua",
+    "smoke.jsonl",
+    "walkthrough.jsonl",
+    "gamepad.jsonl",
+    "checkpoint.jsonl",
+    "assets/chime.wav",
+    "assets/keeper.png",
+    "assets/scenery-v1.png",
+    "assets/README.md",
+    "assets/theme.ogg",
+    "scenario.json"
+  ]
+}

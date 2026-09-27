@@ -1,4 +1,7 @@
 #include "shiny/script.h"
+#include "../src/render/draw_order.h"
+#include "../src/render/image_grid.h"
+#include <lua.hpp>
 
 #include <cmath>
 #include <cstdio>
@@ -114,7 +117,7 @@ static void test_api(ScScript *script, ScWorld *world) {
         " assert(sc.tile(2,1)=='=' and sc.tile(-1,0)=='#');"
         " assert(sc.tile(1,0,'#')=='#'); assert(not pcall(sc.tile,9,0,'#'));"
         " assert(not pcall(sc.scene,'../outside.lua')); sc.scene('rooms/next.lua');"
-        " sc.message('hello'); sc.camera(1,2);"
+        " sc.message('hello'); sc.camera.set{x=1,y=2};"
         " sc.emit(1,2,4,'#ffffffff',3,.4); sc.tone(440,.1,.3);"
         " local n=sc.random(1,6); assert(math.type(n)=='integer' and n>=1 and n<=6);"
         " assert(sc.random(3,3)==3); local f=sc.random(); assert(f>=0 and f<1);"
@@ -195,16 +198,266 @@ static void test_ownership(ScWorld *world) {
     }
 }
 
-int main(void) {
+static void test_batch_storage(ScScript* script,ScWorld* world) {
+    CHECK(open_source(script,world,R"(
+local ids={}
+return {init=function()
+    for i=1,2000 do ids[i]=sc.spawn({x=i}) end
+end,update=function()
+    local edits={}
+    for i,id in ipairs(ids) do edits[i]={id=id,patch={y=i}} end
+    sc.set_many(edits)
+    edits[2000]={id=ids[1],patch={x=-1}}
+    assert(not pcall(sc.set_many,edits))
+    assert(sc.get(ids[1]).x==1 and sc.get(ids[2000]).y==2000)
+end}
+    )"));
+    script->batch_entities.resize(1);
+    auto* storage=script->batch_entities.data();
+    auto capacity=script->batch_entities.capacity();
+    CHECK(capacity>=world->entities.size());
+    CHECK(sc_script_update(script));
+    script->batch_seen.set();
+    CHECK(sc_script_update(script));
+    CHECK(script->batch_entities.data()==storage && script->batch_entities.capacity()==capacity);
+}
+
+struct AllocationFailure { lua_Alloc original; void* user; int failures{}; };
+static void* fail_large_allocation(void* user,void* memory,size_t old_size,size_t new_size) {
+    auto* failure=static_cast<AllocationFailure*>(user);
+    if(new_size>=4096&&new_size>old_size) { ++failure->failures; return nullptr; }
+    return failure->original(failure->user,memory,old_size,new_size);
+}
+static void test_projectile_result_allocation(ScScript* script,ScWorld* world) {
+    CHECK(open_source(script,world,R"(
+batch={}; local spec={terrain=false,mask=0}; for i=1,4096 do batch[i]=spec end
+return {init=function() sc.projectiles.configure(4096) end}
+)"));
+    auto* L=script->lua; const int top=lua_gettop(L);
+    auto prepare=[&] {
+        lua_getglobal(L,"sc"); lua_getfield(L,-1,"projectiles"); lua_getfield(L,-1,"spawn"); lua_getglobal(L,"batch");
+    };
+    prepare();
+    AllocationFailure failure{}; failure.original=lua_getallocf(L,&failure.user);
+    auto* storage=script->projectile_batch.data();
+    lua_setallocf(L,fail_large_allocation,&failure);
+    const int result=lua_pcall(L,1,1,0);
+    lua_setallocf(L,failure.original,failure.user);
+    CHECK(result==LUA_ERRMEM&&failure.failures>0);
+    CHECK(world->projectiles->count==0&&world->projectiles->next_id==1);
+    CHECK(script->projectile_batch.data()==storage);
+    lua_settop(L,top); prepare();
+    CHECK(lua_pcall(L,1,1,0)==LUA_OK&&lua_rawlen(L,-1)==4096);
+    CHECK(world->projectiles->count==4096&&world->projectiles->next_id==4097);
+    CHECK(script->projectile_batch.data()==storage);
+    lua_settop(L,top); sc_script_close(script);
+    CHECK(script->memory_used==0&&script->projectile_batch.capacity()==0);
+}
+
+static void test_ui_callback(ScScript* script,ScWorld* world) {
+    CHECK(open_source(script,world,R"(
+local calls=0
+return {ui_update=function(dt)
+    assert(dt==.125)
+    assert(sc.input.key_pressed('a'))
+    assert(not pcall(sc.spawn,{}))
+    assert(not pcall(sc.random))
+    assert(not pcall(sc.state.set,'bad',1))
+    assert(not pcall(sc.rect,0,0,2,2,'#FFFFFF'))
+    sc.input.focus_text(10,20)
+    sc.input.clipboard('UI copy')
+    calls=calls+1
+end, update=function() assert(calls==2) end}
+)"));
+    ScDeviceInput input; input.keys.set(65); input.key_pressed.set(65);
+    world->input.keys.set(66); world->held=4; world->pressed=2; world->released=1;
+    const auto tick=world->tick;
+    const auto rng=world->rng;
+    CHECK(sc_script_ui_update(script,.125f,input));
+    CHECK(sc_script_ui_update(script,.125f,input));
+    CHECK(world->input.keys.test(66)&&!world->input.keys.test(65));
+    CHECK(world->held==4&&world->pressed==2&&world->released==1);
+    CHECK(world->tick==tick&&world->rng==rng&&world->text_focus&&world->clipboard_write);
+    CHECK(sc_script_update(script));
+    CHECK(world->text_focus); // Gameplay preserves the preceding UI callback's text focus.
+    CHECK(!sc_script_ui_update(script,-1,input));
+    CHECK(!sc_script_ui_update(script,.1f,input)); // Assertion fails; input must still restore.
+    CHECK(script->phase==0&&world->input.keys.test(66));
+    CHECK(open_source(script,world,"return {}"));
+    world->text_focus=true;
+    CHECK(sc_script_ui_update(script,.125f,input)&&world->text_focus);
+    CHECK(open_source(script,world,"return {ui_update=function() while true do end end}"));
+    CHECK(!sc_script_ui_update(script,.125f,input));
+    CHECK(script->phase==0&&std::strstr(script->error,"instruction"));
+}
+
+static void test_image_regions(ScScript* script,ScWorld* world) {
+    CHECK(open_source(script,world,R"(
+return {draw=function()
+    for _,options in ipairs({{source_w=8},{source_x=1},{source_w=40,source_h=8},
+        {flip_x=1},{layer=.5},{layer=32768},{unknown=true},setmetatable({}, {}),
+        {slice=false},{slice={left=-1}},{slice={left=0/0}},{slice={right=math.huge}},
+        {slice={left=16,right=16}},{slice={top=16}},{slice={typo=1}},
+        {slice=setmetatable({}, {})},{source_w=8,source_h=8,slice={left=5,right=3}}}) do
+        assert(not pcall(sc.image,"atlas",1,2,16,16,options))
+    end
+    sc.image("atlas",1,2,16,16,{source_x=8,source_y=4,source_w=16,source_h=8,
+        flip_x=true,flip_y=true,diagonal=true,color="#12345678",screen=true,layer=-2,
+        slice={left=2,right=3,top=1,bottom=4}})
+    sc.image("atlas",2,3,4,5,false)
+end})"));
+    ScResource resource; resource.name="atlas"; resource.type="image"; resource.path="atlas.png";
+    resource.image_width=32; resource.image_height=16; world->resources.push_back(resource);
+    CHECK(sc_script_draw(script,0)); CHECK(world->draw_count==2);
+    const auto& image=world->draws[0];
+    CHECK(image.kind==SC_DRAW_IMAGE&&image.source_x==8&&image.source_y==4);
+    CHECK(image.source_w==16&&image.source_h==8&&image.flip_x&&image.flip_y&&image.diagonal);
+    CHECK(image.color==0x12345678&&image.screen);
+    CHECK(image.slice_left==2&&image.slice_right==3&&image.slice_top==1&&image.slice_bottom==4);
+    ScDraw panel; panel.w=30; panel.h=20;
+    panel.slice_left=2; panel.slice_right=3; panel.slice_top=1; panel.slice_bottom=4;
+    auto grid=sc_image_grid(panel,12,10);
+    CHECK(grid.x.cells==3&&grid.y.cells==3);
+    CHECK(grid.x.position[1]==2&&grid.x.position[2]==27&&grid.y.position[1]==1&&grid.y.position[2]==16);
+    CHECK(std::abs(grid.x.uv[1]-1.f/6)<1e-6f&&grid.x.uv[2]==.75f);
+    panel.w=3; panel.h=2; grid=sc_image_grid(panel,12,10);
+    CHECK(std::abs(grid.x.position[1]-1.2f)<1e-6f&&std::abs(grid.x.position[2]-1.2f)<1e-6f);
+    CHECK(std::abs(grid.y.position[1]-.4f)<1e-6f&&std::abs(grid.y.position[2]-.4f)<1e-6f);
+    panel.w=30; panel.h=20; panel.diagonal=true; panel.flip_x=true; grid=sc_image_grid(panel,12,10);
+    CHECK(grid.x.position[1]==4&&grid.x.position[2]==29&&grid.y.position[1]==2&&grid.y.position[2]==17);
+    CHECK(std::abs(grid.x.uv[1]-.4f)<1e-6f&&std::abs(grid.y.uv[1]-1.f/6)<1e-6f);
+    grid=sc_image_grid(ScDraw{},12,10); CHECK(grid.x.cells==1&&grid.y.cells==1);
+
+    CHECK(image.layered&&image.layer==-2);
+    CHECK(world->draws[1].source_w==0&&!world->draws[1].screen&&world->draws[1].color==0xffffffff);
+    world->entities[0].alive=world->entities[1].alive=true;
+    world->entities[0].layer=0; world->entities[1].layer=2;
+    world->layers.resize(2); world->layers[0].order=-1; world->layers[1].order=2;
+    world->draws[2]=world->draws[3]=image;
+    world->draws[2].layer=world->draws[3].layer=0; world->draw_count=4;
+    std::array<ScSceneItem,7> order{};
+    auto count=sc_scene_order(*world,order); CHECK(count&&*count==7);
+    CHECK(order[0].kind==ScSceneKind::image&&order[0].index==0);
+    CHECK(order[1].kind==ScSceneKind::map&&order[1].index==0);
+    CHECK(order[2].kind==ScSceneKind::image&&order[2].index==2);
+    CHECK(order[3].kind==ScSceneKind::image&&order[3].index==3);
+    CHECK(order[4].kind==ScSceneKind::entity&&order[4].index==0);
+    CHECK(order[5].kind==ScSceneKind::map&&order[6].kind==ScSceneKind::entity);
+    CHECK(!sc_scene_order(*world,std::span{order}.first(6)));
+    sc_script_close(script);
+    CHECK(open_source(script,world,"return {draw=function() sc.clip(0,0,20,20); sc.image('atlas',0,0,8,8,{layer=0}); sc.clip() end}"));
+    world->resources.push_back(resource);
+    CHECK(!sc_script_draw(script,0)); CHECK(std::strstr(script->error,"cannot be nested inside UI clips"));
+    sc_script_close(script);
+}
+
+static void test_presentation(ScScript* script,ScWorld* world) {
+    CHECK(open_source(script,world,R"(
+local id,step=0,0
+local function near(a,b) assert(math.abs(a-b)<.002,tostring(a).." != "..tostring(b)) end
+return {gravity=0,init=function()
+    assert(not sc.presentation.stats().reserved)
+    assert(not pcall(sc.presentation.interpolate,1))
+    sc.presentation.interpolate(true)
+    sc.projectiles.configure(4) -- Reserving presentation before the optional batch pool is supported.
+    assert(sc.presentation.stats().projectiles==4)
+    id=sc.spawn{x=10,y=20,w=8,h=8}
+    sc.camera.set{bounds=false,pixel_snap=false}
+end,update=function()
+    step=step+1
+    if step==1 then sc.set(id,{x=30});sc.camera.set{x=20}
+    elseif step==2 then
+        sc.set(id,{x=300});sc.presentation.snap(id)
+        sc.camera.set{x=200};sc.presentation.snap_camera()
+    elseif step==3 then sc.presentation.interpolate(false);sc.set(id,{x=400})
+    end
+    near(sc.presentation.pose(id).x,sc.get(id).x)
+end,draw=function(alpha)
+    assert(not pcall(sc.presentation.interpolate,false))
+    assert(not pcall(sc.presentation.snap,id))
+    assert(not pcall(sc.presentation.snap_camera))
+    local p=sc.presentation.pose(id);local c=sc.camera.read()
+    if step==1 then
+        near(p.x,10+20*alpha);near(sc.get(id).x,30)
+        near(c.anchor_x,20*alpha);near(c.x,20)
+        local screen=sc.camera.to_screen(p.x,p.y)
+        near(screen.x,10);near(screen.y,20)
+        local back=sc.camera.to_world(screen.x,screen.y);near(back.x,p.x)
+    elseif step==2 then near(p.x,300);near(c.anchor_x,200)
+    elseif step==3 then near(p.x,400);assert(not sc.presentation.stats().enabled)
+    end
+end})"));
+    for(int tick=0;tick<3;++tick) {
+        CHECK(sc_script_update(script)); sc_step(world);
+        const auto hash=sc_state_hash(world);
+        for(float alpha:{0.f,.25f,.5f,1.f}) {
+            if(!sc_script_draw(script,alpha)) { std::fprintf(stderr,"%s\n",script->error); CHECK(false); }
+            CHECK(sc_state_hash(world)==hash);
+        }
+    }
+    CHECK(open_source(script,world,R"(return {update=function()
+        assert(not sc.presentation.stats().reserved)
+        assert(not pcall(sc.presentation.interpolate,true))
+        sc.presentation.interpolate(false)
+        assert(not pcall(sc.presentation.pose,1))
+        assert(not pcall(sc.presentation.snap,1))
+    end})"));
+    CHECK(sc_script_update(script));
+}
+
+static void test_navigation_lifetime() {
+    auto world=std::make_unique<ScWorld>(); ScScript script;
+    CHECK(open_source(&script,world.get(),R"(local step,field=0,nil
+return {init=function() sc.navigation.region(-16,-16,{"...."},8) end,
+update=function()
+    step=step+1
+    if step==1 then field=sc.navigation.flow(3,0)
+    else
+        assert(not pcall(sc.navigation.flow,3,0))
+        assert(select(3,sc.navigation.direction(field,-12,-12))=='ok')
+        sc.navigation.region()
+        assert(not pcall(sc.navigation.direction,field,-12,-12))
+        assert(not pcall(sc.navigation.flow,0,0))
+    end
+end})"));
+    script.flow_generations[0]=0x07fffffeu;
+    CHECK(sc_script_update(&script)); CHECK(script.flow_generations[0]==0x07ffffffu);
+    CHECK(sc_script_update(&script)); CHECK(script.flow_generations[0]==0x07ffffffu);
+    CHECK(open_source(&script,world.get(),R"(return {init=function()
+        sc.navigation.region(0,0,{".."},8)
+    end})"));
+    CHECK(script.navigation_region!=nullptr);
+    CHECK(open_source(&script,world.get(),"return {}"));
+    CHECK(script.navigation_region==nullptr);
+}
+
+int main(int argc,char** argv) {
+    const bool navigation_only=argc==2&&!std::strcmp(argv[1],"--navigation");
+    const bool images_only=argc==2&&!std::strcmp(argv[1],"--images");
+    const bool ui_only=argc==2&&!std::strcmp(argv[1],"--ui");
+    CHECK(argc==1||navigation_only||ui_only||images_only);
     snprintf(project, sizeof project, "tests/.script-test-%ld", static_cast<long>(test_pid()));
     CHECK(test_mkdir(project) == 0);
     auto world = std::make_unique<ScWorld>();
     ScScript script;
+    if(!ui_only&&!images_only) test_navigation_lifetime();
+    if(ui_only) test_ui_callback(&script,world.get());
+    if(images_only) test_image_regions(&script,world.get());
+    if(!navigation_only&&!ui_only&&!images_only) {
+    test_presentation(&script,world.get());
+    test_image_regions(&script,world.get());
     test_paths(); test_scene_validation(&script, world.get()); test_api(&script, world.get()); test_limits(&script, world.get());
     test_ownership(world.get());
+    test_batch_storage(&script,world.get());
+    test_projectile_result_allocation(&script,world.get());
+    test_ui_callback(&script,world.get());
+    }
     char path[SC_PATH_MAX + 16];
     snprintf(path, sizeof path, "%s/main.lua", project);
     CHECK(remove(path) == 0); CHECK(test_rmdir(project) == 0);
-    puts("script: configuration, API, sandbox limits, and callback contracts passed");
+    puts(images_only ? "script: image regions, nine-slice geometry and atomic argument rejection passed" :
+         ui_only ? "script: UI callback phases, input restoration, text focus and instruction budget passed" :
+         navigation_only ? "script: navigation generation exhaustion and VM lifetime passed" :
+         "script: configuration, API, sandbox limits, and callback contracts passed");
     return 0;
 }

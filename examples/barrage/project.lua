@@ -1,1 +1,14 @@
-return {id="shiny.barrage", data_version=1, limits={entities=4096,particles=32768,draws=4096}}
+return {id="shiny.barrage",data_version=3,entry="main.lua",
+    limits={sound_voices=12,entities=128,identities=2048,projectiles=4096,particles=4096,draws=1024},resources={
+        keeper={type="image",path="assets/keeper.png"},wisp={type="image",path="assets/wisp.png"},
+        arena={type="image",path="assets/arena-v1.png"},
+        ["shot"]={type="sound",path="assets/audio/shot.wav"},
+        ["hit"]={type="sound",path="assets/audio/hit.wav"},
+        ["break"]={type="sound",path="assets/audio/break.wav"},
+        ["dash"]={type="sound",path="assets/audio/dash.wav"},
+        ["hurt"]={type="sound",path="assets/audio/hurt.wav"},
+        ["heal"]={type="sound",path="assets/audio/heal.wav"},
+        ["wave"]={type="sound",path="assets/audio/wave.wav"},
+        ["win"]={type="sound",path="assets/audio/win.wav"},
+        ["lose"]={type="sound",path="assets/audio/lose.wav"},
+        chime={type="sound",path="assets/chime.wav"},theme={type="music",path="assets/theme.ogg"}}}

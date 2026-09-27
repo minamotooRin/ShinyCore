@@ -20,5 +20,23 @@ inline constexpr ScCapability SC_CAPABILITIES[]={
 #else
     {"streaming",false},
 #endif
-    {"advanced_render",false},{"devtools",false}
+// Aggregate build capability; acceptance evidence is recorded separately.
+#ifdef SC_HAS_ADVANCED_RENDER
+    {"advanced_render",true},
+    {"materials",true},
+    {"postprocessing",true},
+    {"geometry_shadows",true},
+    {"normal_maps",true},
+#else
+    {"advanced_render",false},
+    {"materials",false},
+    {"postprocessing",false},
+    {"geometry_shadows",false},
+    {"normal_maps",false},
+#endif
+#ifdef SC_HAS_DEVTOOLS
+    {"devtools",true}
+#else
+    {"devtools",false}
+#endif
 };

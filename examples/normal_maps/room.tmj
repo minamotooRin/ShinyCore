@@ -1,0 +1,56 @@
+{
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "infinite": false,
+  "width": 7,
+  "height": 4,
+  "tilewidth": 64,
+  "tileheight": 64,
+  "tilesets": [
+    {
+      "firstgid": 1,
+      "image": "atlas.png",
+      "tilewidth": 64,
+      "tileheight": 64,
+      "columns": 2,
+      "tilecount": 2,
+      "objectalignment": "unspecified"
+    }
+  ],
+  "layers": [
+    {
+      "name": "normal tiles",
+      "type": "tilelayer",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        2147483650,
+        1073741826,
+        3221225474,
+        536870914,
+        2684354562,
+        1610612738,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

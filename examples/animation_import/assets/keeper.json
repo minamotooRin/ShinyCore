@@ -1,0 +1,120 @@
+{
+  "frames": [
+    {
+      "filename": "keeper-0",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "sourceSize": {
+        "w": 12,
+        "h": 18
+      },
+      "duration": 125
+    },
+    {
+      "filename": "keeper-1",
+      "frame": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "sourceSize": {
+        "w": 12,
+        "h": 18
+      },
+      "duration": 125
+    },
+    {
+      "filename": "keeper-2",
+      "frame": {
+        "x": 24,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "sourceSize": {
+        "w": 12,
+        "h": 18
+      },
+      "duration": 125
+    },
+    {
+      "filename": "keeper-3",
+      "frame": {
+        "x": 36,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 18
+      },
+      "sourceSize": {
+        "w": 12,
+        "h": 18
+      },
+      "duration": 125
+    }
+  ],
+  "meta": {
+    "image": "keeper.png",
+    "size": {
+      "w": 96,
+      "h": 18
+    },
+    "frameTags": [
+      {
+        "name": "idle",
+        "from": 0,
+        "to": 0,
+        "direction": "forward"
+      },
+      {
+        "name": "walk",
+        "from": 1,
+        "to": 3,
+        "direction": "forward"
+      },
+      {
+        "name": "once",
+        "from": 0,
+        "to": 3,
+        "direction": "pingpong",
+        "repeat": "1"
+      }
+    ]
+  }
+}

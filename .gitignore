@@ -10,3 +10,4 @@ __pycache__/
 /output/
 /.baseline-c11-staging/
 /.git-tmp/
+/tests/.script-test-*/

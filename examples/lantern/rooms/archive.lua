@@ -27,7 +27,7 @@ return {
     },
     init = function()
         keeper = sc.find("keeper")
-        sc.camera(0, 0)
+        sc.camera.set{x=0,y=0}
         sc.message("Some things grow where no sun has ever been.")
         local function detail(x, y, w, h, color, layer, glow)
             sc.spawn({x = x, y = y, w = w, h = h, color = color, layer = layer, glow = glow or 0})

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
+#include <set>
 
 namespace {
 unsigned checks{};
@@ -225,11 +226,104 @@ void test_capacity_and_timeout() {
     CHECK(expired);
     CHECK(!(*pending)->send(0, ScNetChannel::Control, bytes("late")));
 }
+
+void test_application_queue() {
+    ScNetSessions application;
+    auto& entry=application.entries["coop"];
+    entry.net=host();
+    auto connection=connect(*entry.net);
+    auto& client=*connection.client;
+    const auto await_count=[&](std::size_t count) {
+        auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+        while(entry.queued<count && entry.net && std::chrono::steady_clock::now()<deadline) {
+            application.service();
+            CHECK(!poll(client));
+        }
+        CHECK(entry.net && entry.queued==count);
+    };
+    const auto send_range=[&](unsigned first,unsigned count) {
+        for(unsigned i=first;i<first+count;++i) {
+            auto text=std::to_string(i);
+            CHECK(client.send(connection.client_id,ScNetChannel::Control,bytes(text)));
+        }
+        client.flush();
+    };
+    // Service while simulation is stopped: no event leaks before a tick boundary.
+    send_range(0,80); await_count(80);
+    auto none=entry.poll(); CHECK(none && !*none);
+    application.begin_tick();
+    CHECK(entry.readable==64);
+    send_range(80,4); await_count(84);
+    for(unsigned i=0;i<64;++i) {
+        auto event=entry.poll(); CHECK(event && *event);
+        auto& value=**event;
+        CHECK(value.peer==connection.server_id && value.type==ScNetEventType::Receive);
+        CHECK(std::string_view(reinterpret_cast<const char*>(value.data.data()),value.size)==std::to_string(i));
+    }
+    none=entry.poll(); CHECK(none && !*none && entry.queued==20);
+    application.begin_tick();
+    for(unsigned i=64;i<84;++i) {
+        auto event=entry.poll(); CHECK(event && *event);
+        CHECK(std::string_view(reinterpret_cast<const char*>((**event).data.data()),(**event).size)==std::to_string(i));
+    }
+    CHECK(entry.queued==0);
+    CHECK(!entry.send(UINT32_MAX,ScNetChannel::Control,bytes("invalid")));
+    CHECK(entry.sent_messages==0);
+    for(unsigned i=0;i<64;++i) CHECK(entry.send(connection.server_id,ScNetChannel::Control,bytes("ok")));
+    CHECK(!entry.send(connection.server_id,ScNetChannel::Control,bytes("over budget")));
+    application.begin_tick();
+    std::array<std::uint8_t,1200> large{};
+    for(unsigned i=0;i<54;++i) CHECK(entry.send(connection.server_id,ScNetChannel::Control,large));
+    CHECK(!entry.send(connection.server_id,ScNetChannel::Control,large));
+    CHECK(entry.sent_bytes==64800);
+    // Drain outgoing messages before filling the application receive ring.
+    entry.net->flush();
+    unsigned received=0;
+    for(int i=0;i<3000 && received<118;++i) {
+        application.service();
+        if(auto event=poll(client)) { CHECK(event->type==ScNetEventType::Receive); ++received; }
+    }
+    CHECK(received==118);
+    // Ring wrap and bounded failure; reliable messages are never silently skipped.
+    for(unsigned batch=0;batch<4;++batch) {
+        send_range(batch*64,64); await_count((batch+1)*64);
+    }
+    auto port=entry.net->port();
+    send_range(256,1);
+    for(int i=0;i<3000 && entry.net;++i) { application.service(); (void)poll(client); }
+    CHECK(!entry.net && entry.fault[0] && entry.queued==0);
+    auto failure=entry.poll();
+    CHECK(!failure && failure.error().find("queue exhausted")!=std::string::npos);
+    CHECK(!entry.send(0,ScNetChannel::Control,bytes("closed")));
+    CHECK(ScNet::host("127.0.0.1",port,1).has_value());
+}
+
+void test_tokens() {
+    ScNetSessions application;
+    std::set<std::string> tokens;
+    for(unsigned i=0;i<SC_NET_TICK_TOKENS;++i) {
+        auto token=application.token(); CHECK(token.has_value());
+        CHECK(token->back()==0);
+        std::string text(token->data()); CHECK(text.size()==32);
+        CHECK(text.find_first_not_of("0123456789abcdef")==std::string::npos);
+        CHECK(tokens.insert(text).second);
+    }
+    CHECK(application.tokens_remaining()==0 && !application.token());
+    application.service(); CHECK(!application.token());
+    application.begin_tick();
+    CHECK(application.tokens_remaining()==64 && application.token().has_value());
+    ScNetSessions failing([]() -> ScResult<ScNetToken> { return std::unexpected("injected entropy failure"); });
+    auto failed=failing.token();
+    CHECK(!failed && failed.error()=="injected entropy failure");
+    CHECK(failing.tokens_remaining()==63);
+}
 } // namespace
 
 int main() {
     test_arguments_and_raii();
     test_messages();
+    test_application_queue();
+    test_tokens();
     test_capacity_and_timeout();
     std::printf("C++23 network: %u checks passed\n", checks);
 }

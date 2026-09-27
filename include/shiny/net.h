@@ -1,8 +1,10 @@
 #pragma once
+#include "shiny/state.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -15,6 +17,12 @@ inline constexpr unsigned SC_NET_MAX_PEERS = 32;
 inline constexpr std::size_t SC_NET_MAX_PAYLOAD = 1200;
 inline constexpr std::size_t SC_NET_MAX_QUEUED = 256;
 inline constexpr std::size_t SC_NET_ERROR_MAX = 160;
+inline constexpr std::size_t SC_NET_RECEIVE_CAPACITY = 256;
+inline constexpr std::size_t SC_NET_TICK_MESSAGES = 64;
+inline constexpr std::size_t SC_NET_TICK_BYTES = 64 * 1024;
+inline constexpr std::size_t SC_NET_STATE_BYTES = 64 * 1024;
+inline constexpr unsigned SC_NET_TICK_TOKENS = 64;
+using ScNetToken = std::array<char,33>; // 128 bits, lowercase hex plus NUL.
 
 enum class ScNetChannel { Control = 0, State = 1 };
 enum class ScNetEventType { Connect, Receive, Disconnect };
@@ -69,7 +77,38 @@ private:
 
 // Application lifetime; room VMs borrow named bindings without owning sockets.
 struct ScNetSessions {
-    struct Entry { std::unique_ptr<ScNet> net; std::uint64_t generation{}; };
+    using TokenSource = ScResult<ScNetToken>(*)();
+    explicit ScNetSessions(TokenSource source=nullptr) noexcept;
+    struct Entry {
+        std::unique_ptr<ScNet> net;
+        std::uint64_t generation{};
+        // Allocated with the named session, never expanded during service/update.
+        std::array<ScNetEvent, SC_NET_RECEIVE_CAPACITY> events{};
+        std::size_t head{}, queued{}, readable{};
+        std::size_t sent_messages{}, sent_bytes{};
+        std::array<char, SC_NET_ERROR_MAX> fault{};
+        // Explicit application protocol data; never included in room checkpoints.
+        ScValue state;
+        std::size_t state_bytes{};
+        void service() noexcept;
+        void begin_tick() noexcept;
+        [[nodiscard]] std::expected<std::optional<ScNetEvent>, std::string> poll();
+        [[nodiscard]] std::expected<void, std::string> send(
+            std::uint32_t peer, ScNetChannel channel, std::span<const std::uint8_t> data);
+    private:
+        void fail(const char* message) noexcept;
+    };
     std::map<std::string,Entry,std::less<>> entries;
     std::uint64_t next_generation{1};
+    // Sampled only at fixed-update boundaries; room changes never reset the epoch.
+    [[nodiscard]] double time() const noexcept { return time_; }
+    [[nodiscard]] ScResult<ScNetToken> token();
+    [[nodiscard]] unsigned tokens_remaining() const noexcept { return SC_NET_TICK_TOKENS-token_attempts_; }
+    void service() noexcept;
+    void begin_tick() noexcept;
+private:
+    const std::chrono::steady_clock::time_point started_{std::chrono::steady_clock::now()};
+    double time_{};
+    TokenSource token_source_;
+    unsigned token_attempts_{};
 };

@@ -1,0 +1,16 @@
+return {
+    {name="THE AQUEDUCT",
+        gap={600,696},color="#263C58FF",accent="#648AACFF",
+        lights={{240,176},{480,176},{780,176},{920,140},{1120,176}},
+        ledges={{880,152,96}},controls={{520,174,"LEVER"}},
+        platform={x=600,y=160,w=48,dx=112,dy=0,period=6}},
+    {name="THE OLD MILL",
+        color="#343D36FF",accent="#91AE86FF",
+        lights={{160,176},{370,140},{540,176},{930,144},{1150,176}},
+        ledges={{336,152,72}},controls={},crate=true,slope=true},
+    {name="THE SIGNAL TOWER",
+        color="#3D304FFF",accent="#AF8DC8FF",
+        lights={{120,176},{350,140},{600,176},{850,176},{1150,176}},
+        ledges={{320,152,80}},controls={{260,174,"WEST"},{560,174,"CENTER"},{850,174,"EAST"}},
+        platform={x=710,y=152,w=44,dx=0,dy=-40,period=5}},
+}

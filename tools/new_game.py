@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+import sdk
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +50,7 @@ return {
     },
     init = function()
         player = sc.find("player")
-        sc.camera(player)
+        sc.camera.follow(player)
         controller = Controller.new(player)
         sc.state.set("visits", (sc.state.get("visits") or 0) + 1)
     end,
@@ -114,6 +115,8 @@ keep binding names in Lua tables. Device replay format is documented at `{ROOT /
 The `.luarc.json` file links that same API for Lua Language Server completion.
 
 - Keep game rules in Lua and assets in this project. Each scene returns a table.
+- Keep package.json script/resource roots current; literal require dependencies are collected automatically.
+- shiny-sdk.json pins the local SDK and engine version. Record intentional SDK edits with tools/sdk.py and a new local version before packaging.
 - Use only documented `sc` APIs. Unknown configuration fields are errors.
 - `sc.get()` returns a copy; apply changes with `sc.set(id, patch)`.
 - Update simulation state only in `init()` or `update(dt)`. `dt` is always 1/60.
@@ -168,7 +171,9 @@ in the engine checkout. The resulting executable is normally
         shutil.copy2(api, destination / "docs/api.lua")
         shutil.copy2(guide, destination / "docs/llm-guide.md")
         shutil.copy2(ROOT / "docs/input.md", destination / "docs/input.md")
-        shutil.copytree(ROOT / "lua/shiny", destination / "lib/shiny")
+        shutil.copytree(ROOT / "lua/shiny", destination / "lib/shiny", ignore=shutil.ignore_patterns("version.json"))
+        shutil.copy2(ROOT / "LICENSE", destination / "lib/shiny/LICENSE.txt")
+        sdk.write(destination, sdk.read(ROOT / "lua/shiny/version.json"))
         # All SDK references are project-relative; only the separately built executable has a host path.
         agents = agents.replace(str(api), "docs/api.lua").replace(str(guide), "docs/llm-guide.md").replace(str(ROOT / "docs/input.md"), "docs/input.md")
         readme = readme.replace(str(api), "docs/api.lua")
@@ -180,6 +185,8 @@ in the engine checkout. The resulting executable is normally
         (destination / "project.lua").write_text('return {id="' + project_id + '", data_version=1, rooms={"main.lua", "rooms/second.lua"}}\n', encoding="utf-8")
         (destination / "rooms/second.lua").write_text('return {gravity=0, init=function() sc.message("SECOND ROOM / E TO RETURN") end, update=function() if sc.pressed("action") then sc.scene("main.lua") end end}\n', encoding="utf-8")
         for name, contents in {
+            "package.json": json.dumps({"format": 1, "scripts": ["main.lua", "rooms/second.lua"],
+                "files": ["smoke.replay", "README.md", "AGENTS.md", ".luarc.json", "docs/api.lua", "docs/llm-guide.md", "docs/input.md"]}, indent=2) + "\n",
             "main.lua": SCENE,
             "smoke.replay": REPLAY,
             "README.md": readme,

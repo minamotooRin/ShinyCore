@@ -26,6 +26,11 @@ function Edit.insert(e,text,limit)
     return true
 end
 function Edit.move(e,direction,selecting)
+    if not selecting and e.cursor~=e.anchor then
+        local first,last=Edit.selection(e)
+        e.cursor=direction<0 and first or last; e.anchor=e.cursor
+        return
+    end
     local offsets=sc.input.boundaries(e.value)
     local target=e.cursor
     if direction<0 then
@@ -41,13 +46,13 @@ function Edit.erase(e,direction)
     return Edit.insert(e,"")
 end
 function Edit.select_all(e) e.anchor=1; e.cursor=#e.value+1 end
-function Edit.home(e,selecting)
+function Edit.home(e,selecting,document)
     local prefix=e.value:sub(1,e.cursor-1)
-    e.cursor=(prefix:match(".*()\n") or 0)+1
+    e.cursor=document and 1 or (prefix:match(".*()\n") or 0)+1
     if not selecting then e.anchor=e.cursor end
 end
-function Edit.finish(e,selecting)
-    e.cursor=e.value:find("\n",e.cursor,true) or (#e.value+1)
+function Edit.finish(e,selecting,document)
+    e.cursor=(not document and e.value:find("\n",e.cursor,true)) or (#e.value+1)
     if not selecting then e.anchor=e.cursor end
 end
 local function restore(e,source,destination)

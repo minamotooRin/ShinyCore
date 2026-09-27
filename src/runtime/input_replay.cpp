@@ -41,7 +41,7 @@ double numeric(const ScValue& value,double low,double high) {
 }
 ScResult<ScDeviceReplayEvent> sc_device_replay_event(const ScValue& value) {
     try {
-        fields(value,{"frame","keys","gamepad","key_pressed","key_released","button_pressed","button_released","mouse","text","composition","clipboard","pads"});
+        fields(value,{"frame","keys","gamepad","key_pressed","key_released","button_pressed","button_released","mouse","text","composition","composition_edit","composition_segments","composition_segments_truncated","clipboard","pads"});
         ScDeviceReplayEvent event;
         double frame=numeric(required(value,"frame"),0,1'000'000'000);
         if(std::floor(frame)!=frame) throw std::runtime_error("frame must be an integer");
@@ -87,6 +87,45 @@ ScResult<ScDeviceReplayEvent> sc_device_replay_event(const ScValue& value) {
             auto& buffer=std::strcmp(field,"text")==0?in.text:std::strcmp(field,"composition")==0?in.composition:in.clipboard;
             std::memcpy(buffer.data(),text->data(),text->size());
         }
+        const auto composition_end=std::strlen(in.composition.data())+1;
+        auto position=[&](const ScValue& record,const char* name) {
+            const auto n=numeric(required(record,name),1,static_cast<double>(composition_end));
+            if(std::floor(n)!=n) throw std::runtime_error("composition positions must be integers");
+            const auto byte=static_cast<std::size_t>(n)-1;
+            if((static_cast<unsigned char>(in.composition[byte])&0xc0)==0x80)
+                throw std::runtime_error("composition position splits a UTF-8 codepoint");
+            return static_cast<int>(n);
+        };
+        if(auto edit=value.get("composition_edit")) {
+            fields(*edit,{"cursor","start","finish"});
+            in.composition_edit={position(*edit,"cursor"),position(*edit,"start"),position(*edit,"finish")};
+            if(in.composition_edit.start>in.composition_edit.finish) throw std::runtime_error("composition_edit range is reversed");
+        }
+        if(auto value_segments=value.get("composition_segments")) {
+            auto segments=std::get_if<ScValue::Array>(&value_segments->data);
+            if(!segments||segments->size()>SC_COMPOSITION_SEGMENTS) throw std::runtime_error("composition_segments requires at most 128 segments");
+            int previous=1;
+            for(const auto& segment:*segments) {
+                fields(segment,{"start","finish","kind"});
+                const int first=position(segment,"start"),last=position(segment,"finish");
+                const auto* kind=std::get_if<std::string>(&required(segment,"kind").data);
+                std::size_t id=0;
+                while(id<std::size(SC_COMPOSITION_KINDS)&&(!kind||SC_COMPOSITION_KINDS[id]!=*kind)) ++id;
+                if(id==std::size(SC_COMPOSITION_KINDS)) throw std::runtime_error("unknown composition segment kind");
+                if(first!=previous||last<=first) throw std::runtime_error("composition segments must be ordered, contiguous and nonempty");
+                in.composition_segments[in.composition_segment_count++]={static_cast<std::uint16_t>(first),static_cast<std::uint16_t>(last),static_cast<std::uint8_t>(id)};
+                previous=last;
+            }
+            if(!segments->empty()&&static_cast<std::size_t>(previous)!=composition_end)
+                throw std::runtime_error("composition segments must cover the complete preedit");
+        }
+        if(auto truncated=value.get("composition_segments_truncated")) {
+            auto flag=std::get_if<bool>(&truncated->data);
+            if(!flag) throw std::runtime_error("composition_segments_truncated requires boolean");
+            in.composition_segments_truncated=*flag;
+            if(*flag&&(in.composition_segment_count||composition_end==1))
+                throw std::runtime_error("truncated composition metadata requires a nonempty preedit and no segments");
+        }
         if(auto devices=value.get("pads")) {
             auto entries=std::get_if<ScValue::Array>(&devices->data);
             if(!entries||entries->size()!=4) throw std::runtime_error("pads requires four snapshots");
@@ -127,9 +166,21 @@ ScValue sc_input_snapshot(const ScDeviceInput& input) {
             {"released",names_json(SC_BUTTONS,[&](auto id){return p.released&(1u<<id);})},
             {"axes",ScValue{std::move(a)}}}});
     }
+    ScValue::Array segments;
+    for(std::size_t i=0;i<input.composition_segment_count&&i<SC_COMPOSITION_SEGMENTS;++i) {
+        const auto& segment=input.composition_segments[i];
+        const auto kind=segment.kind<std::size(SC_COMPOSITION_KINDS)?segment.kind:0;
+        segments.emplace_back(ScValue::Object{{"start",ScValue{double(segment.start)}},{"finish",ScValue{double(segment.finish)}},
+            {"kind",ScValue{std::string(SC_COMPOSITION_KINDS[kind])}}});
+    }
+    const auto edit=sc_composition_edit(input);
     return ScValue(ScValue::Object{
         {"text",ScValue{std::string(input.text.data())}},
         {"composition",ScValue{std::string(input.composition.data())}},
+        {"composition_segments",ScValue{std::move(segments)}},
+        {"composition_segments_truncated",ScValue{input.composition_segments_truncated}},
+        {"composition_edit",ScValue{ScValue::Object{{"cursor",ScValue{double(edit.cursor)}},
+            {"start",ScValue{double(edit.start)}},{"finish",ScValue{double(edit.finish)}}}}},
         {"clipboard",ScValue{std::string(input.clipboard.data())}},
         {"pads",ScValue{std::move(pads)}},
         {"mouse",ScValue{ScValue::Object{

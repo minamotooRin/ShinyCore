@@ -4,6 +4,12 @@
 #include <cstring>
 #include <stdexcept>
 
+ScCompositionEdit sc_composition_edit(const ScDeviceInput& input) noexcept {
+    const int end=static_cast<int>(std::strlen(input.composition.data()))+1;
+    auto position=[&](int n) { return n>0?std::clamp(n,1,end):end; };
+    return {position(input.composition_edit.cursor),position(input.composition_edit.start),position(input.composition_edit.finish)};
+}
+
 int ScGamepadSelection::sample(const std::array<bool,4>& available) {
     if(slot>=0 && !available[static_cast<std::size_t>(slot)]) { slot=-1; disconnect_pending=true; }
     if(slot<0 && !disconnect_pending)

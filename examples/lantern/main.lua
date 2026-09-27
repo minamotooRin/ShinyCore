@@ -123,7 +123,7 @@ return {
     },
     init = function()
         player, gate = sc.find("keeper"), sc.find("door")
-        sc.camera(player)
+        sc.camera.follow(player)
         decoration()
         for i, position in ipairs({{151, 164}, {337, 134}, {542, 126}}) do
             local id = sc.spawn({tag = "wisp_" .. i, x = position[1], y = position[2],

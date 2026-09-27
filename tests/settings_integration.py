@@ -57,7 +57,7 @@ end}
 ''', encoding='utf-8')
     actions = {0:'tab',2:'enter',4:'enter',6:'escape',8:'enter',10:'enter',
                12:'tab',14:'tab',16:'enter',18:'tab',20:'enter',22:'tab',24:'left',
-               26:'tab',28:'tab',30:'tab',32:'left',34:'tab',36:'enter',38:'escape',40:'escape',41:'enter'}
+               26:'tab',28:'tab',30:'tab',32:'left',34:'tab',36:'enter',38:'escape',40:'up',41:'enter'}
     events = [{'version':3}]
     events.extend({'frame':frame,'keys':[actions[frame]] if frame in actions else [],
                    'gamepad':{'connected':False}} for frame in range(42))

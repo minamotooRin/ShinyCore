@@ -1,8 +1,10 @@
 -- An ordinary authored UI: changes stay local until Apply succeeds.
 local UI=require("shiny.ui")
+local Input=require("shiny.input")
+local Rebind=require("shiny.rebind")
 local Settings={}
 local resolutions={{768,432},{960,540},{1152,648},{1280,720},{1920,1080}}
-function Settings.new(on_back)
+function Settings.new(on_back,actions)
     local panel={draft=sc.settings.get(),notice="",on_back=on_back}
     local draft=panel.draft
     local function resolution() return "SIZE  "..draft.width.." x "..draft.height end
@@ -44,6 +46,9 @@ function Settings.new(on_back)
                     panel.notice=ok and "Settings saved" or error
                     UI.set(panel.ui,"settings.notice",{text=panel.notice})
                 end},
+                {id="settings.bindings",kind="button",text="CONTROLS",visible=actions~=nil and actions.profile~=nil,on_click=function()
+                    panel.bindings=Rebind.new(actions,function() panel.bindings=nil;panel.ui.focus="settings.bindings" end)
+                end},
                 {id="settings.back",kind="button",text="BACK",on_click=function() on_back() end},
             }},
         }}
@@ -51,9 +56,13 @@ function Settings.new(on_back)
     UI.layout(panel.ui,384,216); panel.ui.focus="settings.resolution"
     return panel
 end
-function Settings.update(panel,dt)
+function Settings.update(panel,dt,actions)
+    if actions then Input.consume_sources(actions,{all=true}) end
+    if panel.bindings then Rebind.update(panel.bindings,dt);return end
     if sc.input.key_pressed("escape") or sc.input.gamepad_pressed("east") then panel.on_back(); return end
-    UI.update(panel.ui,dt,384,216)
+    UI.update(panel.ui,dt,384,216,actions)
 end
-function Settings.draw(panel) UI.draw(panel.ui) end
+function Settings.draw(panel)
+    if panel.bindings then Rebind.draw(panel.bindings) else UI.draw(panel.ui) end
+end
 return Settings

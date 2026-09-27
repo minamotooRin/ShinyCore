@@ -1,0 +1,5 @@
+{"version": 3}
+{"frame": 0, "keys": [], "gamepad": {"connected": false, "buttons": [], "axes": {}}, "composition": "xing"}
+{"frame": 1, "keys": [], "gamepad": {"connected": false, "buttons": [], "axes": {}}, "composition": "星灯"}
+{"frame": 2, "keys": ["enter"], "gamepad": {"connected": false, "buttons": [], "axes": {}}, "text": "星灯"}
+{"frame": 3, "keys": ["left_control", "z"], "gamepad": {"connected": false, "buttons": [], "axes": {}}}
