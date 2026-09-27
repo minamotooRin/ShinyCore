@@ -48,6 +48,10 @@ rooms and normal checkpoint loads. A fresh application starts a fresh track;
 save records contain campaign progress, not native voice handles. Logical/native
 ownership evidence and its audible limits are in
 [persistent music verification](verification-persistent-music.md).
+Wayfarer's title and forest now acquire its theme the same way. Its integration
+trace checks the voice ID and 0.3-second loop clock through ending, title and a
+new journey; hidden native title/world captures were inspected. This verifies
+logical continuity, not audible device behavior or finished music quality.
 
 The host backend owns `ScAudioDevice` in `src/audio/device.cpp`. It owns the device,
 decoded sound cache, playback aliases, music streams and transient synthesized tones.

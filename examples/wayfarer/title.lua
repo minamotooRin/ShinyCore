@@ -45,6 +45,7 @@ return {
         UI.set(shell.ui,"load",{text="读取",on_click=load})
         UI.set(shell.ui,"quit",{text="退出"})
         UI.layout(shell.ui,384,216)
+        assert(sc.audio.music("theme",{loop=true,volume=.07,fade=.4}))
         sc.app.pause(true)
     end,
     update=function(dt)

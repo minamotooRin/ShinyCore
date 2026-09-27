@@ -115,7 +115,7 @@ return {
         shell.ui.nodes.save.on_click=checkpoint
         update_inventory()
         if completed then finish() else shell.mode="game"; sc.app.pause(false) end
-        sc.audio.play("theme",{loop=true,volume=.07,fade=.4})
+        assert(sc.audio.music("theme",{loop=true,volume=.07,fade=.4}))
         publish()
     end,
     update=function(dt)

@@ -1,5 +1,6 @@
 """Wayfarer journal, actual full quest, streamed checkpoint, ending and new journey."""
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,6 +19,17 @@ def run(path,*args):
     if result.returncode: raise AssertionError(result.stderr)
     assert 'missing text glyph' not in result.stderr,result.stderr
     return json.loads(result.stdout)
+
+def persistent_music(trace,scenes):
+    frames=[json.loads(line) for line in trace.read_text(encoding='utf-8').splitlines()]
+    assert set(frame['scene'] for frame in frames)==set(scenes)
+    voices=[frame['audio'] for frame in frames]
+    assert all(len(voice)==1 and voice[0]['path']=='assets/theme.ogg' for voice in voices)
+    assert len({voice[0]['id'] for voice in voices})==1
+    positions=[voice[0]['position'] for voice in voices]
+    # The bundled theme loops every 0.3 seconds; a room change must not reset its clock.
+    assert all(math.isclose((b-a) % .3,1/60,abs_tol=1e-4) for a,b in zip(positions,positions[1:])),positions
+    return frames
 
 with tempfile.TemporaryDirectory(prefix='shiny-wayfarer-') as folder:
     temp=Path(folder)
@@ -69,12 +81,19 @@ with tempfile.TemporaryDirectory(prefix='shiny-wayfarer-') as folder:
     # The restored score screen is visible before state/image preparation completes.
     # Wait for that initialization before requesting another room.
     menu=[['enter'],[],[],[],['enter'],[],['tab'],[],['tab'],[],['enter'],[]]
-    canceled=run(project,'--frames','14','--replay',keys('cancel.jsonl',menu+[['enter'],[]]),'--save-dir',str(journey))
+    cancel_trace=temp/'cancel-trace.jsonl'
+    canceled=run(project,'--frames','14','--replay',keys('cancel.jsonl',menu+[['enter'],[]]),
+                 '--save-dir',str(journey),'--trace',str(cancel_trace))
     assert canceled['scene']=='title.lua' and canceled['watches']['quest']['mode']=='title', (canceled['scene'],canceled['watches'])
     assert not canceled['entities'] and slot.read_bytes()==before
+    persistent_music(cancel_trace,['main.lua','title.lua'])
     # The new room publishes its initial asynchronous state read on the next tick.
-    fresh=run(project,'--frames','19','--replay',keys('new.jsonl',menu+[['tab'],[],['enter'],[]]),'--save-dir',str(journey))
+    new_trace=temp/'new-trace.jsonl'
+    fresh=run(project,'--frames','19','--replay',keys('new.jsonl',menu+[['tab'],[],['enter'],[]]),
+              '--save-dir',str(journey),'--trace',str(new_trace))
     assert fresh['scene']=='main.lua' and fresh['watches']['quest']['stage']=='meet'
+    scenes=[frame['scene'] for frame in persistent_music(new_trace,['main.lua','title.lua'])]
+    assert scenes.index('title.lua')<len(scenes)-1 and scenes[-1]=='main.lua'
     assert fresh['watches']['quest']['collected']==0 and not fresh['watches']['stream']['route_cleared']
     assert any(e['tag']=='herb' for e in fresh['entities']) and not slot.exists()
     fixture=temp/'rules';fixture.mkdir()
@@ -103,4 +122,4 @@ for _,text in ipairs(texts) do
 end
 end}''',encoding='utf-8')
     run(fixture,'--frames','1')
-print('Wayfarer: full forest quest, 16 saved chunks, ending restore, new-journey isolation, journal and Chinese text passed')
+print('Wayfarer: full forest quest, 16 saved chunks, ending restore, music continuity, new-journey isolation, journal and Chinese text passed')

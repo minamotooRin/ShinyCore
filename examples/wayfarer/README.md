@@ -8,6 +8,9 @@ checkpoint. The title owns no streamed world. NEW JOURNEY asks before clearing t
 checkpoint, collected-object markers and map edits; cancelling preserves them.
 Completing the quest saves the ending. Its RETURN TO TITLE button cannot resume a
 completed quest as unfinished gameplay.
+The title and world acquire one application-owned theme voice. Returning to the
+title or beginning a new journey keeps its playback position; sound effects remain
+room-local.
 
 WASD moves, E talks/gathers or clears the stone at (328,128), I opens the journal,
 F6 saves, and Escape opens pause/settings. A controller uses the left stick or D-pad
@@ -86,7 +89,8 @@ fresh-process ending recovery, cancelled/new journeys, Chinese names and equipme
 `travel.jsonl` checks crossing chunks and road edits (550 frames). `gamepad.jsonl`
 completes the same 3243-frame mission with controller input; `controller-journal.jsonl`
 checks journal toggling, name typing and held-stick isolation in 22 frames. The
-integration test compares keyboard/controller quest and courier state. See
+integration test compares keyboard/controller quest and courier state, and checks
+the same music voice and continuous loop clock across room changes. See
 ../../docs/verification-wayfarer-controls.md for the new controller visual check.
 
 Actual hidden native captures have been inspected for title, dialogue, journal,

@@ -10,6 +10,12 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Wayfarer's title and forest now acquire the same application-owned theme voice.
+The full quest integration test checks unchanged voice identity and continuous
+0.3-second loop position through ending, title and new journey. Hidden, muted
+native title/world captures were inspected. Audible quality and physical-device
+playback remain unaccepted; see [audio](audio.md).
+
 Crossing now has five small reproducible PCM cues for jump, landing, mechanism
 success/failure and rescue. Focused headless playback states, deterministic cue
 bytes, the unchanged three-room gameplay snapshot, a relocated development
