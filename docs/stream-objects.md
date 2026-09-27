@@ -41,6 +41,24 @@ prepare 可返回 `{entity=..., children=..., components=...}` 作为第一值�
 应调用 `Objects.destroy(entry)`；直接销毁根实体会使仍活动的子对象失去归属，
 保存时会被拒绝。卸载时先销毁子对象，再卸载根对象；旧句柄全部失效。
 
+子对象的长期引用用命名路径表示，不能保存 `entry.children.*.id`：
+
+```lua
+-- 假设 prepare 创建了 lid.lock 两级子对象。
+local ref = Objects.reference(owner.entries[1], {"lid", "lock"})
+-- ref = {room="main.lua", persistent_id="chest:1", children={"lid","lock"}}
+local result = Objects.resolve(ref)
+if result.status == "active" then sc.set(result.id, {color="#FFC98C"}) end
+```
+
+`reference` 只接受活动对象及其现有命名路径，返回可序列化的普通表；省略路径
+表示根对象。`resolve` 不读取磁盘或创建块：根未加载、已删除、未发现或房间不活动
+时分别返回 `unloaded/deleted/absent/room_inactive`；重建后子路径已移除则返回
+`path_missing`。根已活动但不由本模块持有时返回 `unmanaged`；子句柄被外部销毁
+时返回 `stale`。除 `active` 外均无 `id`。引用保留房间与根对象持久 ID，
+重访后解析为新句柄；子节点不占用原生对象持久 ID 容量。必须用
+`Objects.resolve` 解析带 `children` 的引用，原生 `sc.identity.resolve` 只识别根引用。
+
 `Objects.snapshot(owner, export)` 生成独立记录，不写盘、不卸载。记录格式为
 `{format=1, objects={ [persistent_id]={data=...} 或 {deleted=true} }}`。
 `export` 返回显式普通数据表，不能直接返回完整实体快照；只选择需要恢复的
@@ -168,3 +186,6 @@ end
 2026-09-27：复合对象已接入普通加载、联合地形/边界发布和异步 World 切换。
 定向真实宿主测试覆盖多层子对象重访与删除、原子失败、流式世界卸载恢复和
 子对象精灵驻留；这不是跨平台或完整游戏验收。
+
+同日补充：根 ID＋命名子路径的可序列化引用已通过新进程存档恢复与路径消失
+检查；本模块的活动索引随卸载/删除清理，不保存运行时句柄。

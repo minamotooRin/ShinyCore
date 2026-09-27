@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import queue
 import threading
+import time
 
 BINARY = None
 NATIVE = False
@@ -990,7 +991,12 @@ end}''')
                 notices.get(timeout=10)
                 fixed=path.with_suffix('.repaired')
                 fixed.write_text(json.dumps(dict(format=3,project='stream-test',data_version=1,scene='main.lua',state={})),encoding='utf-8')
-                fixed.replace(path)
+                for attempt in range(100):
+                    try:
+                        fixed.replace(path); break
+                    except PermissionError:
+                        if attempt==99: raise
+                        time.sleep(.01)
                 process.wait(timeout=10);reader.join(timeout=1)
                 self.assertEqual(process.returncode,0,''.join(errors))
                 self.assertTrue(json.loads(process.stdout.read())['watches']['recovered'])

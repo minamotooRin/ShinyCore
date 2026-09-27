@@ -1,6 +1,7 @@
 -- Explicit chunk-object state, with optional joint terrain/region publication.
 local Objects={}
 local Prefab=require("shiny.prefab")
+local active={}
 local function plain(value, message)
     assert(type(value)=="table" and getmetatable(value)==nil,message)
     return value
@@ -136,6 +137,54 @@ local function prepare_load(items,prepare,publication)
     end
     return owners,drafts,parents,live
 end
+local function child_path(path)
+    if path==nil then return {} end
+    plain(path,"child path must be a plain array")
+    assert(#path<=32,"child path exceeds prefab depth")
+    local result={}
+    for i,name in ipairs(path) do
+        assert(type(name)=="string" and #name>0,"child path requires nonempty names")
+        result[i]=name
+    end
+    for key in pairs(path) do
+        assert(type(key)=="number" and key%1==0 and key>=1 and key<=#result,"child path must be dense")
+    end
+    return result
+end
+
+-- A plain reference survives chunk unload and room reconstruction; it never stores a handle.
+function Objects.reference(entry,path)
+    assert(type(entry)=="table" and type(entry.object)=="table" and entry.id,
+        "stream object entry required")
+    assert(resolution(entry).status=="active","stream object is not active")
+    local names=child_path(path)
+    local node=entry
+    for _,name in ipairs(names) do
+        node=assert(node.children and node.children[name],"unknown streamed child")
+    end
+    sc.get(node.id)
+    local ref=sc.identity.reference(entry.id)
+    ref.children=names
+    return ref
+end
+function Objects.resolve(ref)
+    plain(ref,"stream object reference must be plain data")
+    for key in pairs(ref) do
+        assert(key=="room" or key=="persistent_id" or key=="children","unknown stream object reference field")
+    end
+    local names=child_path(ref.children)
+    local current=sc.identity.resolve{room=ref.room,persistent_id=ref.persistent_id}
+    if current.status~="active" then return {status=current.status} end
+    local entry=active[ref.persistent_id]
+    if not entry or entry.id~=current.id then return {status="unmanaged"} end
+    local node=entry
+    for _,name in ipairs(names) do
+        node=node.children and node.children[name]
+        if not node then return {status="path_missing"} end
+    end
+    if not pcall(sc.get,node.id) then return {status="stale"} end
+    return {status="active",id=node.id}
+end
 local function publish_load(owners,drafts,parents,live,publication)
     local ids
     if publication then
@@ -150,6 +199,7 @@ local function publish_load(owners,drafts,parents,live,publication)
     for _,link in ipairs(live) do
         Prefab.bind(link.plan,ids,link.first)
         link.entry.id=link.plan.instance.id
+        active[link.entry.object.persistent_id]=link.entry
     end
     for _,owner in ipairs(owners) do
         for _,entry in ipairs(owner.entries) do
@@ -236,6 +286,7 @@ local function release_owners(batch)
                 for i=#entry.ids,2,-1 do sc.destroy(entry.ids[i]) end
                 sc.identity.unload(entry.id)
             end
+            if active[entry.object.persistent_id]==entry then active[entry.object.persistent_id]=nil end
         end
         item.owner.unloaded=true
     end
@@ -246,6 +297,7 @@ function Objects.destroy(entry)
     assert(resolution(entry).status=="active","stream object is not active")
     sc.get_many(entry.ids)
     for i=#entry.ids,1,-1 do sc.destroy(entry.ids[i]) end
+    if active[entry.object.persistent_id]==entry then active[entry.object.persistent_id]=nil end
     return true
 end
 function Objects.save_many(items,slot,export)

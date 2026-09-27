@@ -263,4 +263,58 @@ return {init=function()
     assert(sc.get(original).x==10 and sc.identity.resolve("actors:2").status=="unloaded")
 end}''')
 
+    def test_child_reference_survives_disk_and_reports_missing_path(self):
+        self.run_game('''local only={objects={chunk.objects[1]}}
+local function compound(object)
+    return {entity={x=object.x,body=false},children={beam={entity={x=8,body=false},
+        children={spark={x=3,body=false}}}}},{}
+end
+local owner,ref
+return {init=function()
+    owner=Objects.load(only,nil,compound)
+    local entry=owner.entries[1]
+    ref=Objects.reference(entry,{"beam","spark"})
+    assert(ref.room=="main.lua" and ref.persistent_id=="actors:1" and ref.id==nil)
+    assert(Objects.resolve(ref).id==entry.children.beam.children.spark.id)
+    assert(not pcall(Objects.reference,entry,{"missing"}))
+    assert(not pcall(Objects.resolve,{room=ref.room,persistent_id=ref.persistent_id,children={[2]="beam"}}))
+end,update=function()
+    if sc.tick()~=0 then return end
+    assert(Objects.unload(owner,"slot","linked",function(entity) return {x=entity.x,link=ref} end))
+    assert(Objects.resolve(ref).status=="unloaded")
+end}''')
+        self.run_game('''local only={objects={chunk.objects[1]}}
+local saved,owner,ref
+return {init=function()
+    saved=assert(sc.save.read_chunk("slot","linked"))
+    ref=saved.objects["actors:1"].data.link
+    assert(Objects.resolve(ref).status=="absent")
+    owner=Objects.load(only,saved,function(object)
+        return {entity={x=object.x,body=false},children={beam={entity={x=8,body=false},
+            children={spark={x=3,body=false}}}}},{}
+    end)
+    assert(Objects.resolve(ref).id==owner.entries[1].children.beam.children.spark.id)
+    local other={room="other.lua",persistent_id=ref.persistent_id,children=ref.children}
+    assert(Objects.resolve(other).status=="room_inactive")
+end,update=function()
+    if sc.tick()~=0 then return end
+    assert(Objects.unload(owner,"slot","linked",function(entity) return {x=entity.x,link=ref} end))
+    owner=Objects.load(only,saved,function(object) return {x=object.x,body=false},{} end)
+    assert(Objects.resolve(ref).status=="path_missing")
+    local root=Objects.reference(owner.entries[1])
+    assert(Objects.resolve(root).id==owner.entries[1].id)
+    assert(Objects.destroy(owner.entries[1]))
+    assert(Objects.resolve(ref).status=="deleted")
+end}''')
+        self.run_game('''return {init=function()
+    local owner=Objects.load({objects={chunk.objects[1]}},nil,function(object)
+        return {entity={x=object.x,body=false},children={badge={x=2,body=false}}},{}
+    end)
+    local entry=owner.entries[1]
+    local ref=Objects.reference(entry,{"badge"})
+    sc.destroy(entry.children.badge.id)
+    assert(Objects.resolve(ref).status=="stale")
+    assert(not pcall(Objects.snapshot,owner,export))
+end}''')
+
 if __name__=='__main__': unittest.main()

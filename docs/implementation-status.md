@@ -10,6 +10,12 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Streamed prefab descendants now have plain room/root-ID/name-path references.
+Resolution returns a fresh handle after chunk reload and distinguishes unloaded,
+deleted, missing-path and stale states. A real two-process save test and the
+focused streaming/image suites pass; Wayfarer's local SDK is dev.58. Dynamic
+cross-chunk ownership remains open; see [streamed objects](stream-objects.md).
+
 Streamed authored objects can now own a nested prefab tree. Native terrain and
 entity publication preflight the full parent batch; chunk unload and explicit
 deletion release descendants before the persistent root. The async world scans
