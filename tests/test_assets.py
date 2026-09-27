@@ -340,6 +340,8 @@ class Assets(unittest.TestCase):
             obj=blocks[-1,1]['objects'][0]
             self.assertEqual((obj['x'],obj['y'],obj['persistent_id']),(-256,256,'world/actors:1'))
             self.assertEqual(sum(len(b['objects']) for b in blocks.values()),3)
+            self.assertEqual(metadata['object_coverage'],[
+                {'x':x,'y':1,'anchors':[{'x':-1,'y':1}]} for x in range(3)])
             for invalid in [float('nan'),float('inf'),True,8000257]:
                 layer['objects'][0]['x']=invalid
                 with self.assertRaisesRegex(ValueError,'map.json:world/actors: object 1'):
@@ -350,6 +352,24 @@ class Assets(unittest.TestCase):
             layer['objects'][1]['id']=2
             layer['name']='invalid name'
             with self.assertRaisesRegex(ValueError,'ASCII layer path'): compile()
+
+    def test_rotated_object_coverage(self):
+        with tempfile.TemporaryDirectory(prefix='shiny-coverage-') as temp:
+            root=Path(temp)
+            data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,
+                  'layers':[{'type':'objectgroup','name':'shapes','objects':[
+                      {'id':1,'x':248,'y':4,'width':24,'height':8},
+                      {'id':2,'x':-4,'y':-4,'rotation':90,'polygon':[
+                          {'x':0,'y':0},{'x':12,'y':0},{'x':0,'y':8}]}]}]}
+            (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
+            metadata,blocks=assets.tiled(root,'map.json',lambda p:p.read_bytes())
+            self.assertEqual(set(blocks),{(0,0),(-1,-1)})
+            self.assertEqual(metadata['object_coverage'],[
+                {'x':-1,'y':0,'anchors':[{'x':-1,'y':-1}]},
+                {'x':1,'y':0,'anchors':[{'x':0,'y':0}]}])
+            data['layers'][0]['objects'][0]['width']=256*1025
+            (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
+            with self.assertRaisesRegex(ValueError,'footprint exceeds'): assets.tiled(root,'map.json',lambda p:p.read_bytes())
 
     def test_aseprite_restores_canvas_tags_and_cache(self):
         from PIL import Image

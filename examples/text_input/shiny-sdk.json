@@ -1,11 +1,11 @@
 {
   "format": 1,
-  "version": "1.0.0-dev.48",
+  "version": "1.0.0-dev.50",
   "engine_version": "1.0.0-dev",
   "contract_version": 1,
   "hash": "sha256-text-lf",
   "files": {
-    "docs/api.lua": "c2b8bce433173373f91adcc4db65d08c8b7592503ab6169f8ac995202edf6b7d",
+    "docs/api.lua": "82d020efe60f43b701f9f2219344e065eb4bdfd6b69782aa2d932828f8f85f38",
     "lib/shiny/animation.lua": "267c1d579456b506086ac7bc241aacf6dcd7f1d24ca0e1cef481e5e7ca00a2ab",
     "lib/shiny/input.lua": "8affccf2805e7b67e239cde6440502d2048bd22ba962babd64e6b8e0d2e25fab",
     "lib/shiny/LICENSE.txt": "5090cd7120174d2034a276d7deb4783760cec86e9642b9a3f34c3ca3aed5058c",

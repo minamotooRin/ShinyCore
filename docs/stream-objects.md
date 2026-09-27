@@ -27,7 +27,9 @@ if ok then sc.stream.release(0, 0) end
 
 `prepare(object, saved_data)` 返回实体规格与房间内玩法数据；模块负责填入
 `persistent_id`，不允许改名。`owner.entries` 保持地图对象顺序，包含 `object`、
-活动对象的 `id/data`；已删除对象没有实体。对象跨越块边界移动仍归原块所有。
+活动对象的 `id/data`；已删除对象没有实体。对象跨越块边界移动仍归原块所有；
+静态导入几何的锚点保留由 [stream_world](stream-object-coverage.md) 协调，
+任意移动超出导入几何时游戏仍须显式保留该锚点。
 目前一个地图对象对应一个实体，复合 prefab 和动态对象归属迁移尚未整合。
 
 `Objects.snapshot(owner, export)` 生成独立记录，不写盘、不卸载。记录格式为

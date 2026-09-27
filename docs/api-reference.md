@@ -109,6 +109,14 @@ also use the descriptions and [authoring annotations](api.lua).
 | visible | ScCameraRect | Conservative world AABB of rotated viewport, including shake. |
 
 
+## ScChunkCoordinate
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| x | integer | Read-only. Chunk column, -31250..31250. |
+| y | integer | Read-only. Chunk row, -31250..31250. |
+
+
 ## ScContact
 
 | Field | Type | Contract |
@@ -472,6 +480,15 @@ also use the descriptions and [authoring annotations](api.lua).
 
 - Copied snapshot for named sessions only; queued/readable are cleared on terminal failure. Binding generation prevents same-name replacements reviving old handles.
 
+## ScObjectCoverage
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| x | integer | Read-only. Intersected chunk column. |
+| y | integer | Read-only. Intersected chunk row. |
+| anchors | ScChunkCoordinate[] | Read-only. Anchor chunks holding authored objects crossing this chunk. |
+
+
 ## ScParticleCurveKey
 
 | Field | Type | Contract |
@@ -676,6 +693,23 @@ also use the descriptions and [authoring annotations](api.lua).
 
 - Only published by owner-thread advance at a due boundary. Retrying or releasing the last failed pin clears this independent snapshot; other due chunks remain unpublished until the entire batch succeeds.
 
+## ScStreamMetadata
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| format | integer | Read-only. Built stream format 3. |
+| chunk_size | integer | Read-only. 32 tiles per chunk axis. |
+| tilewidth | integer | Read-only. Tile width in world pixels. |
+| tileheight | integer | Read-only. Tile height in world pixels. |
+| layers | table[] | Read-only. Flattened map layers in stable source order. |
+| groups? | table[] | Read-only. Optional group hierarchy with one-based parent indices. |
+| properties? | table[] | Read-only. Optional map custom properties. |
+| object_coverage? | ScObjectCoverage[] | Read-only. Optional sparse cross-chunk object anchor dependencies. |
+| tilesets? | table[] | Read-only. Optional imported tileset metadata. |
+| parallaxoriginx? | number | Read-only. Optional map parallax X origin. |
+| parallaxoriginy? | number | Read-only. Optional map parallax Y origin. |
+
+
 ## ScTextOptions
 
 | Field | Type | Contract |
@@ -871,7 +905,7 @@ also use the descriptions and [authoring annotations](api.lua).
 | sc.state.set | key: string, value: boolean\|number\|string\|table\|nil | none | load, init, update |
 | sc.stream.failure |  | ScStreamFailure\|nil | load, init, update, draw, ui_update |
 | sc.stream.get | x: integer, y: integer | table\|nil | load, init, update |
-| sc.stream.metadata |  | table | load, init, update |
+| sc.stream.metadata |  | ScStreamMetadata | load, init, update |
 | sc.stream.open | index_path: string | none | load, init |
 | sc.stream.release | x: integer, y: integer | none | load, init, update |
 | sc.stream.request | x: integer, y: integer, commit_frame: integer | integer | load, init, update |

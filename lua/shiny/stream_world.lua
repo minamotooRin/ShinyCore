@@ -71,7 +71,8 @@ function World.new(options)
     sc.stream.open(options.index)
     local metadata=sc.stream.metadata()
     local region=Regions.new{tilewidth=metadata.tilewidth,tileheight=metadata.tileheight,
-        margin=options.margin,capacity=options.capacity,boundary=options.boundary~=false}
+        margin=options.margin,capacity=options.capacity,boundary=options.boundary~=false,
+        coverage=metadata.object_coverage}
     local view=Tiles.new(metadata,options.images)
     return {region=region,view=view,slot=options.slot,name=options.name,prepare=options.prepare,export=options.export,
         residency=options.residency==true,retain_images=retain,resource_names={},

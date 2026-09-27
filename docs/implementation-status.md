@@ -10,13 +10,25 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Offline Tiled imports now write sparse cross-chunk object coverage into the stream
+index. Region requests pin intersecting objects' anchor chunks while loading walls
+and `contains` retain the true player/camera area. The ordinary stream-world
+transaction creates and restores those objects. Focused builder, region and world
+tests pass in Release; the two runtime cases also pass under headless ASan/UBSan.
+Wayfarer's rebuilt map contains one such dependency. Its 550-frame travel replay
+and inspected hidden native frame pass, with twelve SDK audits. Cache version is
+14 and the eleven annotated project SDKs are dev.50. Static authored footprints
+are covered; moving objects beyond them still need explicit anchor ownership.
+See [coverage contract](stream-object-coverage.md). Full streaming and platform
+acceptance remain open.
+
 Map and nested group custom properties now survive the offline Tiled JSON build in
 the readable chunk index and are exposed by `sc.stream.metadata()` with one-based
 group ancestry. The package closure follows their `file` references. Focused asset
 and package tests, full/lightweight builds, 30 headless ASan/UBSan frames, content
 checking, all twelve SDK audits and an inspected hidden native sample capture pass.
-The shared builder cache is version 13; eleven projects with LuaLS annotations are
-pinned at dev.48, while the separate Snapshot SDK remains dev.1. See the
+The shared builder cache was version 13 at that checkpoint; eleven projects with
+LuaLS annotations were pinned at dev.48, while the separate Snapshot SDK remains dev.1. See the
 [map/group property contract](tiled-map-properties.md). Inputs are hand-authored
 fixtures; editor-export, platform and complete-game acceptance remain open.
 

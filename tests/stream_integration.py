@@ -102,6 +102,79 @@ end,update=function()
 end}''')
         self.run_game('interest-regions')
 
+    def test_cross_chunk_object_anchor_coverage(self):
+        self.index['object_coverage']=[{'x':1,'y':-1,'anchors':[{'x':0,'y':-1}]}]
+        self.write_index()
+        shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        self.scene('''local Regions=require("shiny.stream_regions")
+local region
+return {init=function()
+    sc.stream.open("index.json")
+    local coverage=sc.stream.metadata().object_coverage
+    assert(#coverage==1 and coverage[1].anchors[1].x==0)
+    local small=Regions.new{tilewidth=8,tileheight=8,margin=0,capacity=1,coverage=coverage}
+    assert(not pcall(Regions.request,small,{{x=264,y=-8}},0))
+    assert(sc.stream.stats().pinned==0)
+    region=Regions.new{tilewidth=8,tileheight=8,margin=0,capacity=3,boundary=true,coverage=coverage}
+    local plan=Regions.request(region,{{x=264,y=-8}},0)
+    assert(#plan.enter==2 and plan.enter[1].x==0 and plan.enter[2].x==1)
+end,update=function()
+    if sc.tick()==0 then
+        assert(#Regions.ready(region)==2); Regions.commit(region)
+        assert(sc.stream.stats().pinned==2)
+        assert(Regions.contains(region,{x=264,y=-8}))
+        assert(not Regions.contains(region,{x=8,y=-8}))
+        local left=false
+        for _,id in ipairs(region.walls) do if sc.get(id).x==254 then left=true end end
+        assert(left and #region.walls==4) -- The owner pin does not open this loading edge.
+        local plan=Regions.request(region,{{x=8,y=-8}},1)
+        assert(#plan.enter==0 and #plan.leave==1 and plan.leave[1].x==1)
+    elseif sc.tick()==1 then
+        Regions.ready(region); Regions.commit(region)
+        assert(sc.stream.stats().pinned==1)
+        assert(Regions.contains(region,{x=8,y=-8}))
+        assert(not Regions.contains(region,{x=264,y=-8}))
+        local right=false
+        for _,id in ipairs(region.walls) do if sc.get(id).x==256 then right=true end end
+        assert(right and #region.walls==4)
+        sc.debug.watch("coverage",true)
+    end
+end}''')
+        self.assertTrue(self.run_game('object-coverage',frames=2)['watches']['coverage'])
+
+    def test_stream_world_loads_cross_chunk_owner(self):
+        shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        self.index['layers']=[{'type':'objectgroup'}]
+        self.index['tilesets']=[]
+        self.index['object_coverage']=[{'x':1,'y':-1,'anchors':[{'x':0,'y':-1}]}]
+        for x in range(2):
+            data=json.dumps({'x':x,'y':-1,'layers':{},'objects':[
+                {'persistent_id':'bridge:1','layer':0,'x':248,'y':-8,'width':24,'height':8}
+            ] if x==0 else []})
+            (self.root/f'{x}.json').write_text(data,encoding='utf-8')
+            self.index['chunks'][x]['bytes']=len(data.encode())
+        self.write_index()
+        self.scene('''local World=require("shiny.stream_world")
+local world
+return {init=function()
+    world=World.new{index="index.json",name="bridge",slot="slot",margin=0,
+        boundary=false,navigation=false,
+        prepare=function(object,saved) return {x=saved and saved.x or object.x,y=object.y},{} end,
+        export=function(entity) return {x=entity.x} end}
+    local plan=World.request(world,{{x=264,y=-8}},0)
+    assert(#plan.enter==2)
+end,update=function(dt)
+    local _,err,event=World.update(world,dt)
+    assert(not err,err)
+    if event=="published" then
+        assert(World.contains(world,{x=264,y=-8}))
+        assert(not World.contains(world,{x=8,y=-8}))
+        assert(sc.identity.resolve("bridge:1").status=="active")
+        sc.debug.watch("covered",true)
+    end
+end}''')
+        self.assertTrue(self.run_game('world-object-coverage',frames=30,save=True)['watches']['covered'])
+
     def test_physical_loading_boundary(self):
         shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
         (self.root/'project.lua').write_text('return {id="boundary",modules={"streaming"},limits={entities=14}}',encoding='utf-8')

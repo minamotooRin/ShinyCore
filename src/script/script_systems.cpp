@@ -101,7 +101,7 @@ int stream_metadata(lua_State* L) {
     s->scratch=ScValue{ScValue::Object{}};
     {
         auto& out=std::get<ScValue::Object>(s->scratch.data);
-        for(const char* name:{"format","chunk_size","tilewidth","tileheight","layers","groups","properties","tilesets","parallaxoriginx","parallaxoriginy"})
+        for(const char* name:{"format","chunk_size","tilewidth","tileheight","layers","groups","properties","object_coverage","tilesets","parallaxoriginx","parallaxoriginy"})
             if(const auto* value=s->stream->metadata().get(name)) out.emplace(name,*value);
     }
     sc_lua_push(L,s->scratch); return 1;
@@ -190,7 +190,7 @@ constexpr ScLuaContract stream_request_contract{stream_request_parameters,"integ
 constexpr ScLuaContract stream_get_contract{stream_coordinates,"table|nil",ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
 constexpr ScLuaContract stream_release_contract{stream_coordinates,nullptr,ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
 constexpr ScLuaContract stream_stats_contract{{},"table",ScLuaPhases::read,nullptr,nullptr,"streaming"};
-constexpr ScLuaContract stream_metadata_contract{{},"table",ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
+constexpr ScLuaContract stream_metadata_contract{{},"ScStreamMetadata",ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
 constexpr ScLuaParameter stream_terrain_parameters[]={{"shapes","table[]"},{"navigation","table|nil"},{"entities","ScEntityPatch[]|nil"}};
 constexpr ScLuaContract stream_terrain_contract{stream_terrain_parameters,"boolean,ScEntityId[]|nil",ScLuaPhases::mutate,"16384 shapes; Lua data conversion budget 256 KiB",nullptr,"streaming"};
 constexpr ScLuaParameter stream_retry_parameters[]={
@@ -205,7 +205,7 @@ const ScLuaApi stream_api[]={
     {"get",sc_lua_guard<stream_chunk<1>>,"get(x,y) -> chunk|nil","Read committed chunk data without waiting; nil until its planned boundary. Absent sparse chunks are empty. Load/init/update only.",&stream_get_contract},
     {"release",sc_lua_guard<stream_chunk<2>>,"release(x,y)","Release one chunk reference; zero references cancel visibility. Pending cancellation drains at its planned boundary.",&stream_release_contract},
     {"stats",sc_lua_guard<stream_stats>,"stats() -> counters","Read reserved cache bytes, visible/pinned chunks and scheduled request counts; worker completion timing is not exposed.",&stream_stats_contract},
-    {"metadata",sc_lua_guard<stream_metadata>,"metadata() -> table","Copy format, chunk_size, tilewidth/height, layers, groups, map properties, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.",&stream_metadata_contract},
+    {"metadata",sc_lua_guard<stream_metadata>,"metadata() -> table","Copy format, chunk_size, tilewidth/height, layers, groups, map properties, sparse object_coverage, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.",&stream_metadata_contract},
     {"terrain",sc_lua_guard<stream_terrain>,"terrain(shapes,navigation?,entities?) -> true,ids?","Atomically replace imported terrain with {x=0,y=0,w,h,one_way=false,vertices?} shapes in world pixels. Optional vertices are 3..8 local convex x,y pairs. Retain previous terrain on failure; remove finite room borders and camera clamping on success. Empty array clears imported terrain. Optional navigation {x,y,rows,cell_size=8} replaces the local grid in the same transaction and discards previous flow fields. Optional entering entity batch commits with terrain; returns IDs as second result. Invalid entities or capacity failure retain prior terrain/navigation. Load/init/update only.",&stream_terrain_contract},
     {nullptr,nullptr,nullptr,nullptr}
 };
@@ -257,6 +257,14 @@ void sc_script_systems_describe() {
 }
 #ifdef SC_HAS_STREAMING
 ScValue sc_script_stream_contracts() {
+    auto make_type=[](std::initializer_list<std::tuple<const char*,const char*,const char*,bool>> source) {
+        ScValue::Array fields;
+        for(const auto& [name,type,description,required]:source)
+            fields.emplace_back(ScValue::Object{{"name",ScValue{std::string(name)}},{"type",ScValue{std::string(type)}},
+                {"required",ScValue{required}},{"readonly",ScValue{true}},{"description",ScValue{std::string(description)}}});
+        return ScValue{ScValue::Object{{"fields",ScValue{std::move(fields)}},
+            {"constraints",ScValue{ScValue::Array{}}}}};
+    };
     ScValue::Array fields;
     for(const auto& [name,type,description]:{
         std::tuple{"sequence","integer","Original ordered request sequence, 1..2^52-1; pass to retry."},
@@ -269,6 +277,22 @@ ScValue sc_script_stream_contracts() {
     ScValue record{ScValue::Object{{"fields",ScValue{std::move(fields)}},
         {"constraints",ScValue{ScValue::Array{ScValue{std::string{
             "Only published by owner-thread advance at a due boundary. Retrying or releasing the last failed pin clears this independent snapshot; other due chunks remain unpublished until the entire batch succeeds."}}}}}}};
-    return ScValue{ScValue::Object{{"ScStreamFailure",std::move(record)}}};
+    return ScValue{ScValue::Object{{"ScStreamFailure",std::move(record)},
+        {"ScChunkCoordinate",make_type({{"x","integer","Chunk column, -31250..31250.",true},
+            {"y","integer","Chunk row, -31250..31250.",true}})},
+        {"ScObjectCoverage",make_type({{"x","integer","Intersected chunk column.",true},
+            {"y","integer","Intersected chunk row.",true},
+            {"anchors","ScChunkCoordinate[]","Anchor chunks holding authored objects crossing this chunk.",true}})},
+        {"ScStreamMetadata",make_type({{"format","integer","Built stream format 3.",true},
+            {"chunk_size","integer","32 tiles per chunk axis.",true},
+            {"tilewidth","integer","Tile width in world pixels.",true},
+            {"tileheight","integer","Tile height in world pixels.",true},
+            {"layers","table[]","Flattened map layers in stable source order.",true},
+            {"groups","table[]","Optional group hierarchy with one-based parent indices.",false},
+            {"properties","table[]","Optional map custom properties.",false},
+            {"object_coverage","ScObjectCoverage[]","Optional sparse cross-chunk object anchor dependencies.",false},
+            {"tilesets","table[]","Optional imported tileset metadata.",false},
+            {"parallaxoriginx","number","Optional map parallax X origin.",false},
+            {"parallaxoriginy","number","Optional map parallax Y origin.",false}})}}};
 }
 #endif

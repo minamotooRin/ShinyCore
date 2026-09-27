@@ -41,6 +41,9 @@ Prompts follow the configured interaction binding and hide behind menus/dialogue
 `patrol.lua` the courier, `presentation.lua` the ephemeral feedback and
 `controls.lua` the named action defaults. `shiny.stream_world` loads terrain, navigation and persistent
 objects from 16 authored chunk files. Unprepared edges have loading barriers.
+The offline index pins an object's anchor chunk when its authored geometry extends
+into a neighboring interest chunk; the barrier still follows the player/camera
+area. See ../../docs/stream-object-coverage.md.
 Collected herbs use object persistent IDs and deletion markers; road edits and
 active objects are saved with explicit player, name, equipment and quest state.
 Save data version is 2; VM state and native handles are not persisted.

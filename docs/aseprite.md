@@ -32,7 +32,7 @@ The contract covers flattened sprite animation, not editor projects, layers,
 slices, embedded user data or rotated frames from other packers. See the
 [official export CLI](https://www.aseprite.org/docs/cli/) and
 [exporter source](https://github.com/aseprite/aseprite/blob/main/src/app/doc_exporter.cpp).
-The shared builder's cache format 13 includes JSON, PNG, manifest options and tool version in its key;
+The shared builder's cache format 14 includes JSON, PNG, manifest options and tool version in its key;
 generated output can be rebuilt without the cache.
 
 Verification on 2026-09-27: focused importer/atlas tests covered trimmed offsets,

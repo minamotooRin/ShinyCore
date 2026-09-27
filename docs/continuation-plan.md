@@ -2,12 +2,20 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
-- **当前离线构建缓存版本为 13，地图/组属性链路已补齐：** Tiled JSON 的地图及嵌套组
+- **跨块对象几何覆盖已接入：** 离线索引新增稀疏 `object_coverage`，流式关注区自动
+  保留相交对象的锚点块；`contains` 与物理加载墙仍只按实际关注区判断。Wayfarer
+  的真实地图有一处跨块对象，重建后 550 帧旅行回放、隐藏静音原生图和 12 个 SDK
+  审计通过。定向资源、区域边界、世界对象发布在 Release 通过，区域和世界用例
+  在无窗口 ASan/UBSan 通过。缓存版本 14，11 个带注解项目 SDK 为 dev.50；
+  Snapshot 仍为独立 dev.1。见 stream-object-coverage.md、
+  `build/object-coverage-reviewed/`。任意移动超出作者几何的对象仍需游戏显式保留
+  锚点；完整流式和平台验收尚未闭环。不要重做已解决中文字体或四人联机示例。
+- **上一轮离线构建缓存版本为 13，地图/组属性链路已补齐：** Tiled JSON 的地图及嵌套组
   `properties` 保存在可读分块索引；组父子关系和子层所属组以一基索引表示。
   `sc.stream.metadata()` 可读取这些数据，发行依赖闭包包含其中的 `file` 引用。
   TSX/TX 小例子验证运行时属性、对象持久 ID 和实际图块显示。定向资源与发行测试、
   全/轻量编译、全功能无窗口 ASan/UBSan 30 帧、项目检查与 12 个 SDK 审计通过；
-  隐藏静音原生图已查看。11 个带注解的项目 SDK 升至 dev.48；Snapshot 没有注解，
+  隐藏静音原生图已查看。当时 11 个带注解的项目 SDK 升至 dev.48；Snapshot 没有注解，
   保持其独立 dev.1。见 tiled-map-properties.md 与 `build/map-properties-reviewed/`。
   手写格式夹具不代表真实 Tiled 编辑器导出、完整游戏或跨平台验收；不重做旧字体。
 - **命名输入绑定边界已收紧：** shiny.input 在 Input.new/bind/save 前验证来源数组、

@@ -2,7 +2,7 @@
 local Regions={}
 local function integer(value,low,high,name)
     assert(type(value)=="number" and value%1==0 and value>=low and value<=high,name.." outside range")
-    return value
+    return math.tointeger(value)
 end
 local function key(x,y) return x..":"..y end
 local function ordered(set)
@@ -27,11 +27,37 @@ end
 function Regions.new(options)
     options=options or {}
     assert(options.boundary==nil or type(options.boundary)=="boolean","boundary must be boolean")
+    local coverage={}
+    if options.coverage~=nil then
+        assert(type(options.coverage)=="table" and getmetatable(options.coverage)==nil,"object coverage must be a plain array")
+        assert(#options.coverage<=65536,"object coverage exceeds index capacity")
+        for i,item in ipairs(options.coverage) do
+            assert(type(item)=="table" and getmetatable(item)==nil and type(item.anchors)=="table"
+                and getmetatable(item.anchors)==nil,"invalid object coverage entry")
+            local x=integer(item.x,-31250,31250,"coverage x")
+            local y=integer(item.y,-31250,31250,"coverage y")
+            local name=key(x,y)
+            assert(not coverage[name] and #item.anchors<=1024,"duplicate or oversized object coverage")
+            local anchors,seen={},{}
+            for j,owner in ipairs(item.anchors) do
+                assert(type(owner)=="table" and getmetatable(owner)==nil,"invalid object coverage anchor")
+                local ax=integer(owner.x,-31250,31250,"anchor x")
+                local ay=integer(owner.y,-31250,31250,"anchor y")
+                local id=key(ax,ay)
+                assert(id~=name and not seen[id],"duplicate or self-referencing object anchor")
+                seen[id]=true; anchors[j]={x=ax,y=ay}
+            end
+            assert(#anchors>0,"object coverage entry requires anchors")
+            for index in pairs(item.anchors) do integer(index,1,#anchors,"anchor index") end
+            coverage[name]=anchors
+        end
+        for index in pairs(options.coverage) do integer(index,1,#options.coverage,"coverage index") end
+    end
     return {width=32*integer(options.tilewidth,1,256,"tilewidth"),
         height=32*integer(options.tileheight,1,256,"tileheight"),
         margin=integer(options.margin or 1,0,8,"margin"),
         capacity=integer(options.capacity or 256,1,1024,"capacity"),
-        boundary=options.boundary==true,walls={},active={}}
+        boundary=options.boundary==true,walls={},active={},visible={},coverage=coverage}
 end
 
 local function boundary_specs(region,set)
@@ -74,10 +100,28 @@ function Regions.request(region,areas,frame)
     for index in pairs(areas) do
         integer(index,1,area_count,"area index")
     end
+    local visible=desired
+    desired={}
+    for name,entry in pairs(visible) do desired[name]=entry end
+    for name in pairs(visible) do
+        for _,anchor in ipairs(region.coverage[name] or {}) do
+            local owner=key(anchor.x,anchor.y)
+            if not desired[owner] then
+                count=count+1; assert(count<=region.capacity,"object anchor coverage exceeds chunk capacity")
+                desired[owner]=anchor
+            end
+        end
+    end
+    local visible_changed=false
+    for name in pairs(visible) do if not region.visible[name] then visible_changed=true; break end end
+    if not visible_changed then for name in pairs(region.visible) do
+        if not visible[name] then visible_changed=true; break end
+    end end
     local entering,leaving={},{}
     for name,entry in pairs(desired) do if not region.active[name] then entering[name]=entry end end
     for name,entry in pairs(region.active) do if not desired[name] then leaving[name]=entry end end
-    local plan={enter=ordered(entering),leave=ordered(leaving),desired=desired,frame=frame}
+    local plan={enter=ordered(entering),leave=ordered(leaving),desired=desired,visible=visible,
+        visible_changed=visible_changed,frame=frame}
     local acquired=0
     local ok,err=pcall(function()
         for i,entry in ipairs(plan.enter) do sc.stream.request(entry.x,entry.y,frame); acquired=i end
@@ -117,11 +161,11 @@ function Regions.commit(region,terrain,navigation,entities)
     end
     local object_count=#incoming
     local walls=region.walls
-    local replace_walls=region.boundary and (#plan.enter>0 or #plan.leave>0)
+    local replace_walls=region.boundary and plan.visible_changed
     local specs
     if replace_walls then
         sc.get_many(walls)
-        specs=boundary_specs(region,plan.desired)
+        specs=boundary_specs(region,plan.visible)
         for _,spec in ipairs(specs) do incoming[#incoming+1]=spec end
     end
     local replacement
@@ -137,7 +181,7 @@ function Regions.commit(region,terrain,navigation,entities)
         for i=object_count+1,#replacement do region.walls[#region.walls+1]=replacement[i] end
     end
     for _,entry in ipairs(plan.leave) do sc.stream.release(entry.x,entry.y) end
-    region.active=plan.desired; region.pending=nil
+    region.active=plan.desired; region.visible=plan.visible; region.pending=nil
     if entities then
         local ids={}
         for i=1,object_count do ids[i]=replacement[i] end
@@ -154,7 +198,7 @@ function Regions.contains(region,area)
     local left,top,right,bottom=bounds(region,area,0)
     if (right-left+1)*(bottom-top+1)>region.capacity then return false end
     for x=left,right do for y=top,bottom do
-        if not region.active[key(x,y)] then return false end
+        if not region.visible[key(x,y)] then return false end
     end end
     return true
 end

@@ -6,7 +6,9 @@
 
 ```lua
 local Regions = require("shiny.stream_regions")
-local region = Regions.new{tilewidth=8, tileheight=8, margin=1, capacity=256, boundary=true}
+local metadata = sc.stream.metadata()
+local region = Regions.new{tilewidth=8, tileheight=8, margin=1, capacity=256,
+    boundary=true, coverage=metadata.object_coverage}
 -- init 可指定提交帧 0；update 中指定未来帧。
 local plan = Regions.request(region, {
     {x=player_x, y=player_y},
@@ -17,7 +19,10 @@ local plan = Regions.request(region, {
 矩形使用世界像素坐标与半开边界；w/h 默认为 0，表示点。负坐标向下取整。
 `margin` 默认 1，范围 0..8，表示外围预取圈数；`capacity` 默认 256，范围
 1..1024，限制并集中的块数。地图图块尺寸必须与索引一致。重叠区域不重复
-引用，已有块继续保留；新增块按 x、y 顺序请求同一个计划帧。
+引用，已有块继续保留；新增块按 x、y 顺序请求同一个计划帧。`coverage` 是离线
+索引的稀疏对象覆盖表；相交对象的锚点块也计入容量与请求，但 `contains` 和
+物理加载墙仍只看原关注区域。`shiny.stream_world` 自动传入此表。详见
+[跨块对象覆盖](stream-object-coverage.md)。
 
 `plan.enter/leave` 是进入和离开的 `{x,y}` 数组，供游戏准备对象、地形和绘制。
 计划及管理对象除创建参数外均由模块维护，调用者不得修改其内部字段。
@@ -41,7 +46,7 @@ commit 后释放全部引用。请求失败时释放本次已取得的新增引�
 设置 `boundary=true` 后，commit 为区域外围生成厚 2 像素的透明静态刚体，
 阻止动态刚体进入尚未提交的相邻块。默认关闭，纯数据使用不分配实体。
 相邻已提交块之间没有墙；不连通区域与区域内空洞分别保留边界。它基于整个
-关注区域并集，包括预取圈。块内已有地形仍由地图负责。
+关注区域并集，包括预取圈，但不因额外锚点引用扩大。块内已有地形仍由地图负责。
 
 边界占用普通实体容量，以 `shiny.loading-boundary` 标签供诊断查询，不持久化。
 新边界整批创建成功后才销毁旧边界；容量不足保留旧边界和 pending 计划，

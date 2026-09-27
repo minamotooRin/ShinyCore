@@ -19,7 +19,7 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 13
+VERSION = 14
 CHUNK = 32
 
 
@@ -274,9 +274,38 @@ def tiled(root, source, read):
         resolved=resolved_properties(defaults)
         if resolved or "properties" in obj: obj["properties"]=resolved
         return obj
-    blocks={}; layers=[]; groups=[]; identities=set()
+    blocks={}; layers=[]; groups=[]; identities=set(); coverage={}
     def block_at(x,y):
         return blocks.setdefault((x,y),{"layers":{},"objects":[]})
+    def cover_object(obj,anchor,context):
+        width,height=obj.get("width",0),obj.get("height",0)
+        angle=obj.get("rotation",0)
+        if (any(type(n) not in (int,float) or not math.isfinite(n) for n in (width,height,angle))
+                or width<0 or height<0 or abs(angle)>1e6):
+            raise ValueError(f"{context}: invalid object dimensions/rotation")
+        if "polygon" in obj or "polyline" in obj:
+            points=obj.get("polygon",obj.get("polyline"))
+            if not isinstance(points,list) or not 1<=len(points)<=1024:
+                raise ValueError(f"{context}: object points require 1..1024 entries")
+            try: local=[(p["x"],p["y"]) for p in points]
+            except (TypeError,KeyError) as error: raise ValueError(f"{context}: object points require x,y") from error
+            if any(type(n) not in (int,float) or not math.isfinite(n) for pair in local for n in pair):
+                raise ValueError(f"{context}: object points must be finite")
+        else:
+            top=-height if "gid" in obj else 0
+            local=[(0,top),(width,top),(0,top+height),(width,top+height)]
+        cosine,sine=math.cos(math.radians(angle)),math.sin(math.radians(angle))
+        xs=[obj["x"]+x*cosine-y*sine for x,y in local]
+        ys=[obj["y"]+x*sine+y*cosine for x,y in local]
+        if any(not math.isfinite(n) for n in (*xs,*ys)):
+            raise ValueError(f"{context}: transformed object footprint is not finite")
+        left,right=math.floor(min(xs)/(tw*CHUNK)),math.floor(max(xs)/(tw*CHUNK))
+        top,bottom=math.floor(min(ys)/(th*CHUNK)),math.floor(max(ys)/(th*CHUNK))
+        if any(not -31250<=n<=31250 for n in (left,right,top,bottom)) or (right-left+1)*(bottom-top+1)>1024:
+            raise ValueError(f"{context}: object footprint exceeds streamed chunk limits")
+        for x in range(left,right+1):
+            for y in range(top,bottom+1):
+                if (x,y)!=anchor: coverage.setdefault((x,y),set()).add(anchor)
     def walk(items,parent):
         for original in items:
             layer=dict(original)
@@ -360,7 +389,9 @@ def tiled(root, source, read):
                     if "polygon" in obj:
                         try: obj["triangles"]=triangulate(obj["polygon"])
                         except ValueError as error: raise ValueError(f"{source}:{name}: object {obj['id']} at ({obj['x']},{obj['y']}): {error}") from error
-                    block=block_at(math.floor(obj["x"]/(tw*CHUNK)),math.floor(obj["y"]/(th*CHUNK)))
+                    anchor=(math.floor(obj["x"]/(tw*CHUNK)),math.floor(obj["y"]/(th*CHUNK)))
+                    cover_object(obj,anchor,context)
+                    block=block_at(*anchor)
                     if len(block["objects"])>=4096: raise ValueError(f"{context}: chunk exceeds 4096 objects")
                     block["objects"].append(obj)
             elif kind=="imagelayer":
@@ -375,11 +406,14 @@ def tiled(root, source, read):
             else:
                 raise ValueError(f"{source}:{name}: unsupported layer type {kind}")
     walk(data.get("layers",[]),{})
-    if len(layers)>1000 or len(blocks)>65536: raise ValueError(f"{source}: stream layer or chunk capacity exceeded")
+    if len(layers)>1000 or len(blocks)>65536 or len(coverage)>65536:
+        raise ValueError(f"{source}: stream layer or chunk capacity exceeded")
     try: map_properties=resolved_properties(properties(data.get("properties",[]),path))
     except (ValueError,KeyError,TypeError) as error: raise ValueError(f"{source}: map properties: {error}") from error
     metadata={"format":3,"chunk_size":CHUNK,"tilewidth":tw,"tileheight":th,"tilesets":sets,
-              "layers":layers,"groups":groups,"properties":map_properties,"chunks":[]}
+              "layers":layers,"groups":groups,"properties":map_properties,"chunks":[],
+              "object_coverage":[{"x":x,"y":y,"anchors":[{"x":ax,"y":ay} for ax,ay in sorted(anchors)]}
+                                 for (x,y),anchors in sorted(coverage.items())]}
     for field in ("parallaxoriginx","parallaxoriginy"):
         value=data.get(field,0)
         if type(value) not in (int,float) or not math.isfinite(value) or abs(value)>1000000:
@@ -472,7 +506,9 @@ def build(manifest: Path, output: Path):
                 if len(content.encode())>2*1024*1024: raise ValueError(f"map {name}: chunk ({x},{y}) exceeds 2 MiB")
                 (folder/filename).write_text(content,encoding="utf-8")
                 metadata["chunks"].append({"x":x,"y":y,"path":filename,"bytes":len(content.encode())})
-            (folder/"index.json").write_text(canonical(metadata),encoding="utf-8")
+            index_content=canonical(metadata)
+            if len(index_content.encode())>16*1024*1024: raise ValueError(f"map {name}: stream index exceeds 16 MiB")
+            (folder/"index.json").write_text(index_content,encoding="utf-8")
             index["maps"][name]=f"map-{name}/index.json"
         (stage/"index.json").write_text(canonical(index),encoding="utf-8")
         # Atomic publication; no partially built cache entry is visible.
