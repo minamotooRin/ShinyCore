@@ -518,6 +518,61 @@ end,update=function(dt)
 end}''')
         self.assertTrue(self.run_game('stream-object-terrain',save=True,frames=12)['watches']['object_terrain'])
 
+    def test_tile_object_collision_matches_visual_transform(self):
+        from PIL import Image
+        spec=importlib.util.spec_from_file_location('assets',Path(__file__).resolve().parents[1]/'tools/assets.py')
+        assets=importlib.util.module_from_spec(spec); spec.loader.exec_module(assets)
+        Image.new('RGBA',(20,10),(255,255,255,255)).save(self.root/'atlas.png')
+        shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        (self.root/'project.lua').write_text('return {id="tile-object-terrain",modules={"streaming"},resources={atlas={type="image",path="atlas.png"}}}',encoding='utf-8')
+        source={'orientation':'orthogonal','tilewidth':10,'tileheight':10,
+            'tilesets':[{'firstgid':1,'tilecount':2,'columns':2,'tilewidth':10,'tileheight':10,
+                'image':'atlas.png','objectalignment':'center','tileoffset':{'x':2,'y':-3},'tiles':[
+                    {'id':0,'objectgroup':{'objects':[{'id':1,'x':0,'y':0,'width':5,'height':10}]}},
+                    {'id':1,'properties':[{'name':'collision','value':'one_way'}]}]}],
+            'layers':[{'type':'objectgroup','name':'obstacles','objects':[
+                {'id':1,'gid':1,'x':32,'y':32,'width':20,'height':20},
+                {'id':2,'gid':0x80000001,'x':80,'y':32,'width':20,'height':20},
+                {'id':3,'gid':1,'x':140,'y':64,'width':20,'height':20,'rotation':90},
+                {'id':4,'gid':2,'x':180,'y':32,'width':20,'height':20}]}]}
+        (self.root/'map.json').write_text(json.dumps(source),encoding='utf-8')
+        (self.root/'assets.json').write_text(json.dumps({'maps':{'world':'map.json'}}),encoding='utf-8')
+        built=assets.build(self.root/'assets.json',self.root/'built')
+        index=(built/'map-world/index.json').relative_to(self.root).as_posix()
+        self.scene('''local Tiles=require("shiny.stream_tiles")
+local view,prepared,calls=nil,nil,{}
+local image=sc.image
+sc.image=function(name,x,y,w,h,options)
+    calls[#calls+1]={x=x,y=y}
+    return image(name,x,y,w,h,options)
+end
+return {init=function()
+    sc.stream.open("'''+index+'''"); view=Tiles.new(sc.stream.metadata(),{["atlas.png"]="atlas"})
+    sc.stream.request(0,0,0)
+end,update=function()
+    if sc.tick()~=0 then return end
+    local chunk=sc.stream.get(0,0)
+    prepared=Tiles.prepare(view,{chunk})
+    local shapes=Tiles.terrain(view,prepared,{chunk})
+    assert(#shapes==7 and shapes[7].one_way)
+    assert(math.abs(shapes[1].x-24)<.01 and math.abs(shapes[1].y-19)<.01)
+    assert(math.abs(shapes[3].x-82)<.01 and math.abs(shapes[5].y-51)<.01)
+    sc.stream.terrain(shapes)
+    local function hit(x,y,expected)
+        local result=sc.physics.ray(x,y,0,40)
+        assert((result~=nil)==expected)
+    end
+    hit(27,10,true); hit(37,10,false)
+    hit(85,10,true); hit(75,10,false)
+    hit(140,45,true); hit(180,10,true)
+    sc.debug.watch("tile_object_collision",true)
+end,draw=function()
+    if not prepared then return end
+    calls={}; Tiles.draw(view,prepared,{x=0,y=0,visible={x=0,y=0,w=220,h=100}})
+    assert(#calls==4 and math.abs(calls[1].x-24)<.01 and math.abs(calls[1].y-19)<.01)
+end}''')
+        self.assertTrue(self.run_game('tile-object-terrain',frames=3)['watches']['tile_object_collision'])
+
     def test_streamed_navigation_region(self):
         shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
         self.scene('''local Tiles=require("shiny.stream_tiles")

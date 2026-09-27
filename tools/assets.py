@@ -19,8 +19,11 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 16
+VERSION = 17
 CHUNK = 32
+OBJECT_ALIGNMENTS={"unspecified":(0,1),"topleft":(0,0),"top":(.5,0),"topright":(1,0),
+                   "left":(0,.5),"center":(.5,.5),"right":(1,.5),
+                   "bottomleft":(0,1),"bottom":(.5,1),"bottomright":(1,1)}
 
 
 def canonical(value):
@@ -141,13 +144,58 @@ def tile_collision(group):
     return shapes
 
 
-def object_collision(obj):
+def tile_object_collision(obj,tileset,tile,collision):
+    """Bake tile-local collision through GID flags and the object's visual transform."""
+    if collision=="one_way" and (obj.get("rotation",0)%360 or obj["gid"]&0x60000000 or tile.get("collision_shapes")):
+        raise ValueError("one_way tile object requires an unrotated rectangle without vertical/diagonal flip")
+    image_w=tile.get("imagewidth",tileset["tilewidth"])
+    image_h=tile.get("imageheight",tileset["tileheight"])
+    width,height=obj["width"],obj["height"]
+    if any(type(v) not in (int,float) or not math.isfinite(v) or not .16<=v<=4096
+           for v in (image_w,image_h,width,height)):
+        raise ValueError("tile object collision dimensions must be 0.16..4096")
+    alignment=OBJECT_ALIGNMENTS[tileset.get("objectalignment","unspecified")]
+    offset=tileset.get("tileoffset",{})
+    x,y=obj["x"]+offset.get("x",0),obj["y"]+offset.get("y",0)
+    angle=math.radians(obj.get("rotation",0)); cosine,sine=math.cos(angle),math.sin(angle)
+    sources=tile.get("collision_shapes") or [[0,0,image_w,0,image_w,image_h,0,image_h]]
+    if collision=="one_way":
+        return [{"x":x-alignment[0]*width,"y":y-alignment[1]*height,
+                 "w":width,"h":height,"one_way":True}]
+    shapes=[]
+    for source in sources:
+        world=[]
+        for px,py in zip(source[::2],source[1::2]):
+            u,v=px/image_w,py/image_h
+            if obj["gid"]&0x20000000: u,v=v,u
+            if obj["gid"]&0x80000000: u=1-u
+            if obj["gid"]&0x40000000: v=1-v
+            dx,dy=(u-alignment[0])*width,(v-alignment[1])*height
+            world.append((x+cosine*dx-sine*dy,y+sine*dx+cosine*dy))
+        if any(not math.isfinite(v) or abs(v)>1e6 for pair in world for v in pair):
+            raise ValueError("tile object collision vertex outside range")
+        left=min(px for px,_ in world); top=min(py for _,py in world)
+        bounds=(max(px for px,_ in world)-left,max(py for _,py in world)-top)
+        if any(not .16<=v<=4096 for v in bounds):
+            raise ValueError("tile object collision bounds must be 0.16..4096")
+        shapes.append({"x":left,"y":top,"w":bounds[0],"h":bounds[1],
+                       "vertices":[v for px,py in world for v in (px-left,py-top)]})
+    return shapes
+
+
+def object_collision(obj,tileset=None,tile=None):
     """Bake static object-layer collision into native terrain shapes."""
-    collision=next((p["value"] for p in obj.get("properties",[]) if p["name"]=="collision"),"empty")
+    tile_mode=next((p["value"] for p in (tile or {}).get("properties",[]) if p["name"]=="collision"),"empty")
+    if tile and tile.get("collision_shapes"): tile_mode="solid"
+    collision=next((p["value"] for p in obj.get("properties",[]) if p["name"]=="collision"),tile_mode)
     if collision=="empty": return []
     if collision not in ("solid","one_way"):
         raise ValueError("object collision must be solid, one_way or empty")
-    if any(key in obj for key in ("gid","polyline","text")) or any(obj.get(key) for key in ("ellipse","point")):
+    if "gid" in obj:
+        if any(key in obj for key in ("polygon","polyline","text")) or any(obj.get(key) for key in ("ellipse","point")):
+            raise ValueError("tile object collision cannot combine with another object shape")
+        return tile_object_collision(obj,tileset,tile or {},collision)
+    if any(key in obj for key in ("polyline","text")) or any(obj.get(key) for key in ("ellipse","point")):
         raise ValueError("static object collision requires a rectangle or polygon")
     x,y,angle=obj["x"],obj["y"],obj.get("rotation",0)
     if not all(type(v) in (int,float) and math.isfinite(v) and abs(v)<=1e6 for v in (x,y,angle)):
@@ -213,6 +261,12 @@ def tiled(root, source, read):
                 definition=json.loads(content)
             item={**definition,"firstgid":item["firstgid"]}; directory=external.parent
         context=(external or owner).relative_to(root).as_posix()
+        if item.get("objectalignment","unspecified") not in OBJECT_ALIGNMENTS:
+            raise ValueError(f"{context}: unsupported objectalignment")
+        offset=item.get("tileoffset",{})
+        if not isinstance(offset,dict) or set(offset)-{"x","y"} or any(
+                type(value) not in (int,float) or not math.isfinite(value) or abs(value)>1e6 for value in offset.values()):
+            raise ValueError(f"{context}: invalid tileoffset")
         def resource(reference,field):
             if not isinstance(reference,str): raise ValueError(f"{context}:{field}: path must be text")
             try: return project_path(root,str(directory/reference))
@@ -314,12 +368,6 @@ def tiled(root, source, read):
         resolved=resolved_properties(defaults)
         if resolved or "properties" in obj: obj["properties"]=resolved
         return obj
-    alignments={"unspecified":(0,1),"topleft":(0,0),"top":(.5,0),"topright":(1,0),
-                "left":(0,.5),"center":(.5,.5),"right":(1,.5),
-                "bottomleft":(0,1),"bottom":(.5,1),"bottomright":(1,1)}
-    for item in sets:
-        if item.get("objectalignment","unspecified") not in alignments:
-            raise ValueError(f"{source}: tileset {item.get('name','?')}: unsupported objectalignment")
     def tile_set(gid,context):
         if type(gid) is not int or not 1<=gid<=0xffffffff or gid&0x10000000:
             raise ValueError(f"{context}: invalid orthogonal object GID")
@@ -337,6 +385,7 @@ def tiled(root, source, read):
     def cover_object(obj,anchor,context):
         width,height=obj.get("width",0),obj.get("height",0)
         angle=obj.get("rotation",0)
+        shift_x=shift_y=0
         if (any(type(n) not in (int,float) or not math.isfinite(n) for n in (width,height,angle))
                 or width<0 or height<0 or abs(angle)>1e6):
             raise ValueError(f"{context}: invalid object dimensions/rotation")
@@ -351,14 +400,15 @@ def tiled(root, source, read):
         else:
             if "gid" in obj:
                 item,_=tile_set(obj["gid"],context)
-                ax,ay=alignments[item.get("objectalignment","unspecified")]
+                ax,ay=OBJECT_ALIGNMENTS[item.get("objectalignment","unspecified")]
                 offset=item.get("tileoffset",{})
-                left=offset.get("x",0)-ax*width; top=offset.get("y",0)-ay*height
+                left,top=-ax*width,-ay*height
+                shift_x,shift_y=offset.get("x",0),offset.get("y",0)
             else: left=top=0
             local=[(left,top),(left+width,top),(left,top+height),(left+width,top+height)]
         cosine,sine=math.cos(math.radians(angle)),math.sin(math.radians(angle))
-        xs=[obj["x"]+x*cosine-y*sine for x,y in local]
-        ys=[obj["y"]+x*sine+y*cosine for x,y in local]
+        xs=[obj["x"]+shift_x+x*cosine-y*sine for x,y in local]
+        ys=[obj["y"]+shift_y+x*sine+y*cosine for x,y in local]
         if any(not math.isfinite(n) for n in (*xs,*ys)):
             raise ValueError(f"{context}: transformed object footprint is not finite")
         left,right=math.floor(min(xs)/(tw*CHUNK)),math.floor(max(xs)/(tw*CHUNK))
@@ -452,17 +502,18 @@ def tiled(root, source, read):
                     if identity in identities: raise ValueError(f"{context}: duplicate persistent_id {identity}")
                     identities.add(identity)
                     obj["persistent_id"]=identity; obj["layer"]=index; obj["draw_order"]=draw_order
+                    tileset=tile=None
                     if "gid" in obj:
-                        item,local=tile_set(obj["gid"],context)
-                        tile=next((entry for entry in item.get("tiles",[]) if entry.get("id")==local),{})
-                        for field,fallback in (("width",tile.get("imagewidth",item["tilewidth"])),
-                                               ("height",tile.get("imageheight",item["tileheight"]))):
+                        tileset,local=tile_set(obj["gid"],context)
+                        tile=next((entry for entry in tileset.get("tiles",[]) if entry.get("id")==local),{})
+                        for field,fallback in (("width",tile.get("imagewidth",tileset["tilewidth"])),
+                                               ("height",tile.get("imageheight",tileset["tileheight"]))):
                             if not obj.get(field): obj[field]=fallback
                     if "collision_shapes" in obj: raise ValueError(f"{context}: collision_shapes is generated")
                     if "polygon" in obj:
                         try: obj["triangles"]=triangulate(obj["polygon"])
                         except ValueError as error: raise ValueError(f"{source}:{name}: object {obj['id']} at ({obj['x']},{obj['y']}): {error}") from error
-                    try: collision_shapes=object_collision(obj)
+                    try: collision_shapes=object_collision(obj,tileset,tile)
                     except (ValueError,TypeError,KeyError) as error:
                         raise ValueError(f"{context} at ({obj['x']},{obj['y']}): {error}") from error
                     if collision_shapes: obj["collision_shapes"]=collision_shapes

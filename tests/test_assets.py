@@ -98,6 +98,7 @@ class Assets(unittest.TestCase):
  </tile>
 </tileset>'''
             collection='''<tileset name="leaves" tilewidth="6" tileheight="10" tilecount="1" columns="0" objectalignment="center">
+ <tileoffset x="10" y="0"/>
  <tile id="3"><image source="../images/leaf.png"/>
   <properties><property name="source_note" type="file" value="note.txt"/></properties>
  </tile>
@@ -126,9 +127,10 @@ class Assets(unittest.TestCase):
             self.assertEqual((leaves['tiles'][0]['id'],leaves['tiles'][0]['image'],leaves['tiles'][0]['imagewidth']),
                              (3,'images/leaf.png',6))
             self.assertEqual(leaves['objectalignment'],'center')
+            self.assertEqual(leaves['tileoffset'],{'x':10.0,'y':0.0})
             self.assertEqual(index['layers'][1]['draworder'],'index')
             self.assertEqual({(item['x'],item['y']) for item in index['object_coverage']},
-                             {(-1,-1),(-1,0),(0,-1)})
+                             {(0,-1)})
             self.assertEqual(leaves['tiles'][0]['properties'][0]['value'],'tiles/note.txt')
             self.assertEqual(json.loads((first/'map-world/0_0.json').read_text(encoding='utf-8'))['layers']['0'][:2],[1,6])
             tile_object=json.loads((first/'map-world/0_0.json').read_text(encoding='utf-8'))['objects'][0]
@@ -139,6 +141,26 @@ class Assets(unittest.TestCase):
                              (assets.build(manifest,root/'clean')/'map-world/index.json').read_bytes())
             (root/'tiles/ground.tsx').write_text(atlas.replace('duration="150"','duration="200"'),encoding='utf-8')
             self.assertNotEqual(first.name,assets.build(manifest,root/'cache').name)
+
+    def test_tile_object_collision_override_and_invalid_one_way(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory(prefix='shiny-tile-object-') as temp:
+            root=Path(temp); Image.new('RGBA',(8,8)).save(root/'tile.png')
+            data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,
+                  'tilesets':[{'firstgid':1,'tilecount':1,'columns':1,'tilewidth':8,'tileheight':8,
+                               'image':'tile.png','tiles':[{'id':0,'properties':[{'name':'collision','value':'one_way'}]}]}],
+                  'layers':[{'type':'objectgroup','name':'objects','objects':[
+                      {'id':1,'gid':1,'x':8,'y':8,'width':8,'height':8,'rotation':30}]}]}
+            map_path=root/'map.json'; manifest=root/'assets.json'
+            manifest.write_text('{"maps":{"world":"map.json"}}',encoding='utf-8')
+            map_path.write_text(json.dumps(data),encoding='utf-8')
+            with self.assertRaisesRegex(ValueError,'one_way tile object requires an unrotated rectangle'):
+                assets.build(manifest,root/'cache')
+            data['layers'][0]['objects'][0]['properties']=[{'name':'collision','value':'empty'}]
+            map_path.write_text(json.dumps(data),encoding='utf-8')
+            built=assets.build(manifest,root/'cache')
+            obj=json.loads((built/'map-world/0_0.json').read_text(encoding='utf-8'))['objects'][0]
+            self.assertNotIn('collision_shapes',obj)
 
     def test_external_tsx_rejects_unsupported_or_missing_data(self):
         from PIL import Image
@@ -153,6 +175,7 @@ class Assets(unittest.TestCase):
             for content,field in [(base.replace('image.png','missing.png'),'missing.png'),
                                   (base.replace('source="image.png"','source="image.png" width="7"'),'image size'),
                                   (base.replace('<image','<image trans="FF00FF"'),'tileset.image'),
+                                  (base.replace('name="set"','name="set" objectalignment="diagonal"'),'objectalignment'),
                                   (base.replace('tilewidth="8"','tilewidth="0"'),'tileset.tilewidth'),
                                   (base.replace('</tileset>','<tile id="0"/><tile id="0"/></tileset>'),'duplicate tile ID'),
                                   ('<!DOCTYPE tileset [<!ENTITY bomb "x">]>'+base,'xml')]:

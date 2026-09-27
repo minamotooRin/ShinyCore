@@ -21,11 +21,15 @@ see [object templates](tiled-templates.md). Embedded images, color-key transpare
 custom tile image subrectangles, grid-size tile rendering and aspect-fit are
 explicitly rejected. DTD/entity declarations are rejected, and a TSX is limited
 to 4 MiB. A game's runtime needs only the built index/chunks and referenced PNGs.
-The builder cache key is now version 16; the runtime chunk index remains format 3.
+The builder cache key is now version 17; the runtime chunk index remains format 3.
 Tile objects keep an authored draw index, layer draw order and validated tileset
 alignment. `shiny.stream_tiles` draws their atlas or collection image automatically,
 including rotation and GID flips. The game still owns non-GID objects and their
 behavior; a tile image alone does not create a physics body.
+Tileset collision objects or `collision=solid/one_way` can bake static terrain for
+a tile object. An object-level `collision=empty` disables that inheritance. The
+baker applies the same GID flips, alignment, drawing offset, scale and rotation as
+the picture; unsupported one-way transforms fail with the source object's location.
 
 This normalization follows Tiled's [TMX/TSX reference](https://doc.mapeditor.org/en/stable/reference/tmx-map-format/)
 and [JSON map reference](https://doc.mapeditor.org/en/stable/reference/json-map-format/).

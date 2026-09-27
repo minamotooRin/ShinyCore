@@ -10,6 +10,15 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Streamed Tiled tile objects now inherit tileset collision shapes or solid/one-way
+properties unless the object explicitly sets `collision=empty`. Offline baking
+uses the same GID flips, alignment, tile offset, scale and rotation as drawing;
+unsupported one-way transforms fail before publication. A focused built-map
+headless test checks native rays and draw coordinates, and existing static object
+coverage still passes. The builder cache version is 17; the chunk format stays 3.
+This does not turn decorative images into physics bodies or complete platform
+acceptance.
+
 Crossing now draws small world-space details on its ferry/ledge surfaces, crate,
 switches, gate and floor edge. Aqueduct ripples follow simulation time without
 gameplay RNG. Three hidden native captures were inspected; an occluded first ripple
