@@ -5,6 +5,12 @@ Workshop assets in examples/workshop/assets. They are covered by the repository'
 MIT license. Room geometry, palettes and level data are authored in levels.lua/game.lua.
 There are no runtime downloads or external asset paths.
 
+The five short cues `jump/land/switch/error/rescue.wav` are original mono PCM
+sounds generated deterministically by `tools/build_crossing_audio.py` with Python's
+standard library. They add movement, mechanism and recovery feedback without
+affecting simulation or campaign saves. Regenerate with
+`python tools/build_crossing_audio.py examples/crossing/assets`.
+
 scenery-v1.png is new artwork generated for this project on 2026-09-27 using the
 built-in image generation tool, without reference images. It preserves the existing
 keeper and audio assets. Brief: one dusk pixel-art panorama atlas with three rows:

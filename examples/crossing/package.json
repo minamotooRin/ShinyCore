@@ -16,8 +16,13 @@
     "analog.jsonl",
     "checkpoint.jsonl",
     "assets/chime.wav",
+    "assets/error.wav",
+    "assets/jump.wav",
     "assets/keeper.png",
+    "assets/land.wav",
+    "assets/rescue.wav",
     "assets/scenery-v1.png",
+    "assets/switch.wav",
     "assets/README.md",
     "assets/theme.ogg",
     "scenario.json"

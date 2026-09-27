@@ -48,6 +48,10 @@ The original Workshop keeper, chime and music are bundled locally; see assets/RE
 The theme is acquired with `sc.audio.music` and keeps one application-owned voice
 through all rooms and in-process loads. No voice handle is stored in campaign saves.
 Fresh launches start playback anew; audible device continuity still needs acceptance.
+Five original short WAV cues now mark jump, landing, switch, failed interaction and
+rescue. The first room contact is silent; landing plays only after actual airtime.
+These cues are cosmetic and do not advance campaign randomness. Regenerate them with
+`python tools/build_crossing_audio.py examples/crossing/assets`.
 
 ```powershell
 .\build\full\shiny.exe examples/crossing --check-all
@@ -81,6 +85,8 @@ lights, crossings, elapsed time and rescues; the new-journey button is focused.
 Full art/audio acceptance and final packages remain outstanding. Headless checks
 above do not open a window; hidden native ending capture is available through
 `tools/capture_samples.py --case crossing-ending` with the engine/output arguments.
+The added cue integration, unchanged walkthrough state and an inspected native
+aqueduct capture are recorded in ../../docs/verification-crossing-audio.md.
 
 For the new guidance views, use `--case crossing-mill` and `--case crossing-signal`.
 These cases reach the room headlessly using the walkthrough and F6, then capture ten

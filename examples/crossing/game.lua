@@ -8,6 +8,12 @@ local Input=require("shiny.input")
 local Controls=require("controls")
 local View=require("presentation")
 local Game={}
+local cues={
+    jump={volume=.13,priority=1,bus="sfx"},land={volume=.11,priority=1,bus="sfx"},
+    switch={volume=.19,priority=4,bus="sfx"},error={volume=.16,priority=3,bus="sfx"},
+    rescue={volume=.22,priority=6,bus="sfx"},
+}
+local function sound(name) sc.audio.play(name,cues[name]) end
 local light={entity={tag="light",w=7,h=7,color="#70BFFFFF",body=false,solid=false},components={kind="power"}}
 local function terrain(level)
     local rows={}
@@ -25,7 +31,7 @@ function Game.room(index)
     local level=levels[index]
     local c,stage,shell,player,gate,platform,crate,lights,controls,notice,respawn
     local notice_time=0
-    local actions,animation,plate
+    local actions,animation,plate,airborne,ground_seen
     local function notify(text)
         if #text>120 then
             local last=0
@@ -66,6 +72,7 @@ function Game.room(index)
     end
     local function reset_player()
         stage.deaths=stage.deaths+1
+        sound("rescue");airborne=false;ground_seen=false
         sc.set(player,{x=24,y=174,vx=0,vy=0,frame=0,flip_x=false})
         animation=View.player()
         if crate then sc.set(crate,{x=300,y=176,vx=0,vy=0}) end
@@ -75,7 +82,7 @@ function Game.room(index)
     return {
         title="ShinyCore / Crossing / "..level.name,width=384,height=216,gravity=550,ambient=1,map=terrain(level),
         init=function()
-            actions=Controls.new(); animation=View.player()
+            actions=Controls.new(); animation=View.player(); airborne=false; ground_seen=false
             c=Campaign.new(sc.state.get("campaign")); c.room=index; stage=c.stages[index]
             player=sc.spawn{persistent_id="traveler",tag="player",x=stage.position.x,y=stage.position.y,w=10,h=16,
                 sprite="keeper",frame_w=12,frame_h=18,layer=2,body={type="dynamic",shape="capsule",friction=0,fixed_rotation=true}}
@@ -133,9 +140,13 @@ function Game.room(index)
             local p=sc.get(player)
             local in_water=level.gap and p.x+p.w>level.gap[1] and p.x<level.gap[2] and p.y>192
             if in_water or p.y>244 or Input.pressed(actions,"rescue") then reset_player(); publish(); return end
+            if p.grounded then
+                if airborne then sound("land") end
+                airborne=false;ground_seen=true
+            elseif ground_seen and math.abs(p.vy)>15 then airborne=true end
             local direction=Input.axis(actions,"left","right")
             local patch={vx=respawn>0 and 0 or direction*90}
-            if p.grounded and Input.pressed(actions,"jump") then patch.vy=-240 end
+            if p.grounded and Input.pressed(actions,"jump") then patch.vy=-240; sound("jump") end
             patch.frame,patch.flip_x=View.animate(animation,p,patch.vx/90,dt,patch.vy~=nil)
             sc.set(player,patch)
             if platform then
@@ -157,7 +168,12 @@ function Game.room(index)
             if Input.pressed(actions,"use") then
                 for i,id in ipairs(controls) do
                     local b=sc.get(id)
-                    if math.abs(b.x-p.x)<28 and math.abs(b.y-p.y)<32 then notify(Campaign.interact(c,index,i)); break end
+                    if math.abs(b.x-p.x)<28 and math.abs(b.y-p.y)<32 then
+                        local sequence=stage.sequence
+                        notify(Campaign.interact(c,index,i))
+                        sound((stage.open or stage.sequence>sequence) and "switch" or "error")
+                        break
+                    end
                 end
             end
             for i,id in ipairs(controls) do

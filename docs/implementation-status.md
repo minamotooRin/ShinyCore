@@ -10,6 +10,12 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Crossing now has five small reproducible PCM cues for jump, landing, mechanism
+success/failure and rescue. Focused headless playback states, deterministic cue
+bytes, the unchanged three-room gameplay snapshot, a relocated development
+package and an inspected hidden native aqueduct frame pass. Device listening and
+final game quality remain open; see [Crossing audio](verification-crossing-audio.md).
+
 Streamed prefab descendants now have plain room/root-ID/name-path references.
 Resolution returns a fresh handle after chunk reload and distinguishes unloaded,
 deleted, missing-path and stale states. A real two-process save test and the
