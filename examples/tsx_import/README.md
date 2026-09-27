@@ -6,6 +6,8 @@ object also inherits from the external XML `plaque.tx` template. Map and group
 `file` properties remain readable through `sc.stream.metadata()`. The files
 are local. Runtime uses the built chunk index, PNGs and two note files retained
 by the package dependency closure.
+The object-layer flowers are drawn by `shiny.stream_tiles`, including the rotated
+second flower; the scene does not issue a separate image command for either one.
 
 Rebuild from the engine checkout:
 

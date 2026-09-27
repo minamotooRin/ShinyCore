@@ -25,7 +25,6 @@ return {
  draw=function()
   if prepared then Tiles.draw(view,prepared) end
   if plaque then
-   sc.image("flower",plaque.x,plaque.y-24,18,24,{layer=10})
    sc.text("TX",plaque.x+20,plaque.y-18,10,"#FFCB77FF",true)
   end
   sc.text("TILED JSON + TSX + TX",12,4,12,"#E6EDF7FF",true)

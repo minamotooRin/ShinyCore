@@ -79,7 +79,7 @@ struct ScDraw {
     char text[512]{},font[128]{};
     float wrap{};
     int align{};
-    float source_x{},source_y{},source_w{},source_h{};
+    float source_x{},source_y{},source_w{},source_h{},angle{};
     float slice_left{},slice_right{},slice_top{},slice_bottom{};
     bool flip_x{},flip_y{},diagonal{};
     bool layered{};

@@ -513,7 +513,7 @@ static std::uint64_t image_material(const char* path) {
 static void draw_image(const ScDraw* d,float x,float y) {
 #ifdef SC_HAS_ADVANCED_RENDER
     const auto material=d->material?d->material:d->default_material?image_material(d->text):0;
-    if(backend.normals.drawing()) backend.normals.surface(d->text,texture,d->flip_x,d->flip_y,d->diagonal,d->screen?-backend.view.rotation:0);
+    if(backend.normals.drawing()) backend.normals.surface(d->text,texture,d->flip_x,d->flip_y,d->diagonal,d->angle+(d->screen?-backend.view.rotation:0));
     else if(material&&!backend.materials.begin(material,texture)) return;
 #endif
     if(auto* asset=texture(d->text)) {
@@ -522,6 +522,8 @@ static void draw_image(const ScDraw* d,float x,float y) {
         const auto tint=rgba(d->color);
         rlSetTexture(asset->id); rlBegin(RL_QUADS); rlColor4ub(tint.r,tint.g,tint.b,tint.a);
         const auto grid=sc_image_grid(*d,sw,sh);
+        const float cosine=cosf(d->angle),sine=sinf(d->angle);
+        const float center_x=x+d->w*.5f,center_y=y+d->h*.5f;
         constexpr std::size_t corners[4][2]={{0,0},{0,1},{1,1},{1,0}};
         for(std::size_t row=0;row<static_cast<std::size_t>(grid.y.cells);++row)
         for(std::size_t column=0;column<static_cast<std::size_t>(grid.x.cells);++column) {
@@ -534,7 +536,8 @@ static void draw_image(const ScDraw* d,float x,float y) {
                 if(d->diagonal) std::swap(u,v);
                 rlTexCoord2f((d->source_x+u*sw)/static_cast<float>(asset->width),
                              (d->source_y+v*sh)/static_cast<float>(asset->height));
-                rlVertex2f(x+grid.x.position[cx],y+grid.y.position[cy]);
+                const float px=grid.x.position[cx]-d->w*.5f,py=grid.y.position[cy]-d->h*.5f;
+                rlVertex2f(center_x+cosine*px-sine*py,center_y+sine*px+cosine*py);
             }
         }
         rlEnd(); rlSetTexture(0);

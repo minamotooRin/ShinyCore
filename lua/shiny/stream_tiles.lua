@@ -1,5 +1,7 @@
 -- Prepared tile commands for published chunks. No entities or per-tile callbacks.
 local Tiles={}
+local alignments={unspecified={0,1},topleft={0,0},top={.5,0},topright={1,0},
+    left={0,.5},center={.5,.5},right={1,.5},bottomleft={0,1},bottom={.5,1},bottomright={1,1}}
 local function number(value,low,high,name)
     assert(type(value)=="number" and value==value and value>=low and value<=high,"invalid "..name)
     return value
@@ -51,6 +53,9 @@ function Tiles.new(metadata,images)
         local offset=source.tileoffset or {}
         set.x=number(offset.x or 0,-1e6,1e6,"tile offset x")
         set.y=number(offset.y or 0,-1e6,1e6,"tile offset y")
+        local alignment=alignments[source.objectalignment or "unspecified"]
+        assert(alignment,"unsupported tile object alignment")
+        set.ax,set.ay=alignment[1],alignment[2]
         for _,tile in ipairs(source.tiles or {}) do
             local collision="empty"
             for _,property in ipairs(tile.properties or {}) do
@@ -79,10 +84,14 @@ function Tiles.new(metadata,images)
     for i=2,#view.sets do assert(view.sets[i].first>=view.sets[i-1].first+view.sets[i-1].count,"overlapping tilesets") end
     for i,layer in ipairs(metadata.layers) do
         assert(layer.type=="tilelayer" or layer.type=="objectgroup" or layer.type=="imagelayer","unsupported stream layer")
-        view.layers[i]={tile=layer.type=="tilelayer",visible=layer.visible~=false,order=i-1,
+        view.layers[i]={tile=layer.type=="tilelayer",object=layer.type=="objectgroup",
+            draworder=layer.draworder or "topdown",visible=layer.visible~=false,order=i-1,
             x=number(layer.offsetx or 0,-1e6,1e6,"layer offset x"),y=number(layer.offsety or 0,-1e6,1e6,"layer offset y"),
             px=number(layer.parallaxx or 1,-100,100,"parallax x"),py=number(layer.parallaxy or 1,-100,100,"parallax y"),
             color=tint(layer)}
+        if layer.type=="objectgroup" then
+            assert(layer.draworder==nil or layer.draworder=="topdown" or layer.draworder=="index","invalid object draworder")
+        end
         if layer.type=="imagelayer" then
             local out=view.layers[i]
             assert(type(layer.image)=="string","image layer requires an image")
@@ -135,9 +144,33 @@ function Tiles.prepare(view,chunks)
                 end
             end
         end
+        for _,object in ipairs(chunk.objects or {}) do
+            local layer_index=integer(object.layer,0,#view.layers-1,"object layer")
+            local layer=view.layers[layer_index+1]
+            assert(layer.object,"tile object requires an object layer")
+            if object.gid then
+                local set,id=graphic(view,integer(object.gid,1,0xffffffff,"object GID"))
+                local image=set.image and set or set.images[id]
+                if not image then image=set.images[set.animations[id][1].id] end
+                local list=result[layer_index+1]
+                list[#list+1]={object=object,set=set,id=id,gid=object.gid,
+                    x=number(object.x,-1e6,1e6,"object x"),y=number(object.y,-1e6,1e6,"object y"),
+                    w=number(object.width or image.w,.001,4096,"object width"),
+                    h=number(object.height or image.h,.001,4096,"object height"),
+                    angle=math.rad(number(object.rotation or 0,-1e6,1e6,"object rotation")),
+                    draw_order=integer(object.draw_order,0,1048576,"object draw order")}
+            end
+        end
     end
-    for _,list in ipairs(result) do
-        table.sort(list,function(a,b) return a.row==b.row and a.column<b.column or a.row<b.row end)
+    for index,list in ipairs(result) do
+        local layer=view.layers[index]
+        table.sort(list,function(a,b)
+            if layer.object then
+                if layer.draworder=="topdown" and a.y~=b.y then return a.y<b.y end
+                return a.draw_order<b.draw_order
+            end
+            return a.row==b.row and a.column<b.column or a.row<b.row
+        end)
     end
     return result
 end
@@ -169,6 +202,7 @@ end
 function Tiles.terrain(view,prepared,chunks)
     local shapes={}
     for _,list in ipairs(prepared) do for _,tile in ipairs(list) do
+        if not tile.object then
         local set=tile.set
         local collision=set.collisions[tile.id] or "empty"
         if collision~="empty" then
@@ -199,6 +233,7 @@ function Tiles.terrain(view,prepared,chunks)
                 assert(not one_way or (tile.gid&0x60000000)==0,"one-way terrain cannot be flipped vertically or diagonally")
                 shapes[#shapes+1]={x=tile.x,y=tile.y-image.h,w=image.w,h=image.h,one_way=one_way}
             end
+        end
         end
     end end
     for _,chunk in ipairs(chunks or {}) do for _,object in ipairs(chunk.objects or {}) do
@@ -284,6 +319,7 @@ function Tiles.draw(view,prepared,camera)
             image_layer(layer,layer.x+shift_x,layer.y+shift_y,area)
         end
         if layer.visible then for _,tile in ipairs(list) do
+            if not tile.object or tile.object.visible~=false and sc.identity.resolve(tile.object.persistent_id).status~="deleted" then
             local set=tile.set
             local id=tile.id
             local animation=set.animations[id]
@@ -292,12 +328,22 @@ function Tiles.draw(view,prepared,camera)
                 for _,frame in ipairs(animation) do if at<frame.finish then id=frame.id; break end end
             end
             local image=set.image and set or set.images[id]
-            local x,y=tile.x+shift_x,tile.y-image.h+shift_y
-            if x<area.x+area.w and y<area.y+area.h and x+image.w>area.x and y+image.h>area.y then
-                sc.image(image.image,x,y,image.w,image.h,{layer=layer.order,color=layer.color,
+            local x,y,w,h,angle
+            if tile.object then
+                w,h,angle=tile.w,tile.h,tile.angle
+                local dx,dy=w*(.5-set.ax),h*(.5-set.ay)
+                local cosine,sine=math.cos(angle),math.sin(angle)
+                x=tile.x+set.x+shift_x+cosine*dx-sine*dy-w*.5
+                y=tile.y+set.y+shift_y+sine*dx+cosine*dy-h*.5
+            else x,y,w,h,angle=tile.x+shift_x,tile.y-image.h+shift_y,image.w,image.h,0 end
+            local radius=angle~=0 and math.sqrt(w*w+h*h)*.5 or 0
+            local left,top,right,bottom=x-radius,y-radius,x+w+radius,y+h+radius
+            if right>area.x and bottom>area.y and left<area.x+area.w and top<area.y+area.h then
+                sc.image(image.image,x,y,w,h,{layer=layer.order,color=layer.color,angle=angle,
                     source_x=set.image and set.margin+(id%set.columns)*(set.w+set.spacing) or 0,
                     source_y=set.image and set.margin+(id//set.columns)*(set.h+set.spacing) or 0,source_w=image.w,source_h=image.h,
                     flip_x=(tile.gid&0x80000000)~=0,flip_y=(tile.gid&0x40000000)~=0,diagonal=(tile.gid&0x20000000)~=0})
+            end
             end
         end end
     end

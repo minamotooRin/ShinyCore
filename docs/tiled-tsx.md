@@ -21,7 +21,11 @@ see [object templates](tiled-templates.md). Embedded images, color-key transpare
 custom tile image subrectangles, grid-size tile rendering and aspect-fit are
 explicitly rejected. DTD/entity declarations are rejected, and a TSX is limited
 to 4 MiB. A game's runtime needs only the built index/chunks and referenced PNGs.
-The builder cache key is now version 15; the runtime chunk index remains format 3.
+The builder cache key is now version 16; the runtime chunk index remains format 3.
+Tile objects keep an authored draw index, layer draw order and validated tileset
+alignment. `shiny.stream_tiles` draws their atlas or collection image automatically,
+including rotation and GID flips. The game still owns non-GID objects and their
+behavior; a tile image alone does not create a physics body.
 
 This normalization follows Tiled's [TMX/TSX reference](https://doc.mapeditor.org/en/stable/reference/tmx-map-format/)
 and [JSON map reference](https://doc.mapeditor.org/en/stable/reference/json-map-format/).
@@ -38,3 +42,11 @@ The runtime-only package closure was copied to another path without source TSX o
 map JSON; it loaded the same chunk headlessly. Two focused packaging checks cover
 file properties and broken references.
 The capture does not prove all Tiled XML variations or full game acceptance.
+
+Object-layer follow-up: the rebuilt TSX example now contains the templated flower
+and a second rotated tile object, both drawn by `shiny.stream_tiles`. Targeted
+import and runtime tests cover alignment metadata, draw order, rotation and a
+deleted object's visibility. A hidden, muted native capture was inspected at
+`build/tsx-tileobjects-reviewed/tsx-scene.png`; graphical and headless 30-frame
+replays agreed on the explicit gameplay fields. Full Tiled-editor export and
+platform coverage remain unverified.

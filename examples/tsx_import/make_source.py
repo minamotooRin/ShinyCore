@@ -50,5 +50,7 @@ world = {"orientation": "orthogonal", "tilewidth": 16, "tileheight": 16,
                                  "height": 8, "data": cells, "offsetx": 24, "offsety": 20},
                                 {"type": "objectgroup", "name": "markers", "offsetx": 24, "offsety": 20,
                                  "objects": [{"id": 1, "template": "plaque.tx", "x": 176, "y": 80,
-                                              "properties": [{"name": "label", "type": "string", "value": "TX FLOWER"}]}]}]}]}
+                                              "properties": [{"name": "label", "type": "string", "value": "TX FLOWER"}]},
+                                             {"id": 2, "gid": 13, "x": 112, "y": 102,
+                                              "width": 18, "height": 24, "rotation": 25}]}]}]}
 (root / "world.json").write_text(json.dumps(world, indent=2) + "\n", encoding="utf-8")

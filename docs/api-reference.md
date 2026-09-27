@@ -262,6 +262,7 @@ also use the descriptions and [authoring annotations](api.lua).
 | source_y? | number | Source pixels; finite. Range 0..8192. Default 0. |
 | source_w? | number | Source pixels; finite. Range 0..8192. Default 0. |
 | source_h? | number | Source pixels; finite. Range 0..8192. Default 0. |
+| angle? | number | Radians clockwise around the destination center; zero preserves pixel-aligned drawing. Range -1000000..1000000. Default 0. |
 | flip_x? | boolean | Diagonal exchanges source axes after flips; screen selects logical viewport coordinates. Default false. |
 | flip_y? | boolean | Diagonal exchanges source axes after flips; screen selects logical viewport coordinates. Default false. |
 | diagonal? | boolean | Diagonal exchanges source axes after flips; screen selects logical viewport coordinates. Default false. |

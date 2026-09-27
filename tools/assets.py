@@ -19,7 +19,7 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 15
+VERSION = 16
 CHUNK = 32
 
 
@@ -314,6 +314,23 @@ def tiled(root, source, read):
         resolved=resolved_properties(defaults)
         if resolved or "properties" in obj: obj["properties"]=resolved
         return obj
+    alignments={"unspecified":(0,1),"topleft":(0,0),"top":(.5,0),"topright":(1,0),
+                "left":(0,.5),"center":(.5,.5),"right":(1,.5),
+                "bottomleft":(0,1),"bottom":(.5,1),"bottomright":(1,1)}
+    for item in sets:
+        if item.get("objectalignment","unspecified") not in alignments:
+            raise ValueError(f"{source}: tileset {item.get('name','?')}: unsupported objectalignment")
+    def tile_set(gid,context):
+        if type(gid) is not int or not 1<=gid<=0xffffffff or gid&0x10000000:
+            raise ValueError(f"{context}: invalid orthogonal object GID")
+        raw=gid&0x0fffffff
+        for item in reversed(sorted(sets,key=lambda value:value["firstgid"])):
+            if raw>=item["firstgid"]:
+                local=raw-item["firstgid"]
+                if local>=extent(item) or ("image" not in item and not any(tile.get("id")==local for tile in item.get("tiles",[]))):
+                    break
+                return item,local
+        raise ValueError(f"{context}: GID has no tileset image")
     blocks={}; layers=[]; groups=[]; identities=set(); coverage={}
     def block_at(x,y):
         return blocks.setdefault((x,y),{"layers":{},"objects":[]})
@@ -332,8 +349,13 @@ def tiled(root, source, read):
             if any(type(n) not in (int,float) or not math.isfinite(n) for pair in local for n in pair):
                 raise ValueError(f"{context}: object points must be finite")
         else:
-            top=-height if "gid" in obj else 0
-            local=[(0,top),(width,top),(0,top+height),(width,top+height)]
+            if "gid" in obj:
+                item,_=tile_set(obj["gid"],context)
+                ax,ay=alignments[item.get("objectalignment","unspecified")]
+                offset=item.get("tileoffset",{})
+                left=offset.get("x",0)-ax*width; top=offset.get("y",0)-ay*height
+            else: left=top=0
+            local=[(left,top),(left+width,top),(left,top+height),(left+width,top+height)]
         cosine,sine=math.cos(math.radians(angle)),math.sin(math.radians(angle))
         xs=[obj["x"]+x*cosine-y*sine for x,y in local]
         ys=[obj["y"]+x*sine+y*cosine for x,y in local]
@@ -385,6 +407,10 @@ def tiled(root, source, read):
             index=len(layers)
             layers.append({**inherited,"type":kind,"order":index,
                            "tintcolor":"#"+"".join(f"{math.floor(channel*255+.5):02X}" for channel in tint)})
+            if kind=="objectgroup":
+                draworder=layer.get("draworder","topdown")
+                if draworder not in ("topdown","index"): raise ValueError(f"{context}: unsupported draworder")
+                layers[-1]["draworder"]=draworder
             if parent.get("_group"): layers[-1]["group"]=parent["_group"]
             try: layers[-1]["properties"]=resolved_properties(properties(layer.get("properties",[]),path))
             except (ValueError,KeyError,TypeError) as error: raise ValueError(f"{context}: {error}") from error
@@ -405,7 +431,7 @@ def tiled(root, source, read):
                         cells=block_at(bx,by)["layers"].setdefault(str(index),[0]*(CHUNK*CHUNK))
                         cells[(y%CHUNK)*CHUNK+x%CHUNK]=gid
             elif kind=="objectgroup":
-                for original_object in layer.get("objects",[]):
+                for draw_order,original_object in enumerate(layer.get("objects",[])):
                     context=f"{source}:{name}: object {original_object.get('id', '?')}"
                     try: obj=object_data(original_object)
                     except (ValueError,KeyError,TypeError,OSError) as error:
@@ -425,7 +451,13 @@ def tiled(root, source, read):
                         raise ValueError(f"{context}: persistent_id requires a valid ASCII layer path")
                     if identity in identities: raise ValueError(f"{context}: duplicate persistent_id {identity}")
                     identities.add(identity)
-                    obj["persistent_id"]=identity; obj["layer"]=index
+                    obj["persistent_id"]=identity; obj["layer"]=index; obj["draw_order"]=draw_order
+                    if "gid" in obj:
+                        item,local=tile_set(obj["gid"],context)
+                        tile=next((entry for entry in item.get("tiles",[]) if entry.get("id")==local),{})
+                        for field,fallback in (("width",tile.get("imagewidth",item["tilewidth"])),
+                                               ("height",tile.get("imageheight",item["tileheight"]))):
+                            if not obj.get(field): obj[field]=fallback
                     if "collision_shapes" in obj: raise ValueError(f"{context}: collision_shapes is generated")
                     if "polygon" in obj:
                         try: obj["triangles"]=triangulate(obj["polygon"])

@@ -18,6 +18,31 @@
 ---@alias ScAction 'left'|'right'|'up'|'down'|'jump'|'action'
 ---@alias ScTile '.'|'#'|'=' # Empty, solid, one-way platform.
 
+---@class ScStreamMetadata
+-- Fields generated from native --api.
+---@field format integer # Read-only. Built stream format 3.
+---@field chunk_size integer # Read-only. 32 tiles per chunk axis.
+---@field tilewidth integer # Read-only. Tile width in world pixels.
+---@field tileheight integer # Read-only. Tile height in world pixels.
+---@field layers table[] # Read-only. Flattened map layers in stable source order.
+---@field groups? table[] # Read-only. Optional group hierarchy with one-based parent indices.
+---@field properties? table[] # Read-only. Optional map custom properties.
+---@field object_coverage? ScObjectCoverage[] # Read-only. Optional sparse cross-chunk object anchor dependencies.
+---@field tilesets? table[] # Read-only. Optional imported tileset metadata.
+---@field parallaxoriginx? number # Read-only. Optional map parallax X origin.
+---@field parallaxoriginy? number # Read-only. Optional map parallax Y origin.
+
+---@class ScObjectCoverage
+-- Fields generated from native --api.
+---@field x integer # Read-only. Intersected chunk column.
+---@field y integer # Read-only. Intersected chunk row.
+---@field anchors ScChunkCoordinate[] # Read-only. Anchor chunks holding authored objects crossing this chunk.
+
+---@class ScChunkCoordinate
+-- Fields generated from native --api.
+---@field x integer # Read-only. Chunk column, -31250..31250.
+---@field y integer # Read-only. Chunk row, -31250..31250.
+
 ---@class ScVolumePatch
 -- Fields generated from native --api.
 ---@field master? number # Initial engine gain is 1; omitted patch value retains current gain. Range 0..1.
@@ -110,6 +135,7 @@
 ---@field source_y? number # Source pixels; finite. Range 0..8192. Default 0.
 ---@field source_w? number # Source pixels; finite. Range 0..8192. Default 0.
 ---@field source_h? number # Source pixels; finite. Range 0..8192. Default 0.
+---@field angle? number # Radians clockwise around the destination center; zero preserves pixel-aligned drawing. Range -1000000..1000000. Default 0.
 ---@field flip_x? boolean # Diagonal exchanges source axes after flips; screen selects logical viewport coordinates. Default false.
 ---@field flip_y? boolean # Diagonal exchanges source axes after flips; screen selects logical viewport coordinates. Default false.
 ---@field diagonal? boolean # Diagonal exchanges source axes after flips; screen selects logical viewport coordinates. Default false.
@@ -1709,9 +1735,9 @@ function sc.stream.failure() end
 ---@param y integer
 ---@return table|nil
 function sc.stream.get(x, y) end
----Copy format, chunk_size, tilewidth, tileheight, layers, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.
+---Copy format, chunk_size, tilewidth/height, layers, groups, map properties, sparse object_coverage, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.
 ---Phases: load, init, update.
----@return table
+---@return ScStreamMetadata
 function sc.stream.metadata() end
 ---Open a built map index with a single worker and 128 MiB bounded cache; load/init only.
 ---Phases: load, init.

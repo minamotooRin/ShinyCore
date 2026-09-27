@@ -661,7 +661,7 @@ static int api_image(lua_State* L) {
     std::snprintf(draw.text,sizeof draw.text,"%s",resource->path.c_str());
     draw.x=number_at(L,2,-1e6,1e6); draw.y=number_at(L,3,-1e6,1e6); draw.w=number_at(L,4,0,4096); draw.h=number_at(L,5,0,4096);
     if(lua_istable(L,6)) {
-        static const char* keys[]={"source_x","source_y","source_w","source_h","flip_x","flip_y","diagonal","color","screen","layer","material","slice",nullptr};
+        static const char* keys[]={"source_x","source_y","source_w","source_h","angle","flip_x","flip_y","diagonal","color","screen","layer","material","slice",nullptr};
         strict_keys(L,6,keys,"image options");
         lua_getfield(L,6,"material");
         if(!lua_isnil(L,-1)) {
@@ -682,6 +682,7 @@ static int api_image(lua_State* L) {
         float_field(L,6,"source_y",&draw.source_y,0,8192);
         float_field(L,6,"source_w",&draw.source_w,0,8192);
         float_field(L,6,"source_h",&draw.source_h,0,8192);
+        float_field(L,6,"angle",&draw.angle,-1000000,1000000);
         if((draw.source_w==0)!=(draw.source_h==0)||
             (!draw.source_w&&(draw.source_x||draw.source_y))) return luaL_error(L,"image source requires positive width and height");
         if(draw.source_w&&(draw.source_x+draw.source_w>resource->image_width||draw.source_y+draw.source_h>resource->image_height))

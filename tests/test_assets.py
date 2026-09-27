@@ -97,7 +97,7 @@ class Assets(unittest.TestCase):
   <animation><frame tileid="0" duration="100"/><frame tileid="1" duration="150"/></animation>
  </tile>
 </tileset>'''
-            collection='''<tileset name="leaves" tilewidth="6" tileheight="10" tilecount="1" columns="0">
+            collection='''<tileset name="leaves" tilewidth="6" tileheight="10" tilecount="1" columns="0" objectalignment="center">
  <tile id="3"><image source="../images/leaf.png"/>
   <properties><property name="source_note" type="file" value="note.txt"/></properties>
  </tile>
@@ -112,8 +112,8 @@ class Assets(unittest.TestCase):
                                   {'firstgid':3,'source':'tiles/leaves.tsx'}],
                       'layers':[{'type':'tilelayer','name':'floor','width':2,'height':1,'data':[1,6],
                                  'properties':[{'name':'hint','type':'file','value':'map-note.txt'}]},
-                                {'type':'objectgroup','name':'markers','objects':[
-                                    {'id':5,'template':'icon.json','x':8,'y':8}]}]}
+                                {'type':'objectgroup','name':'markers','draworder':'index','objects':[
+                                    {'id':5,'template':'icon.json','x':1,'y':1,'rotation':30}]}]}
             (root/'map.json').write_text(json.dumps(map_data),encoding='utf-8')
             manifest=root/'assets.json';manifest.write_text('{"maps":{"world":"map.json"}}',encoding='utf-8')
             first=assets.build(manifest,root/'cache');index=json.loads((first/'map-world/index.json').read_text(encoding='utf-8'))
@@ -125,9 +125,14 @@ class Assets(unittest.TestCase):
             self.assertEqual(len(ground['tiles'][0]['collision_shapes']),4)
             self.assertEqual((leaves['tiles'][0]['id'],leaves['tiles'][0]['image'],leaves['tiles'][0]['imagewidth']),
                              (3,'images/leaf.png',6))
+            self.assertEqual(leaves['objectalignment'],'center')
+            self.assertEqual(index['layers'][1]['draworder'],'index')
+            self.assertEqual({(item['x'],item['y']) for item in index['object_coverage']},
+                             {(-1,-1),(-1,0),(0,-1)})
             self.assertEqual(leaves['tiles'][0]['properties'][0]['value'],'tiles/note.txt')
             self.assertEqual(json.loads((first/'map-world/0_0.json').read_text(encoding='utf-8'))['layers']['0'][:2],[1,6])
-            self.assertEqual(json.loads((first/'map-world/0_0.json').read_text(encoding='utf-8'))['objects'][0]['gid'],6)
+            tile_object=json.loads((first/'map-world/0_0.json').read_text(encoding='utf-8'))['objects'][0]
+            self.assertEqual((tile_object['gid'],tile_object['draw_order'],tile_object['rotation']),(6,0,30))
             self.assertTrue({'tiles/ground.tsx','tiles/leaves.tsx','images/atlas.png','images/leaf.png','tiles/note.txt','map-note.txt'}
                             <=json.loads((first/'index.json').read_text(encoding='utf-8'))['inputs'].keys())
             self.assertEqual((first/'map-world/index.json').read_bytes(),

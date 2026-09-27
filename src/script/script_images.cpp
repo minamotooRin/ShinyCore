@@ -150,6 +150,9 @@ ScValue sc_script_images_contracts() {
     ScValue::Array slices,draw;
     for(const auto* side:{"left","right","top","bottom"}) slices.push_back(numeric(side,0,8192));
     for(const auto* name:{"source_x","source_y","source_w","source_h"}) draw.push_back(numeric(name,0,8192));
+    auto angle=numeric("angle",-1000000,1000000);
+    std::get<ScValue::Object>(angle.data)["description"]=ScValue{std::string("Radians clockwise around the destination center; zero preserves pixel-aligned drawing.")};
+    draw.push_back(std::move(angle));
     for(const auto* name:{"flip_x","flip_y","diagonal","screen"}) {
         auto item=option(name,"boolean","Diagonal exchanges source axes after flips; screen selects logical viewport coordinates.");
         std::get<ScValue::Object>(item.data).emplace("default",ScValue{false}); draw.push_back(std::move(item));

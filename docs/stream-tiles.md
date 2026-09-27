@@ -37,8 +37,8 @@ prepare 处理已加载块，不创建普通实体。绘制按图层索引、全
 图层着色：离线转换接受 Tiled 的 `#RRGGBB` / `#AARRGGBB` tintcolor，沿组路径
 逐分量相乘，最后写入扁平层的有效 tintcolor；透明度仍独立相乘。运行时组合 tint
 alpha 与 opacity，再转换为 sc.image 的 `#RRGGBBAA`。图块层/图像层使用同一
-颜色路径；未声明着色时保持白色。对象层保留同样元数据，其实际对象表现由游戏
-工厂决定，不隐式修改工厂创建的实体。
+颜色路径；未声明着色时保持白色。对象层的 GID 图块对象自动使用同一颜色路径；
+普通对象的实体外观仍由游戏工厂决定。
 
 构建器版本 9 验证源层及继承结果的 opacity、visible、offset、parallax、tintcolor；
 非法输入指向源地图和层路径。非 normal 混合模式和 transparentcolor 颜色键当前
@@ -53,9 +53,13 @@ PNG 尺寸检查。可见图块计入 project.limits.draws，超出容量明确�
 视差只偏移世界位置，缩放、旋转、震动由原生相机统一处理。图层零基索引作为
 `sc.image` 的 layer，与原生实体和地图层混合排序。同层图块先于实体；将实体 layer
 放在背景与前景层号之间即可获得遮挡。分层地图参与场景光照，不进入 UI 裁剪栈。
-支持图集式及图像集合式 tileset、tilelayer 与 imagelayer；objectgroup 由对象
-模块处理。GPU 资源准备与发布由 shiny.stream_world 协调；本模块负责准备绘制
-数据和资源名称。导航窗口见下文，相机旋转/缩放由原生相机处理。
+支持图集式及图像集合式 tileset、tilelayer、imagelayer 与 objectgroup 中的
+GID 图块对象。图块对象按层的 `draworder`（topdown/index）、原始对象次序、
+`objectalignment`、tileoffset、旋转、缩放、GID 翻转与可见性绘制；删除标记
+立即隐藏图片。对象层的其他对象仍由 `stream_objects` 或游戏脚本处理。图块
+对象碰撞不会由图片自动生成；静态碰撞需显式的对象几何，移动障碍需实体物理。
+GPU 资源准备与发布由 shiny.stream_world 协调；本模块负责准备绘制数据和资源名称。
+导航窗口见下文，相机旋转/缩放由原生相机处理。
 
 图像集合使用 `columns=0`，每个 tile.image 相对于其 tileset 文件解析，离线
 工具写入项目相对路径和真实 PNG 尺寸，并把所有图片纳入缓存依赖。单张

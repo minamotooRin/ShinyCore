@@ -265,6 +265,38 @@ end,draw=function()
 end}''')
         self.run_game('streamed-tile-commands')
 
+    def test_tile_objects_draw_order_rotation_and_deletion(self):
+        from PIL import Image
+        Image.new('RGBA',(16,8),(255,255,255,255)).save(self.root/'atlas.png')
+        shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        (self.root/'project.lua').write_text('return {id="tile-objects",resources={atlas={type="image",path="atlas.png"}}}',encoding='utf-8')
+        self.scene('''local Tiles=require("shiny.stream_tiles")
+local view,prepared,calls={},nil,{}
+local image=sc.image
+sc.image=function(name,x,y,w,h,options)
+    calls[#calls+1]={x=x,y=y,angle=options.angle,source=options.source_x}
+    return image(name,x,y,w,h,options)
+end
+return {init=function()
+    view=Tiles.new({format=3,chunk_size=32,tilewidth=8,tileheight=8,
+        tilesets={{firstgid=1,tilecount=2,columns=2,tilewidth=8,tileheight=8,image="atlas.png",objectalignment="center"}},
+        layers={{type="objectgroup",draworder="index"}}},{["atlas.png"]="atlas"})
+    prepared=Tiles.prepare(view,{{x=0,y=0,layers={},objects={
+        {persistent_id="flower:2",layer=0,draw_order=1,gid=2,x=40,y=20,width=8,height=8},
+        {persistent_id="flower:1",layer=0,draw_order=0,gid=1,x=50,y=40,width=8,height=8,rotation=90}}}})
+    assert(Tiles.images(view,prepared)[1]=="atlas" and #Tiles.terrain(view,prepared)==0)
+end,update=function()
+    if sc.tick()>=2 and sc.identity.resolve("flower:1").status~="deleted" then sc.identity.remove("flower:1") end
+end,draw=function()
+    calls={}; Tiles.draw(view,prepared,{x=0,y=0,visible={x=0,y=0,w=100,h=100}})
+    if sc.identity.resolve("flower:1").status~="deleted" then
+        assert(#calls==2 and calls[1].x==46 and calls[1].y==36)
+        assert(math.abs(calls[1].angle-math.pi/2)<.00001 and calls[1].source==0)
+        assert(calls[2].x==36 and calls[2].source==8)
+    else assert(#calls==1 and calls[1].source==8) end
+end}''')
+        self.run_game('tile-objects',frames=4)
+
     def test_built_image_layers(self):
         from PIL import Image
         Image.new('RGBA',(8,8),(255,255,255,255)).save(self.root/'background.png')
