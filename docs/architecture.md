@@ -28,7 +28,8 @@ Standalone native streams can own a private loader; see [lifetimes and limits](s
 with owned checkpoint payloads, explicit result observation and retry. The host
 owns it and gates the next fixed update for Lua async requests, while servicing UI,
 devices and network. Unreleased requests exclude other save operations, room changes
-and reloads; releasing invalidates the pinned snapshot. Shutdown drains writes and
+and reloads; releasing invalidates the request, while a successful read pins its
+selected snapshot. Shutdown drains writes and
 reports failure. The stream-world module and Wayfarer stage outgoing snapshots,
 save asynchronously, then publish the next world. They preserve the old world on
 failure and expose retry/cancel through UI; cancellation never undoes disk commits.
@@ -36,7 +37,9 @@ Synchronous APIs remain explicit utilities. Batch async reads select or retain o
 complete snapshot on the same worker; successful release pins its index for later
 reads. Stream-world uses this API before preparing entering objects/terrain, then
 saves outgoing data and publishes. Read/write exclusion prevents this application's
-collection from racing readers. Title-menu listing/loading remains synchronous.
+collection from racing readers. Wayfarer probes its title checkpoint on the worker;
+after release, `sc.save.load` consumes the pinned index without rereading the slot.
+Explicit save deletion and slot enumeration remain synchronous utilities.
 Rooms declaring `project.stream_indexes` stage index parsing on the content worker
 between scene-table loading and `init`, then consume the parsed index in `sc.stream.open`.
 Undeclared indexes still open synchronously.

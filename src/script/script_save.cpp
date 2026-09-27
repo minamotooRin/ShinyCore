@@ -88,6 +88,8 @@ int save_operation(lua_State* L,bool loading,bool chunked=false,bool asynchronou
             if(s->pending_scene[0]) throw std::runtime_error("a scene transition is already pending");
             ScResult<ScValue> record=std::unexpected("save slot does not exist");
             if(s->save_directory.empty()) { auto it=s->memory_saves.find(slot); if(it!=s->memory_saves.end()) record=it->second; }
+            else if(s->save_snapshot_slot==slot && !std::holds_alternative<std::monostate>(s->save_snapshot.data))
+                record=s->save_snapshot;
             else record=sc_save_read(path,id->text(),v);
             if(!record) throw std::runtime_error(record.error());
             auto valid=sc_save_validate(*record,id->text(),v);

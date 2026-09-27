@@ -4,7 +4,10 @@ Explore a streamed forest, collect 24 moon herbs, clear the eastern road and ret
 medicine to the village healer. Requires an engine built with streaming.
 
 Enter starts a new game if no checkpoint exists, or restores the complete existing
-checkpoint. The title owns no streamed world. NEW JOURNEY asks before clearing the
+checkpoint. The title owns no streamed world. It probes the checkpoint on the
+application IO worker; menu focus and Quit remain responsive, while selections wait
+for the result.
+NEW JOURNEY asks before clearing the
 checkpoint, collected-object markers and map edits; cancelling preserves them.
 Completing the quest saves the ending. Its RETURN TO TITLE button cannot resume a
 completed quest as unfinished gameplay.
@@ -64,8 +67,9 @@ worker before `init`; its metadata is ready when `shiny.stream_world` opens it.
 Ordinary menus wait for world preparation; normal loading preserves held
 movement for resumption, while the failure panel consumes gameplay actions. Forest tiles and herb sprites use stream=true; the world collects their image dependencies
 and commits prepared textures with terrain/objects. Initial player/healer/courier sprites
-remain eager resources. The stream watch includes pinned image count. Title-menu loading
-remains synchronous. For a bounded visual fault check, run
+remain eager resources. The stream watch includes pinned image count. The selected
+checkpoint index stays pinned across title-to-world loading. Starting a new journey
+still deletes the slot synchronously. For a bounded visual fault check, run
 `python tests/native_wayfarer_save.py build/full/shiny.exe --output build/wayfarer-save-check`.
 
 In the source checkout, map content is assets/forest.json, assets/tiles.png and assets.build.json.
@@ -80,8 +84,8 @@ name glyphs; it is not linked into the engine.
 ```powershell
 .\build\full\shiny.exe examples/wayfarer
 .\build\full\shiny.exe examples/wayfarer --check-all
-.\build\full\shiny.exe examples/wayfarer --headless --frames 3243 --replay examples/wayfarer/walkthrough.jsonl --save-dir build/wayfarer-walkthrough
-.\build\full\shiny.exe examples/wayfarer --headless --frames 3243 --replay examples/wayfarer/gamepad.jsonl --save-dir build/wayfarer-gamepad
+.\build\full\shiny.exe examples/wayfarer --headless --frames 3244 --replay examples/wayfarer/walkthrough.jsonl --save-dir build/wayfarer-walkthrough
+.\build\full\shiny.exe examples/wayfarer --headless --frames 3244 --replay examples/wayfarer/gamepad.jsonl --save-dir build/wayfarer-gamepad
 python tests/wayfarer_integration.py build/full/shiny.exe
 python tests/wayfarer_route_commit.py build/full/shiny.exe
 python tools/scenario.py build/full/shiny.exe examples/wayfarer/walkthrough.scenario.json
@@ -92,10 +96,10 @@ Use a fresh save directory for the full walkthrough. It uses only real keyboard
 input, gathers all 24 herbs, clears the road, revisits chunks and delivers the quest.
 The focused check verifies all 16 authored chunk records, deletion/road state,
 fresh-process ending recovery, cancelled/new journeys, Chinese names and equipment.
-`journal.jsonl` is the shorter name/equipment checkpoint replay (45 frames), and
-`travel.jsonl` checks crossing chunks and road edits (550 frames). `gamepad.jsonl`
-completes the same 3243-frame mission with controller input; `controller-journal.jsonl`
-checks journal toggling, name typing and held-stick isolation in 22 frames. The
+`journal.jsonl` is the shorter name/equipment checkpoint replay (46 frames), and
+`travel.jsonl` checks crossing chunks and road edits (551 frames). `gamepad.jsonl`
+completes the same 3244-frame mission with controller input; `controller-journal.jsonl`
+checks journal toggling, name typing and held-stick isolation in 23 frames. The
 integration test compares keyboard/controller quest and courier state, and checks
 the same music voice and continuous loop clock across room changes. See
 ../../docs/verification-wayfarer-controls.md for the new controller visual check.

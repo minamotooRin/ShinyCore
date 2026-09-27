@@ -1,5 +1,5 @@
 {
-  "frames": 3243,
+  "frames": 3244,
   "replay": "walkthrough.jsonl",
   "assertions": [
     {"path": "watches.quest.mode", "equals": "end"},

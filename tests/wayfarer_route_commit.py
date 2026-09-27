@@ -26,15 +26,15 @@ def check(binary, folder, cancel):
     main.write_text(script, encoding="utf-8")
 
     trace = folder / (project.name + ".jsonl")
-    result = subprocess.run([str(binary), "--headless", str(project), "--frames", "125",
+    result = subprocess.run([str(binary), "--headless", str(project), "--frames", "126",
                              "--replay", str(SOURCE / "walkthrough.jsonl"), "--trace", str(trace),
                              "--save-dir", str(folder / (project.name + "-saves"))],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     frames = {entry["frames"]: entry for entry in map(json.loads, trace.read_text(encoding="utf-8").splitlines())}
-    assert frames[117]["watches"]["save"]["kind"] == "patch"
-    assert frames[117]["state"].get("route_cleared") is not True
-    assert (frames[125]["state"].get("route_cleared") is True) != cancel
+    assert frames[118]["watches"]["save"]["kind"] == "patch"
+    assert frames[118]["state"].get("route_cleared") is not True
+    assert (frames[126]["state"].get("route_cleared") is True) != cancel
 
 
 if __name__ == "__main__":
