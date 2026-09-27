@@ -28,6 +28,11 @@ Wayfarer 道路状态提交修正后的单独新包在
 Wayfarer 的游戏脚本。包内 `--check-all` 与中性工作目录的 180 帧场景检查通过，
 未重复完整任务、移动安装或原生截图。Crossing/Barrage 包保持上段版本。
 
+Wayfarer 结局存档提交修正后的精简运行时包现位于
+`build/wayfarer-runtime-release-20260928/`，仅启用图形和流式地图。
+包已复制到仓库外执行完整场景，原生对话画面已检查；详见
+[精简发行构建记录](verification-wayfarer-runtime-release.md)。旧 Wayfarer 包不含本次修正。
+
 ## 内容清单
 
 ```json

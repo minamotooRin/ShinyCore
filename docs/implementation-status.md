@@ -10,6 +10,13 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Wayfarer's checkpoint-gated ending now has a minimal streaming/graphics Release
+package with network, advanced rendering and dev tools disabled. The relocated
+package passed its full 3,245-frame scenario with only system PATH entries; a
+hidden native dialogue capture was inspected. See
+[minimal runtime release](verification-wayfarer-runtime-release.md). This is not
+clean-system or cross-platform acceptance.
+
 `ScScene` and `ScMap` now have structured native `--api` fields, defaults,
 ranges and table constraints. The generated LuaLS/reference copies and 18
 example annotations are synchronized; 11 manifested SDKs are dev.72.
