@@ -151,6 +151,41 @@ void capacity_and_cancellation() {
         check(stream.statistics().get("resident_bytes")->number()<=512*1024,"revisits stay in budget");
     }
 }
+void queue_rejection_keeps_cache() {
+    Fixture fixture;
+    ScValue::Array entries;
+    for(int x=0;x<1024;++x) entries.emplace_back(ScValue::Object{
+        {"x",ScValue{double(x)}},{"y",ScValue{0.0}},
+        {"path",ScValue{std::string{"0.json"}}},{"bytes",ScValue{1.0}}});
+    fixture.write("queue.json",sc_json_write(ScValue{ScValue::Object{
+        {"format",ScValue{3.0}},{"chunk_size",ScValue{32.0}},
+        {"tilewidth",ScValue{8.0}},{"tileheight",ScValue{8.0}},
+        {"layers",ScValue{ScValue::Array{}}},{"chunks",ScValue{std::move(entries)}}}}));
+    Gate gate; std::atomic<bool> block{};
+    ScContentLoader loader([&](const std::string& path,std::size_t bytes) {
+        if(block) gate.wait();
+        return sc_json_file(path,bytes,20);
+    });
+    Release cleanup{gate};
+    ScStream cached(fixture.index(),loader,fixture.charge*2);
+    cached.request(0,0,0); check(bool(await(cached,0)),"warm reusable chunk"); cached.release(0,0);
+    ScStream first((fixture.root/"queue.json").string(),loader,65536);
+    ScStream second((fixture.root/"queue.json").string(),loader,65536);
+    block=true;
+    first.request(0,0,1); gate.await_entry();
+    for(int x=1;x<1024;++x) first.request(x,0,1);
+    for(int x=0;x<1024;++x) second.request(x,0,1);
+    cached.request(1,0,1); // 2049 chunk jobs now occupy the application queue.
+    const auto before=cached.statistics();
+    bool rejected=false;
+    try { cached.request(2,0,1); } catch(const std::exception&) { rejected=true; }
+    check(rejected,"full application queue rejects a new chunk");
+    for(const auto* field:{"resident_bytes","pinned","queued","last_sequence"})
+        check(cached.statistics().get(field)->number()==before.get(field)->number(),
+            "rejected request preserves cache accounting and sequence");
+    check(cached.request(0,0,1)==3,"rejected request does not evict a reusable chunk");
+    gate.release();
+}
 void failure_and_schedule() {
     Fixture fixture;
     ScStream stream(fixture.index());
@@ -240,10 +275,12 @@ int main(int argc,char** argv) {
     try {
         const bool retry_only=argc==2&&!std::strcmp(argv[1],"--retry");
         const bool lifetime_only=argc==2&&!std::strcmp(argv[1],"--lifetime");
-        check(argc==1||retry_only||lifetime_only,"expected optional --retry or --lifetime");
-        if(!retry_only) application_loader_lifetime();
-        if(!lifetime_only) retry_failed_batch();
-        if(argc==1) { order_and_nonblocking(); capacity_and_cancellation(); failure_and_schedule(); object_validation(); }
+        const bool queue_only=argc==2&&!std::strcmp(argv[1],"--queue");
+        check(argc==1||retry_only||lifetime_only||queue_only,"expected optional --retry, --lifetime or --queue");
+        if(argc==1||lifetime_only) application_loader_lifetime();
+        if(argc==1||retry_only) retry_failed_batch();
+        if(argc==1) { order_and_nonblocking(); capacity_and_cancellation(); queue_rejection_keeps_cache(); failure_and_schedule(); object_validation(); }
+        if(queue_only) queue_rejection_keeps_cache();
         std::cout<<"stream: planned publication, controlled slow IO, cancellation and bounded cache passed\n";
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

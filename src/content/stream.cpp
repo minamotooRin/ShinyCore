@@ -70,14 +70,20 @@ std::uint64_t ScStream::request(int x,int y,std::uint64_t frame) {
     if(entry.pending) throw std::runtime_error("chunk cancellation awaits its scheduled boundary");
     if(pending_.size()>=1024||sequence_==max_sequence) throw std::runtime_error("chunk request capacity exhausted");
     if(!pending_.empty()&&entries_.at(pending_.back()).frame>frame) throw std::runtime_error("chunk commit frames must follow request order");
-    // Reserve before IO. Eligibility and LRU change only on the simulation thread,
-    // never as a consequence of which disk operation completes first.
-    if(!entry.charge) {
-        const auto charge=entry.bytes*64;
+    // Check the reservation before IO, but do not evict a reusable chunk until
+    // the worker accepts the new request. Queue exhaustion must leave this cache
+    // and its accounting unchanged.
+    const auto charge=entry.charge?0:entry.bytes*64;
+    if(charge) {
         if(charge>budget_) throw std::runtime_error("chunk exceeds cache allocation budget");
         std::size_t available=budget_-resident_;
         for(const auto& [key,cached]:entries_) if(!cached.references&&!cached.pending) available+=cached.charge;
         if(available<charge) throw std::runtime_error("cache budget exhausted by pinned or scheduled chunks");
+    }
+    pending_.push_back(found->first);
+    try { if(!entry.ready) entry.ticket=loader_->submit(entry.path,entry.bytes,x,y,layout_); }
+    catch(...) { pending_.pop_back(); throw; }
+    if(charge) {
         while(resident_+charge>budget_) {
             auto victim=entries_.end();
             for(auto it=entries_.begin();it!=entries_.end();++it)
@@ -88,9 +94,6 @@ std::uint64_t ScStream::request(int x,int y,std::uint64_t frame) {
         }
         entry.charge=charge; resident_+=charge;
     }
-    pending_.push_back(found->first);
-    try { if(!entry.ready) entry.ticket=loader_->submit(entry.path,entry.bytes,x,y,layout_); }
-    catch(...) { pending_.pop_back(); throw; }
     entry.pending=true; entry.references=1; entry.sequence=++sequence_; entry.frame=frame; entry.stamp=++clock_;
     return entry.sequence;
 }
