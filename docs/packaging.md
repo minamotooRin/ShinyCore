@@ -23,6 +23,11 @@ Unicode/原生截图证据见[可移动包记录与大小](verification-portable
 不自动证明本轮包已在源码外移动或执行完整流程；这些仍待验收。
 这不是全平台/干净系统验收。
 
+Wayfarer 道路状态提交修正后的单独新包在
+`build/sample-packages-route-20260927/wayfarer/`，ZIP 同目录；它替代上段三包中
+Wayfarer 的游戏脚本。包内 `--check-all` 与中性工作目录的 180 帧场景检查通过，
+未重复完整任务、移动安装或原生截图。Crossing/Barrage 包保持上段版本。
+
 ## 内容清单
 
 ```json

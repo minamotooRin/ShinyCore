@@ -12,7 +12,11 @@ local Controls=require("controls")
 local actions
 local courier
 local theme=require("theme")
-local shell,player,bag,inventory,completed,world,focus_x,focus_y,dialogue,healer,stage,equipment,save_error
+local shell,player,bag,inventory,completed,world,focus_x,focus_y,dialogue,healer,stage,equipment,save_error,route_pending
+local function clear_route()
+    route_pending=false
+    sc.state.set("route_cleared",true)
+end
 local function close_inventory()
     inventory.open=false;inventory.focus=nil;sc.input.focus_text(false)
 end
@@ -49,6 +53,7 @@ return {
     map={tile_size=8,rows={"."},background="#142D27FF"},
     init=function()
         actions=Controls.new()
+        route_pending=false
         traveler_view,courier_view,feedback=View.actor(),View.actor(),View.feedback()
         local position=sc.state.get("position") or {x=160,y=100}
         player=sc.spawn({persistent_id="traveler",tag="player",x=position.x,y=position.y,w=8,h=12,layer=2,
@@ -122,7 +127,11 @@ return {
         Input.update(actions)
         local changed,err,event=World.update(world,dt)
         if event=="saved" then shell.notice="已保存" end
-        if event=="cancelled" then shell.notice="已放弃切换；已完成的存档不会撤销" end
+        if event=="patched" and route_pending then clear_route() end
+        if event=="cancelled" then
+            route_pending=false
+            shell.notice="已放弃切换；已完成的存档不会撤销"
+        end
         if changed then courier.field=nil end
         Patrol.stop(courier)
         if err then shell.notice=err end
@@ -193,9 +202,11 @@ return {
                     update_inventory()
                 end
             end
-            if math.abs(p.x-328)<24 and math.abs(p.y-128)<24 then
-                World.patch(world,{{x=41,y=16,layer=0,gid=4}})
-                sc.state.set("route_cleared",true)
+            if not sc.state.get("route_cleared") and math.abs(p.x-328)<24 and math.abs(p.y-128)<24 then
+                local count,phase=World.patch(world,{{x=41,y=16,layer=0,gid=4}})
+                if count>0 then
+                    if phase=="pending" then route_pending=true else clear_route() end
+                end
             end
         end
         if Input.pressed(actions,"save") then checkpoint() end

@@ -2,6 +2,11 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **Wayfarer 道路任务状态遵循地图发布：** `World.patch` 若进入异步图片准备，
+  任务 flag 等 `patched` 事件才提交；取消则保持未清理。临时项目强制异步与取消
+  的定向测试、3243 帧正常任务回放及道路交互前后隐藏原生画面检查通过，见
+  verification-wayfarer-route.md。Wayfarer 新包在 `build/sample-packages-route-20260927/`，
+  包内短场景从中性目录通过。真实磁盘/GPU 故障与人工设备验收仍未完成。
 - **三款完整回放已有可分发的场景清单：** 各样例的
   `walkthrough.scenario.json` 随发行内容清单携带，通过 `tools/scenario.py`
   在独立存档目录验证 Crossing 三关光点/机关、Wayfarer 24 草药与道路结局、

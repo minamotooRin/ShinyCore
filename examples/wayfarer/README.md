@@ -50,6 +50,8 @@ into a neighboring interest chunk; the barrier still follows the player/camera
 area. See ../../docs/stream-object-coverage.md.
 Collected herbs use object persistent IDs and deletion markers; road edits and
 active objects are saved with explicit player, name, equipment and quest state.
+The road objective changes only after its streamed tile patch is published; a failed
+or cancelled image preparation leaves the road uncleared and available to retry.
 Save data version is 2; VM state and native handles are not persisted.
 
 Entering chunk states and outgoing snapshots use the application IO worker. The
@@ -81,6 +83,7 @@ name glyphs; it is not linked into the engine.
 .\build\full\shiny.exe examples/wayfarer --headless --frames 3243 --replay examples/wayfarer/walkthrough.jsonl --save-dir build/wayfarer-walkthrough
 .\build\full\shiny.exe examples/wayfarer --headless --frames 3243 --replay examples/wayfarer/gamepad.jsonl --save-dir build/wayfarer-gamepad
 python tests/wayfarer_integration.py build/full/shiny.exe
+python tests/wayfarer_route_commit.py build/full/shiny.exe
 python tools/scenario.py build/full/shiny.exe examples/wayfarer/walkthrough.scenario.json
 python tools/capture_samples.py build/full/shiny.exe --output build/wayfarer-gather-captures --case wayfarer-gather-ready --case wayfarer-gathered
 ```
