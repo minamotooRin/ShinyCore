@@ -823,44 +823,59 @@ function sc.net.join(ipv4, port) end
 
 ---@alias ScData boolean|number|string|ScData[]|table<string,ScData>
 ---@class ScBodyShape
----@field shape? 'box'|'circle'|'capsule'|'polygon' # Default box. Capsules follow their longer axis.
----@field x? number # Local top-left offset, -4096..4096. Default 0.
----@field y? number # Local top-left offset, -4096..4096. Default 0.
----@field w? number # 0.001..4096. Default 8.
----@field h? number # 0.001..4096. Default 8.
+-- Fields generated from native --api.
+---@field shape? 'box'|'circle'|'capsule'|'polygon' # Capsules follow their longer axis. Default "box".
+---@field x? number # Local top-left X in pixels. Range -4096..4096. Default 0.
+---@field y? number # Local top-left Y in pixels. Range -4096..4096. Default 0.
+---@field w? number # Local width in pixels. Range 0.001..4096. Default 8.
+---@field h? number # Local height in pixels. Range 0.001..4096. Default 8.
 ---@field vertices? number[] # Polygon: 3..8 distinct convex x,y pairs, each -4096..4096.
 
 ---@class ScBody
----@field type? 'static'|'kinematic'|'dynamic' # Default dynamic when body is supplied.
----@field shape? 'box'|'circle'|'capsule'|'polygon' # Default box; uses entity dimensions.
----@field vertices? number[] # Local to entity top-left; required for polygon.
----@field shapes? ScBodyShape[] # 1..4 shapes override the single shape, sharing material/filter.
----@field density? number # .001..10000. Default 1; authored mass scales with area/32².
----@field friction? number # 0..10. Default .3 (legacy dynamic shorthand: 0).
----@field restitution? number # 0..1. Default 0.
----@field fixed_rotation? boolean # Default true.
----@field sensor? boolean # Default false; overlap events without collision response.
----@field bullet? boolean # Default false; Box2D continuous collision for dynamic bodies.
----@field one_way? boolean # Default false; top-face platform, intended unrotated.
----@field category? integer # Unsigned 32-bit bits; default 1.
----@field mask? integer # Unsigned 32-bit bits; default 4294967295.
+-- Fields generated from native --api.
+---@field type? 'static'|'kinematic'|'dynamic' # New bodies default to dynamic; patches retain an existing type. Default "dynamic".
+---@field shape? 'box'|'circle'|'capsule'|'polygon' # Single shape uses entity dimensions. Default "box".
+---@field vertices? number[] # Single polygon: 3..8 distinct convex x,y pairs, local to entity top-left, each -4096..4096.
+---@field shapes? ScBodyShape[] # 1..4 compound shapes override the single shape; all share material and collision filters.
+---@field density? number # Authored mass scales with area / 32². Range 0.001..10000. Default 1.
+---@field friction? number # Legacy dynamic shorthand without a body uses zero. Range 0..10. Default 0.3.
+---@field restitution? number # Bounciness. Range 0..1. Default 0.
+---@field fixed_rotation? boolean # Prevent solver rotation. Default true.
+---@field sensor? boolean # Overlap events without collision response. Default false.
+---@field bullet? boolean # Continuous collision for dynamic bodies. Default false.
+---@field one_way? boolean # Top-face platform; intended unrotated. Default false.
+---@field category? integer # Unsigned 32-bit collision category bits. Range 0..4294967295. Default 1.
+---@field mask? integer # Unsigned 32-bit collision mask bits. Range 0..4294967295. Default 4294967295.
 
 ---@class ScResource
----@field stream? boolean # Image-only, default false. Requires streaming; prepare/commit through sc.images before use.
----@field type 'image'|'sound'|'music'|'font'
----@field path string # Project-relative, at most 127 UTF-8 bytes. Image/WAV/Ogg Vorbis/TTF or OTF.
----@field size? integer # Font rasterization height, 1..128, default 16.
----@field characters? string # Optional preloaded repertoire plus ASCII. Other glyph metrics load on demand; cache limit 8192.
+-- Fields generated from native --api.
+---@field type 'image'|'sound'|'music'|'font'|'shader' # Shader requires advanced rendering.
+---@field path string # Project-relative asset path, at most 127 UTF-8 bytes.
+---@field stream? boolean # Image-only; requires streaming and a PNG image. Default false.
+---@field size? integer # Font rasterization height in pixels. Range 1..128. Default 16.
+---@field characters? string # Font-only optional preloaded repertoire; other glyphs load on demand.
+
+---@class ScProjectLimits
+-- Fields generated from native --api.
+---@field entities? integer # Ordinary entity slots; zero is invalid. Range 1..65536. Default 4096.
+---@field identities? integer # Persistent object ID slots; zero disables lookup. Range 0..65536. Default 4096.
+---@field projectiles? integer # Batch projectile ceiling; zero disables allocation. Range 0..65536. Default 32768.
+---@field particles? integer # Particle slots; zero disables storage. Range 0..65536. Default 32768.
+---@field draws? integer # Frame draw slots; zero is invalid. Range 1..65536. Default 4096.
+---@field contacts? integer # Physics contact slots; zero is invalid. Range 1..65536. Default 16384.
+---@field sound_voices? integer # Concurrent sound effects; zero disables voices. Range 0..32. Default 32.
 
 ---@class ScProject
+-- Fields generated from native --api.
+---@field id? string # Stable 1..128 byte ASCII letters, digits, dot, underscore or hyphen; dot-only . and .. are invalid. Required for saves.
+---@field entry? string # Project-relative .lua entry path, shorter than 512 bytes. Default "main.lua".
+---@field rooms? string[] # Up to 256 project-relative .lua paths checked by --check-all.
+---@field resources? table<string,ScResource> # At most 128 named resource declarations.
+---@field data_version? integer # Positive save data version; old versions are not accepted. Default 1.
+---@field limits? ScProjectLimits # Room capacities, allocated at project load.
+---@field modules? string[] # Up to 32 required build capabilities reported by --api.
 ---@field display? ScSettingsPatch # Application defaults; valid persisted preferences take precedence.
----@field id? string # Required for saves. Stable 1..128 byte alnum/._- identity; dot-only . and .. are invalid.
----@field entry? string # Default main.lua. Project-relative .lua path.
----@field rooms? string[] # --check-all validates these, at most 256; each must work with empty state.
----@field resources? table<string,ScResource> # At most 128 resource declarations.
----@field data_version? integer # Positive integer, default 1.
----@field modules? string[] # Required native capabilities; --api reports availability.
----@field limits? table<string,integer> # entities, particles, draws, contacts, sound_voices.
+---@field stream_indexes? table<string,string> # At most 256 room .lua path to built map .json index mappings; requires streaming.
 -- Optional project.lua returns ScProject; unknown fields error. It contains data, not callbacks.
 
 ---@class ScSettingsPatch

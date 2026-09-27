@@ -134,6 +134,43 @@ function sc.physics.contacts() end
                        'assert(sc.particles.stats().emitters==1)'])
         self.run_lua('\n'.join(checks))
 
+    def test_body_shape_contract_defaults_and_limits(self):
+        body = {field['name']: field for field in self.api['types']['ScBody']['fields']}
+        shape = {field['name']: field for field in self.api['types']['ScBodyShape']['fields']}
+        self.assertEqual(set(body), {'type','shape','vertices','shapes','density','friction',
+                                     'restitution','fixed_rotation','sensor','bullet','one_way','category','mask'})
+        self.assertEqual(set(shape), {'shape','x','y','w','h','vertices'})
+        defaults = lambda fields: {name: field['default'] for name, field in fields.items() if 'default' in field}
+        body_defaults, shape_defaults = defaults(body), defaults(shape)
+        self.run_lua(f'''local defaults={lua(body_defaults)}
+local id=sc.spawn({{w=16,h=16,body=defaults}})
+local read=sc.get(id).body
+for name,value in pairs(defaults) do
+    assert(type(value)=='number' and math.abs(read[name]-value)<1e-5 or read[name]==value,name)
+end
+local shape_defaults={lua(shape_defaults)}
+local compound=sc.spawn({{w=16,h=16,body={{type='static',shapes={{shape_defaults}}}}}})
+local read_shape=sc.get(compound).body.shapes[1]
+for name,value in pairs(shape_defaults) do assert(read_shape[name]==value,name) end
+for _,value in ipairs({{0,10001}}) do assert(not pcall(sc.spawn,{{body={{density=value}}}})) end
+assert(not pcall(sc.spawn,{{body={{shapes={{{{shape='box',w=0}}}}}}}}))
+''')
+
+    def test_project_resource_and_capacity_metadata(self):
+        types = self.api['types']
+        fields = lambda name: {field['name']: field for field in types[name]['fields']}
+        self.assertEqual(set(fields('ScProject')), set(self.api['project_fields']))
+        self.assertEqual(set(fields('ScResource')), {'type','path','stream','size','characters'})
+        self.assertIn("'shader'", fields('ScResource')['type']['type'])
+        self.assertEqual(fields('ScResource')['stream']['default'], False)
+        self.assertEqual(fields('ScProject')['entry']['default'], 'main.lua')
+        self.assertEqual(fields('ScProject')['data_version']['default'], 1)
+        limits = fields('ScProjectLimits')
+        self.assertEqual(set(limits), {'entities','identities','projectiles','particles',
+                                       'draws','contacts','sound_voices'})
+        for name, field in limits.items():
+            self.assertEqual(field['default'], self.api['limits'][name], name)
+
     def test_function_phases_match_execution(self):
         mutations = {'sc.spawn', 'sc.spawn_many', 'sc.set', 'sc.set_many', 'sc.destroy'}
         core = mutations | {'sc.get', 'sc.get_many', 'sc.find', 'sc.find_all', 'sc.overlap'}

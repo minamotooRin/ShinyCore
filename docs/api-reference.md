@@ -57,6 +57,39 @@ also use the descriptions and [authoring annotations](api.lua).
 - Defaults apply to play only; set keeps every omitted value, including an active fade.
 - Candidate room changes affect an isolated draft until room commit. Only persistent music carries across rooms.
 
+## ScBody
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| type? | 'static'\|'kinematic'\|'dynamic' | New bodies default to dynamic; patches retain an existing type. Default "dynamic". |
+| shape? | 'box'\|'circle'\|'capsule'\|'polygon' | Single shape uses entity dimensions. Default "box". |
+| vertices? | number[] | Single polygon: 3..8 distinct convex x,y pairs, local to entity top-left, each -4096..4096. |
+| shapes? | ScBodyShape[] | 1..4 compound shapes override the single shape; all share material and collision filters. |
+| density? | number | Authored mass scales with area / 32². Range 0.001..10000. Default 1. |
+| friction? | number | Legacy dynamic shorthand without a body uses zero. Range 0..10. Default 0.3. |
+| restitution? | number | Bounciness. Range 0..1. Default 0. |
+| fixed_rotation? | boolean | Prevent solver rotation. Default true. |
+| sensor? | boolean | Overlap events without collision response. Default false. |
+| bullet? | boolean | Continuous collision for dynamic bodies. Default false. |
+| one_way? | boolean | Top-face platform; intended unrotated. Default false. |
+| category? | integer | Unsigned 32-bit collision category bits. Range 0..4294967295. Default 1. |
+| mask? | integer | Unsigned 32-bit collision mask bits. Range 0..4294967295. Default 4294967295. |
+
+- Plain body table; unknown fields rejected. Defaults apply when creating a body; omitted patch fields retain current values. Body=false removes it. Polygon vertices are required.
+
+## ScBodyShape
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| shape? | 'box'\|'circle'\|'capsule'\|'polygon' | Capsules follow their longer axis. Default "box". |
+| x? | number | Local top-left X in pixels. Range -4096..4096. Default 0. |
+| y? | number | Local top-left Y in pixels. Range -4096..4096. Default 0. |
+| w? | number | Local width in pixels. Range 0.001..4096. Default 8. |
+| h? | number | Local height in pixels. Range 0.001..4096. Default 8. |
+| vertices? | number[] | Polygon: 3..8 distinct convex x,y pairs, each -4096..4096. |
+
+- Plain shape table; unknown fields rejected. Polygon requires vertices; compound bodies contain 1..4 shapes.
+
 ## ScCameraPatch
 
 | Field | Type | Contract |
@@ -609,6 +642,36 @@ also use the descriptions and [authoring annotations](api.lua).
 | status | 'disabled'\|'pending'\|'ready'\|'failed' | Read-only. Chain publication status. |
 
 
+## ScProject
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| id? | string | Stable 1..128 byte ASCII letters, digits, dot, underscore or hyphen; dot-only . and .. are invalid. Required for saves. |
+| entry? | string | Project-relative .lua entry path, shorter than 512 bytes. Default "main.lua". |
+| rooms? | string[] | Up to 256 project-relative .lua paths checked by --check-all. |
+| resources? | table<string,ScResource> | At most 128 named resource declarations. |
+| data_version? | integer | Positive save data version; old versions are not accepted. Default 1. |
+| limits? | ScProjectLimits | Room capacities, allocated at project load. |
+| modules? | string[] | Up to 32 required build capabilities reported by --api. |
+| display? | ScSettingsPatch | Application defaults; valid persisted preferences take precedence. |
+| stream_indexes? | table<string,string> | At most 256 room .lua path to built map .json index mappings; requires streaming. |
+
+- Optional project.lua returns a plain data table, not callbacks; unknown fields rejected. Relative paths cannot escape the project.
+
+## ScProjectLimits
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| entities? | integer | Ordinary entity slots; zero is invalid. Range 1..65536. Default 4096. |
+| identities? | integer | Persistent object ID slots; zero disables lookup. Range 0..65536. Default 4096. |
+| projectiles? | integer | Batch projectile ceiling; zero disables allocation. Range 0..65536. Default 32768. |
+| particles? | integer | Particle slots; zero disables storage. Range 0..65536. Default 32768. |
+| draws? | integer | Frame draw slots; zero is invalid. Range 1..65536. Default 4096. |
+| contacts? | integer | Physics contact slots; zero is invalid. Range 1..65536. Default 16384. |
+| sound_voices? | integer | Concurrent sound effects; zero disables voices. Range 0..32. Default 32. |
+
+- Plain limits table; unknown fields rejected. Configure before allocating the associated room storage.
+
 ## ScProjectileHit
 
 | Field | Type | Contract |
@@ -667,6 +730,18 @@ also use the descriptions and [authoring annotations](api.lua).
 | fraction | number | Read-only. Fraction along the supplied translation, not distance in pixels. Range 0..1. |
 
 - Closest hit; equal fractions sort by ID, contact point and normal. Ray ignores initial overlap; sweep returns fraction 0 and zero normal. No angular sweep.
+
+## ScResource
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| type | 'image'\|'sound'\|'music'\|'font'\|'shader' | Shader requires advanced rendering. |
+| path | string | Project-relative asset path, at most 127 UTF-8 bytes. |
+| stream? | boolean | Image-only; requires streaming and a PNG image. Default false. |
+| size? | integer | Font rasterization height in pixels. Range 1..128. Default 16. |
+| characters? | string | Font-only optional preloaded repertoire; other glyphs load on demand. |
+
+- Plain resource table; unknown fields rejected. size/characters apply only to fonts; stream only to images. At most 128 named declarations.
 
 ## ScSaveReadResult
 

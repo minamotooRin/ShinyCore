@@ -104,7 +104,8 @@ Function tables drive both registration and `--api`; tests compare names and wri
 
 Entity scalar descriptors use typed member pointers for validation, initial values,
 snapshots and field metadata. Coupled sprite/body rules remain explicit code with
-contract tests. Structured entity function metadata generates annotations and
+contract tests; body, compound shape and project content fields have native structured metadata.
+Structured entity function metadata generates annotations and
 [reference tables](api-reference.md). Audio descriptors now similarly share voice
 field ranges with validation; function contracts include optional parameter
 defaults/ranges and a read/patch function's conditional mutation phases. Navigation

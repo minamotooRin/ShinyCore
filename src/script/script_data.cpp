@@ -9,6 +9,7 @@
 #include "shiny/capabilities.h"
 #include "shiny/settings.h"
 #include <stdexcept>
+#include <optional>
 
 namespace {
 ScScript* script(lua_State* L) { return *static_cast<ScScript**>(lua_getextraspace(L)); }
@@ -255,4 +256,49 @@ void sc_script_project_load(lua_State* L) {
 }
 void sc_script_data_describe() {
     sc_api_describe(module_api,""); sc_api_describe(state_api,"sc.state."); sc_script_save_describe();
+}
+ScValue sc_script_data_contracts() {
+    using V=ScValue;
+    auto field=[](const char* name,const char* kind,bool required,const char* description,
+                  std::optional<V> initial={},std::optional<double> minimum={},std::optional<double> maximum={}) {
+        V::Object value{{"name",V{std::string(name)}},{"type",V{std::string(kind)}},
+            {"required",V{required}},{"description",V{std::string(description)}}};
+        if(initial) value.emplace("default",std::move(*initial));
+        if(minimum) value.emplace("minimum",V{*minimum});
+        if(maximum) value.emplace("maximum",V{*maximum});
+        return V{std::move(value)};
+    };
+    auto type=[](V::Array fields,const char* constraint) {
+        return V{V::Object{{"fields",V{std::move(fields)}},
+            {"constraints",V{V::Array{V{std::string(constraint)}}}}}};
+    };
+    return V{V::Object{
+        {"ScResource",type({
+            field("type","'image'|'sound'|'music'|'font'|'shader'",true,"Shader requires advanced rendering."),
+            field("path","string",true,"Project-relative asset path, at most 127 UTF-8 bytes."),
+            field("stream","boolean",false,"Image-only; requires streaming and a PNG image.",V{false}),
+            field("size","integer",false,"Font rasterization height in pixels.",V{16.0},1,128),
+            field("characters","string",false,"Font-only optional preloaded repertoire; other glyphs load on demand.")},
+            "Plain resource table; unknown fields rejected. size/characters apply only to fonts; stream only to images. At most 128 named declarations.")},
+        {"ScProjectLimits",type({
+            field("entities","integer",false,"Ordinary entity slots; zero is invalid.",V{double(SC_MAX_ENTITIES)},1,65536),
+            field("identities","integer",false,"Persistent object ID slots; zero disables lookup.",V{double(SC_MAX_IDENTITIES)},0,65536),
+            field("projectiles","integer",false,"Batch projectile ceiling; zero disables allocation.",V{32768.0},0,65536),
+            field("particles","integer",false,"Particle slots; zero disables storage.",V{double(SC_MAX_PARTICLES)},0,65536),
+            field("draws","integer",false,"Frame draw slots; zero is invalid.",V{double(SC_MAX_DRAWS)},1,65536),
+            field("contacts","integer",false,"Physics contact slots; zero is invalid.",V{16384.0},1,65536),
+            field("sound_voices","integer",false,"Concurrent sound effects; zero disables voices.",V{32.0},0,32)},
+            "Plain limits table; unknown fields rejected. Configure before allocating the associated room storage.")},
+        {"ScProject",type({
+            field("id","string",false,"Stable 1..128 byte ASCII letters, digits, dot, underscore or hyphen; dot-only . and .. are invalid. Required for saves."),
+            field("entry","string",false,"Project-relative .lua entry path, shorter than 512 bytes.",V{std::string("main.lua")}),
+            field("rooms","string[]",false,"Up to 256 project-relative .lua paths checked by --check-all."),
+            field("resources","table<string,ScResource>",false,"At most 128 named resource declarations."),
+            field("data_version","integer",false,"Positive save data version; old versions are not accepted.",V{1.0}),
+            field("limits","ScProjectLimits",false,"Room capacities, allocated at project load."),
+            field("modules","string[]",false,"Up to 32 required build capabilities reported by --api."),
+            field("display","ScSettingsPatch",false,"Application defaults; valid persisted preferences take precedence."),
+            field("stream_indexes","table<string,string>",false,"At most 256 room .lua path to built map .json index mappings; requires streaming.")},
+            "Optional project.lua returns a plain data table, not callbacks; unknown fields rejected. Relative paths cannot escape the project.")}
+    }};
 }

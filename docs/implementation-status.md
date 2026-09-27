@@ -10,6 +10,13 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+`ScBody`, `ScBodyShape`, `ScProject`, `ScProjectLimits` and `ScResource` now have
+structured native `--api` fields, defaults, ranges and constraints. Generated
+LuaLS declarations include shader resources and streamed index declarations.
+The full/lightweight contract checks pass, and project-local annotation SDKs are
+pinned to dev.71. Runtime behavior is unchanged; remaining handwritten types and
+final acceptance remain open.
+
 Dragging a selection beyond a long input widget now clamps hit testing to the
 visible viewport and advances multiline vertical or single-line horizontal
 scroll in bounded UI-time steps. Release and zero-delta updates add no timed

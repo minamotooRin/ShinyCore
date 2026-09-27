@@ -341,6 +341,12 @@ ScValue sc_script_physics_contracts() {
         if(maximum) value.emplace("maximum",ScValue{*maximum});
         return ScValue{std::move(value)};
     };
+    auto defaulted=[&](const char* name,const char* kind,ScValue initial,const char* description,
+                       std::optional<double> minimum={},std::optional<double> maximum={}) {
+        auto value=field(name,kind,false,false,description,minimum,maximum);
+        std::get<ScValue::Object>(value.data).emplace("default",std::move(initial));
+        return value;
+    };
     auto type=[](ScValue::Array fields,const char* constraint) {
         return ScValue{ScValue::Object{{"fields",ScValue{std::move(fields)}},
             {"constraints",ScValue{ScValue::Array{ScValue{std::string(constraint)}}}}}};
@@ -356,6 +362,29 @@ ScValue sc_script_physics_contracts() {
                 "Plain partial object, no unknown fields or coercion. All numbers finite, lower <= upper even when limit is disabled. Omitted fields retain values; validation failure changes no controls.");
     };
     return ScValue{ScValue::Object{
+        {"ScBodyShape",type({
+            defaulted("shape","'box'|'circle'|'capsule'|'polygon'",ScValue{std::string("box")},"Capsules follow their longer axis."),
+            defaulted("x","number",ScValue{0.0},"Local top-left X in pixels.",-4096,4096),
+            defaulted("y","number",ScValue{0.0},"Local top-left Y in pixels.",-4096,4096),
+            defaulted("w","number",ScValue{8.0},"Local width in pixels.",.001,4096),
+            defaulted("h","number",ScValue{8.0},"Local height in pixels.",.001,4096),
+            field("vertices","number[]",false,false,"Polygon: 3..8 distinct convex x,y pairs, each -4096..4096.")},
+            "Plain shape table; unknown fields rejected. Polygon requires vertices; compound bodies contain 1..4 shapes.")},
+        {"ScBody",type({
+            defaulted("type","'static'|'kinematic'|'dynamic'",ScValue{std::string("dynamic")},"New bodies default to dynamic; patches retain an existing type."),
+            defaulted("shape","'box'|'circle'|'capsule'|'polygon'",ScValue{std::string("box")},"Single shape uses entity dimensions."),
+            field("vertices","number[]",false,false,"Single polygon: 3..8 distinct convex x,y pairs, local to entity top-left, each -4096..4096."),
+            field("shapes","ScBodyShape[]",false,false,"1..4 compound shapes override the single shape; all share material and collision filters."),
+            defaulted("density","number",ScValue{1.0},"Authored mass scales with area / 32².",.001,10000),
+            defaulted("friction","number",ScValue{.3},"Legacy dynamic shorthand without a body uses zero.",0,10),
+            defaulted("restitution","number",ScValue{0.0},"Bounciness.",0,1),
+            defaulted("fixed_rotation","boolean",ScValue{true},"Prevent solver rotation."),
+            defaulted("sensor","boolean",ScValue{false},"Overlap events without collision response."),
+            defaulted("bullet","boolean",ScValue{false},"Continuous collision for dynamic bodies."),
+            defaulted("one_way","boolean",ScValue{false},"Top-face platform; intended unrotated."),
+            defaulted("category","integer",ScValue{1.0},"Unsigned 32-bit collision category bits.",0,4294967295.0),
+            defaulted("mask","integer",ScValue{4294967295.0},"Unsigned 32-bit collision mask bits.",0,4294967295.0)},
+            "Plain body table; unknown fields rejected. Defaults apply when creating a body; omitted patch fields retain current values. Body=false removes it. Polygon vertices are required.")},
         {"ScContact",type({field("a","ScEntityId",true,true,"First runtime entity ID; 0 denotes terrain. May already be destroyed when reading.",0,SC_ID_MAX),
             field("b","ScEntityId",true,true,"Second runtime entity ID; 0 denotes terrain.",0,SC_ID_MAX),
             field("nx","number",true,true,"Normal X from a to b; sensors use zero.",-1,1),

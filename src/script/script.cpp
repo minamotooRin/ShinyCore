@@ -1238,7 +1238,7 @@ void sc_script_describe(void) {
         first_capability=false;
     }
     std::printf("},");
-    std::printf("\"limits\":{\"entities\":4096,\"identities\":4096,\"tiles\":16384,\"particles\":32768,\"projectiles\":32768,\"draws\":4096,\"tones_per_tick\":32,\"sound_voices\":32,\"music_streams\":2,\"state_bytes\":262144,\"state_depth\":16,\"layers\":16,\"compound_shapes\":4,\"joints\":256,\"lua_memory_bytes\":16777216,\"instructions_per_callback\":1000000},");
+    std::printf("\"limits\":{\"entities\":4096,\"identities\":4096,\"tiles\":16384,\"particles\":32768,\"projectiles\":32768,\"draws\":4096,\"contacts\":16384,\"tones_per_tick\":32,\"sound_voices\":32,\"music_streams\":2,\"state_bytes\":262144,\"state_depth\":16,\"layers\":16,\"compound_shapes\":4,\"joints\":256,\"lua_memory_bytes\":16777216,\"instructions_per_callback\":1000000},");
     auto names=[](const char* label,const auto& list) {
         std::printf("\"%s\":[",label); bool first=true;
         for(const auto& item:list) { std::printf("%s\"%.*s\"",first?"":",",static_cast<int>(item.name.size()),item.name.data()); first=false; }
@@ -1260,6 +1260,8 @@ void sc_script_describe(void) {
     std::printf("],\"entity_readonly_fields\":[\"id\",\"grounded\",\"support\",\"normal_x\",\"normal_y\"],\"map_fields\":[\"tile_size\",\"rows\",\"color\",\"accent\",\"background\"],");
     auto types=sc_script_identity_contracts();
     auto& type_fields=std::get<ScValue::Object>(types.data);
+    auto data_types=sc_script_data_contracts();
+    type_fields.merge(std::get<ScValue::Object>(data_types.data));
 #ifdef SC_HAS_NETWORK
     auto network_types=sc_net_lua_contracts();
     type_fields.merge(std::get<ScValue::Object>(network_types.data));
