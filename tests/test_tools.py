@@ -183,6 +183,55 @@ class ToolTests(unittest.TestCase):
             launched = run_engine(launcher, "--check")
             self.assertEqual(launched["hash"], checked_package["hash"])
 
+    @unittest.skipUnless(os.name == "nt", "isolated DLL fixture uses Windows PE")
+    def test_supplied_runtime_is_available_before_engine_validation(self) -> None:
+        compiler = shutil.which("gcc")
+        if not compiler or BINARY is None:
+            self.skipTest("requires GCC and a built engine fixture")
+        root, binary = self.fixture_checkout()
+        foreign = self.base / "separate-runtime"
+        foreign.mkdir()
+        library = foreign / "sc_package_fixture.dll"
+        import_library = foreign / "libfixture.a"
+        source = foreign / "runtime.c"
+        source.write_text("__declspec(dllexport) int sc_fixture_marker(void) { return 7; }\n", encoding="utf-8")
+        compiled = subprocess.run([compiler, "-shared", "-o", str(library),
+                                   f"-Wl,--out-implib,{import_library}", str(source)],
+                                  capture_output=True, text=True, timeout=30)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        source = foreign / "engine.c"
+        source.write_text(r'''#include <stdio.h>
+#include <string.h>
+__declspec(dllimport) int sc_fixture_marker(void);
+int main(int argc, char **argv) {
+    if (sc_fixture_marker() != 7) return 3;
+    if (argc > 1 && strcmp(argv[1], "--api") == 0)
+        puts("{\"version\":\"fixture\",\"modules\":{\"network\":false}}");
+    else puts("{\"ok\":true}");
+    return 0;
+}
+''', encoding="utf-8")
+        compiled = subprocess.run([compiler, "-o", str(binary), str(source), str(import_library), "-static-libgcc"],
+                                  capture_output=True, text=True, timeout=30)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertFalse((root / library.name).exists())
+        project = self.base / "authored-game"
+        project.mkdir()
+        (project / "project.lua").write_text("return {}\n", encoding="utf-8")
+        (project / "main.lua").write_text("return {}\n", encoding="utf-8")
+        destination = self.base / "bundled-runtime-game"
+        self.cli(root / "tools/package.py", binary, destination, "--project", project,
+                 "--runtime", library, root / "LICENSE", "--no-strip", "--no-zip")
+        packaged, resources = layout(destination)
+        self.assertTrue((packaged.parent / library.name).is_file())
+        report = json.loads((destination / "package-report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["engine_version"], "fixture")
+        self.assertEqual(report["native_dependencies"]["runtime_files"], [library.name])
+        self.assertGreater(report["bytes"]["runtime_libraries"], 0)
+        result = subprocess.run([str(packaged), "--check-all", str(resources / "game")],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_network_package_matches_executable_capability(self) -> None:
         if BINARY is None:
             self.skipTest("requires a real engine")

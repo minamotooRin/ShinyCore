@@ -53,27 +53,18 @@ def executable(path: Path, contents: str | None = None) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def preflight(binary: Path, destination: Path, make_zip: bool, with_network: bool = False, custom: bool = False) -> tuple[Path, dict]:
+def preflight(binary: Path, destination: Path, make_zip: bool, with_network: bool = False, custom: bool = False) -> Path:
     archive = Path(str(destination) + ".zip")
     for path in (destination, archive) if make_zip else (destination,):
         if os.path.lexists(path):
             raise FileExistsError(f"output already exists; refusing to overwrite: {path}")
     if not binary.is_file():
         raise OSError(f"engine executable is missing: {binary}")
-    try:
-        result = subprocess.run([str(binary), "--api"], capture_output=True, text=True, encoding="utf-8", timeout=10)
-        metadata = json.loads(result.stdout) if result.returncode == 0 else None
-        if not isinstance(metadata, dict) or not isinstance(metadata.get("version"), str) or not isinstance(metadata.get("modules"), dict):
-            raise ValueError("missing version/modules")
-    except (ValueError, subprocess.TimeoutExpired) as error:
-        raise OSError("cannot read engine contract from executable --api") from error
     files = ["LICENSE", "THIRD_PARTY.md", "docs/api.lua", "docs/llm-guide.md", "docs/input.md"]
     directories = ["licenses"] + ([] if custom else ["examples/lantern", "examples/input"])
     if with_network:
         files += ["docs/networking.md", "examples/duet/main.lua", "licenses/enet.txt"]
         directories += ["examples/duet"]
-        if metadata["modules"].get("network") is not True:
-            raise OSError("--with-network-examples requires a SHINY_NETWORK=ON executable")
     for name in files:
         if not (ROOT / name).is_file():
             raise OSError(f"required package file is missing: {ROOT / name}")
@@ -87,7 +78,7 @@ def preflight(binary: Path, destination: Path, make_zip: bool, with_network: boo
         raise OSError("licenses/ is empty; include the dependency license texts before packaging")
     if not custom and not (ROOT / "examples" / "lantern" / "main.lua").is_file():
         raise OSError("Lantern's main.lua is missing")
-    return archive, metadata
+    return archive
 
 
 def write_report(destination: Path, binary: Path, metadata: dict, dependencies: dict, content: dict | None, sdk: dict | None) -> None:
@@ -150,10 +141,10 @@ def copy_resources(destination: Path, with_network: bool = False, custom: bool =
 def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             with_network: bool = False, project: Path | None = None, symbols: tuple[Path, ...] = (),
             runtimes: tuple[tuple[Path,Path], ...] = ()) -> tuple[Path, Path | None]:
-    archive, metadata = preflight(binary, destination, make_zip, with_network, project is not None)
+    archive = preflight(binary, destination, make_zip, with_network, project is not None)
     dependencies = audit_runtimes(binary, runtimes)
     content = content_closure(project) if project is not None else None
-    sdk = audit_sdk(project, metadata) if project is not None else None
+    sdk = None
     if len({path.name.casefold() for path in symbols}) != len(symbols):
         raise OSError("debug symbol filenames must be unique")
     for path in symbols:
@@ -161,9 +152,6 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             raise OSError(f"debug symbols are missing: {path}")
     if project is not None:
         project = project.resolve()
-        checked = subprocess.run([str(binary), "--check-all", str(project)], capture_output=True, text=True, encoding="utf-8", timeout=60)
-        if checked.returncode:
-            raise OSError("game validation failed: " + checked.stderr)
         if destination.resolve().is_relative_to(project):
             raise OSError("package destination must be outside the authored game")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -248,7 +236,20 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
         dependencies = audit_runtimes(copied_binary, tuple(bundled_runtimes))
         verify_relocated(dependencies)
         dependencies['relocation_verified'] = True
+        try:
+            result = subprocess.run([str(copied_binary), "--api"], capture_output=True, text=True, encoding="utf-8", timeout=10)
+            metadata = json.loads(result.stdout) if result.returncode == 0 else None
+            if not isinstance(metadata, dict) or not isinstance(metadata.get("version"), str) or not isinstance(metadata.get("modules"), dict):
+                raise ValueError("missing version/modules")
+        except (ValueError, subprocess.TimeoutExpired, OSError) as error:
+            raise OSError("cannot read engine contract from bundled executable --api") from error
+        if with_network and metadata["modules"].get("network") is not True:
+            raise OSError("--with-network-examples requires a SHINY_NETWORK=ON executable")
         if project is not None:
+            checked = subprocess.run([str(copied_binary), "--check-all", str(project)],
+                                     capture_output=True, text=True, encoding="utf-8", timeout=60)
+            if checked.returncode:
+                raise OSError("game validation failed: " + checked.stderr)
             sdk = audit_sdk(resources / "game", metadata)
             checked = subprocess.run([str(copied_binary), "--check-all", str(resources / "game")],
                                      capture_output=True, text=True, encoding="utf-8", timeout=60)

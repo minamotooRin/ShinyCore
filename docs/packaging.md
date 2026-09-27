@@ -103,6 +103,12 @@ Mach-O load commands。所有显式库均作为根检查间接依赖，包括循
 包内搜索路径；macOS 逐架构检查，显式动态根也必须可在包内查找。
 `native_dependencies.relocation_verified` 仅表示静态依赖与路径检查通过，
 不表示干净系统、任意动态库加载、签名公证或真实平台运行已验证。
+打包先静态审计源文件，再复制运行库并修正包内搜索路径；读取 `--api` 与检查
+源项目、包内项目都使用已备齐运行库的包内引擎。因此显式 `--runtime` 可以来自
+不在开发机 PATH 中的目录，打包失败仍删除未完成输出。
+本机 Windows 定向测试编译了位于源引擎目录外的 DLL 和导入它的可执行文件，
+用 `--runtime` 打包自定义项目后，包内 API、项目检查、运行库清单及体积报告均通过；
+`tests/test_tools.py` 共 9 项通过。该证据不替代 Linux/macOS 实机搬移测试。
 缺少改写工具、Mach-O load commands 空间不足或重新审计失败时，打包失败并撤销输出。
 改写语义依据 Apple 的 [install_name_tool](https://github.com/apple-oss-distributions/cctools/blob/main/misc/install_name_tool.c)
 和 [lipo](https://github.com/apple-oss-distributions/cctools/blob/main/man/lipo.1)；不修改源二进制来补足空间。
