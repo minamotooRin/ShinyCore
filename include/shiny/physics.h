@@ -13,7 +13,8 @@ ScTerrainStats sc_physics_terrain_stats(const ScWorld&) noexcept;
 // Explicit streamed-terrain replacement; removes finite room borders on success.
 // Optional entering drafts are preflighted together and receive handles on success.
 // Failure retains geometry, bodies, entity slots, identities and draft IDs.
-std::expected<void,std::string> sc_physics_replace_terrain(ScWorld&,std::span<const ScTerrainShape>,std::span<ScEntity> entering={});
+std::expected<void,std::string> sc_physics_replace_terrain(ScWorld&,std::span<const ScTerrainShape>,
+    std::span<ScEntity> entering={},std::span<const std::size_t> parents={});
 struct ScRay { ScEntityId id{}; float x{},y{},nx{},ny{},fraction{}; bool hit{}; };
 ScRay sc_physics_ray(ScWorld*,float x,float y,float dx,float dy);
 // World-space convex points plus radius: circle (1), capsule (2), polygon (3..8).

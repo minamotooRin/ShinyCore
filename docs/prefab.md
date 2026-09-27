@@ -1,7 +1,7 @@
 # 对象模板
 
 `shiny.prefab` 用普通 Lua 表组合实体默认值、命名子对象和游戏组件数据。
-项目携带模块副本；使用本模块的项目当前分发为 SDK `1.0.0-dev.56`。
+项目携带模块副本；使用本模块的项目当前分发为 SDK `1.0.0-dev.57`。
 
 ```lua
 local Prefab = require("shiny.prefab")
@@ -62,6 +62,9 @@ assert(item.children.lamp.data.lit)
 
 实例表和运行时句柄不是存档格式。[持久关系示例](../examples/attachments/README.md)
 展示按对象持久 ID 保存父子关系，在新房间中原子重建。
+流式地图对象可由 [stream_objects](stream-objects.md) 持有整棵 prefab；它复用
+`Prefab.plan` 展开数据，并在原生联合提交后用 `Prefab.bind` 填入句柄。
+这两个低层函数不单独创建实体，普通游戏对象直接使用 `Prefab.spawn`。
 
 ## 定向验证
 
@@ -79,4 +82,4 @@ Crossing 使用此模块的短冒烟检查见同目录记录；未运行全套�
 原子创建。定向宿主检查覆盖两级附着、祖先移动、深层失败回滚和逆序销毁；
 隐藏静音原生图 `build/prefab-nested-reviewed/attachments.png` 已实际查看，
 三个旋转示例的小亮点均跟随灯体。使用该模块的五个项目 SDK 更新为 dev.56；
-流式对象的复合 prefab 归属仍待单独整合。
+流式对象的复合 prefab 归属已在后续工作整合。

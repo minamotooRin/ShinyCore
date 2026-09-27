@@ -80,7 +80,8 @@ cancel 不会回滚这些修改。
 外围墙射线命中；相关核心及 ASan/UBSan 验证通过。玩法对象的存档、卸载、
 恢复和 GPU 资源准备仍需进一步纳入完整世界提交。
 
-`Regions.commit(region, shapes, navigation?, entities?)` 还可携带进入区域的实体，
+`Regions.commit(region, shapes, navigation?, entities?, parents?)` 还可携带进入区域的实体，
 返回这些实体的有序句柄数组；边界句柄仍只保存在 region.walls。entities 为普通
-稠密数组，需要同时提供 shapes。新对象和新边界共享实体容量预检，建议通过
+稠密数组，需要同时提供 shapes。parents 为同长度的零根/一基父索引数组，
+新边界自动作为独立根对象追加。新对象、父子关系和新边界共享实体预检，建议通过
 `shiny.stream_objects` 的 publication 参数使用此入口，以保留对象状态所有权。

@@ -104,6 +104,32 @@ class StreamImages(images.ImageProject):
         result,_=self.run_game(SCENE.replace('RECOVER','World.cancel(world)'),10)
         self.assertEqual(result['watches']['world_images'],{'stage':9,'pinned':2,'failed':True})
 
+    def test_compound_child_sprite_residency(self):
+        result,_=self.run_game('''local World=require("shiny.stream_world")
+local world,stage= nil,0
+return {init=function()
+    world=World.new{index="index.json",name="map",slot="slot",margin=0,residency=true,
+        images={["red.png"]="red",["green.png"]="green"},
+        prepare=function(object,saved)
+            return {entity={x=object.x,y=object.y,w=8,h=8,body=false},
+                children={halo={x=8,w=4,h=4,sprite="green",body=false}}},{}
+        end,export=function(entity) return {x=entity.x} end}
+    World.request(world,{{x=8,y=8}},0)
+end,update=function(dt)
+    local changed,err=World.update(world,dt); assert(not err,err)
+    if changed and stage==0 then
+        local entry=world.owners["0:0"].entries[1]
+        assert(#entry.ids==2 and sc.get(entry.children.halo.id).sprite~="")
+        assert(sc.images.stats().pinned==2)
+        World.request(world,{},sc.tick()+1); stage=1
+    elseif changed and stage==1 then
+        assert(sc.images.stats().pinned==0 and next(world.owners)==nil)
+        stage=2
+    end
+    sc.debug.watch("compound_images",{stage=stage,pinned=sc.images.stats().pinned})
+end}''',12)
+        self.assertEqual(result['watches']['compound_images'],{'stage':2,'pinned':0})
+
     def test_animation_and_layer_dependencies(self):
         self.run_game('''local Tiles=require("shiny.stream_tiles")
 return {init=function()

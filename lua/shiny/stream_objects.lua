@@ -1,5 +1,6 @@
 -- Explicit chunk-object state, with optional joint terrain/region publication.
 local Objects={}
+local Prefab=require("shiny.prefab")
 local function plain(value, message)
     assert(type(value)=="table" and getmetatable(value)==nil,message)
     return value
@@ -39,7 +40,7 @@ local function prepare_owner(chunk,saved,prepare)
         plain(saved.objects,"snapshot.objects must be a table")
     end
     local owner={entries={},unloaded=false}
-    local drafts,live,names={},{},{}
+    local drafts,parents,live,names={},{},{},{}
     for i,source in ipairs(authored) do
         local object=copy(source)
         local name=object.persistent_id
@@ -57,10 +58,28 @@ local function prepare_owner(chunk,saved,prepare)
         owner.entries[i]=entry
         if not entry.deleted then
             local spec,data=prepare(copy(object),record and copy(record.data))
-            spec=copy(plain(spec,"prepare must return an entity specification"))
-            assert(spec.persistent_id==nil or spec.persistent_id==name,"prepare cannot replace persistent_id")
-            spec.persistent_id=name
-            drafts[#drafts+1]=spec; live[#live+1]=entry; entry.data=data
+            spec=copy(plain(spec,"prepare must return an entity specification or prefab"))
+            local nested=spec.entity~=nil or spec.children~=nil or spec.components~=nil
+            local definition=nested and spec or {entity=spec}
+            if nested then
+                for key in pairs(spec) do
+                    assert(key=="entity" or key=="children" or key=="components","unknown streamed prefab field")
+                end
+                plain(spec.entity,"streamed prefab requires an entity")
+            end
+            local root=definition.entity
+            assert(root.persistent_id==nil or root.persistent_id==name,"prepare cannot replace persistent_id")
+            root.persistent_id=name
+            local plan=Prefab.plan(definition)
+            for j=2,#plan.specs do assert(plan.specs[j].persistent_id==nil,"streamed children belong to the root persistent ID") end
+            local first=#drafts+1
+            for j,draft in ipairs(plan.specs) do
+                drafts[#drafts+1]=draft
+                parents[#parents+1]=plan.parents[j]==0 and 0 or first+plan.parents[j]-1
+            end
+            live[#live+1]={entry=entry,plan=plan,first=first}
+            entry.data=data;entry.components=plan.instance.data
+            entry.ids=plan.instance.ids;entry.children=plan.instance.children
         end
     end
     for key in pairs(authored) do
@@ -69,7 +88,7 @@ local function prepare_owner(chunk,saved,prepare)
     if saved then
         for name in pairs(saved.objects) do assert(names[name],"snapshot refers to an unknown authored object") end
     end
-    return owner,drafts,live
+    return owner,drafts,parents,live
 end
 
 local function prepare_load(items,prepare,publication)
@@ -89,16 +108,21 @@ local function prepare_load(items,prepare,publication)
     for key in pairs(items) do
         assert(type(key)=="number" and key%1==0 and key>=1 and key<=count,"load items must be dense")
     end
-    local owners,drafts,live,names={},{},{},{}
+    local owners,drafts,parents,live,names={},{},{},{},{}
     for i,item in ipairs(items) do
-        local owner,specs,entries=prepare_owner(item.chunk,item.saved,prepare)
+        local owner,specs,relations,entries=prepare_owner(item.chunk,item.saved,prepare)
         owners[i]=owner
         for _,entry in ipairs(owner.entries) do
             local name=entry.object.persistent_id
             assert(not names[name],"duplicate object ownership in load batch")
             names[name]=true
         end
-        for n,spec in ipairs(specs) do drafts[#drafts+1]=spec; live[#live+1]=entries[n] end
+        local offset=#drafts
+        for n,spec in ipairs(specs) do
+            drafts[#drafts+1]=spec
+            parents[#parents+1]=relations[n]==0 and 0 or relations[n]+offset
+        end
+        for _,link in ipairs(entries) do link.first=link.first+offset;live[#live+1]=link end
     end
     -- Discovery may leave unloaded IDs on failure, but never partial active objects.
     -- Reserve identity capacity for saved deletion markers as well as live objects.
@@ -110,30 +134,33 @@ local function prepare_load(items,prepare,publication)
     for _,owner in ipairs(owners) do
         for _,entry in ipairs(owner.entries) do sc.identity.declare(entry.object.persistent_id) end
     end
-    return owners,drafts,live
+    return owners,drafts,parents,live
 end
-local function publish_load(owners,drafts,live,publication)
+local function publish_load(owners,drafts,parents,live,publication)
     local ids
     if publication then
         if publication.region then
-            ids=require("shiny.stream_regions").commit(publication.region,publication.terrain,publication.navigation,drafts)
+            ids=require("shiny.stream_regions").commit(publication.region,publication.terrain,publication.navigation,drafts,parents)
         else
             local ok
-            ok,ids=sc.stream.terrain(publication.terrain,publication.navigation,drafts)
+            ok,ids=sc.stream.terrain(publication.terrain,publication.navigation,drafts,parents)
             assert(ok,"terrain publication failed")
         end
-    else ids=sc.spawn_many(drafts) end
-    for i,entry in ipairs(live) do entry.id=ids[i] end
+    else ids=sc.spawn_many(drafts,parents) end
+    for _,link in ipairs(live) do
+        Prefab.bind(link.plan,ids,link.first)
+        link.entry.id=link.plan.instance.id
+    end
     for _,owner in ipairs(owners) do
         for _,entry in ipairs(owner.entries) do
             if entry.deleted then sc.identity.remove(entry.object.persistent_id) end
         end
     end
-    return owners
+    return owners,ids
 end
 function Objects.load_many(items,prepare,publication)
-    local owners,drafts,live=prepare_load(items,prepare,publication)
-    return publish_load(owners,drafts,live,publication)
+    local owners,drafts,parents,live=prepare_load(items,prepare,publication)
+    return (publish_load(owners,drafts,parents,live,publication))
 end
 function Objects.load(chunk,saved,prepare,publication)
     return Objects.load_many({{chunk=chunk,saved=saved}},prepare,publication)[1]
@@ -144,6 +171,9 @@ local function validate_snapshot(owner,snapshot)
     for _,entry in ipairs(owner.entries) do
         local deleted=resolution(entry).status=="deleted"
         assert(deleted==(snapshot.objects[entry.object.persistent_id].deleted==true),"export changed object lifecycle")
+        if deleted then
+            for _,id in ipairs(entry.ids or {}) do assert(not pcall(sc.get,id),"deleted streamed object has a live child") end
+        else sc.get_many(entry.ids) end
     end
 end
 
@@ -153,10 +183,13 @@ function Objects.snapshot(owner,export)
     local result={format=1,objects={}}
     for _,entry in ipairs(owner.entries) do
         local name=entry.object.persistent_id
-        if resolution(entry).status=="deleted" then
+        local deleted=resolution(entry).status=="deleted"
+        if deleted then
+            for _,id in ipairs(entry.ids or {}) do assert(not pcall(sc.get,id),"deleted streamed object has a live child") end
             result.objects[name]={deleted=true}
         else
-            local data=export(sc.get(entry.id),entry.data,copy(entry.object))
+            sc.get_many(entry.ids)
+            local data=export(sc.get(entry.id),entry.data,copy(entry.object),entry)
             result.objects[name]={data=copy(plain(data,"export must return explicit state data"))}
         end
     end
@@ -199,10 +232,21 @@ end
 local function release_owners(batch)
     for _,item in ipairs(batch) do
         for _,entry in ipairs(item.owner.entries) do
-            if sc.identity.resolve(entry.object.persistent_id).status=="active" then sc.identity.unload(entry.id) end
+            if sc.identity.resolve(entry.object.persistent_id).status=="active" then
+                for i=#entry.ids,2,-1 do sc.destroy(entry.ids[i]) end
+                sc.identity.unload(entry.id)
+            end
         end
         item.owner.unloaded=true
     end
+end
+-- Delete every visual child before the persistent root; a partial external deletion is rejected.
+function Objects.destroy(entry)
+    assert(type(entry)=="table" and entry.id and entry.ids,"stream object entry required")
+    assert(resolution(entry).status=="active","stream object is not active")
+    sc.get_many(entry.ids)
+    for i=#entry.ids,1,-1 do sc.destroy(entry.ids[i]) end
+    return true
 end
 function Objects.save_many(items,slot,export)
     local batch,changes=prepare_unload(items,export)
@@ -226,16 +270,18 @@ end
 function Objects.prepare_transition(leaving,entering,prepare,export,publication)
     plain(publication,"transition requires a publication")
     local batch,changes=prepare_unload(leaving,export)
-    local owners,drafts,live=prepare_load(entering,prepare,publication)
+    local owners,drafts,parents,live=prepare_load(entering,prepare,publication)
     -- Preparation callbacks must not invalidate already exported objects.
     for _,item in ipairs(batch) do validate_snapshot(item.owner,changes[item.key]) end
-    return {batch=batch,changes=changes,owners=owners,drafts=drafts,live=live,publication=publication}
+    return {batch=batch,changes=changes,owners=owners,drafts=drafts,parents=parents,live=live,
+        ids=false,publication=publication}
 end
 -- Call only after the prepared changes have been saved. Never replay a committed draft.
 function Objects.commit_transition(draft)
     assert(not draft.committed,"object transition already committed")
     for _,item in ipairs(draft.batch) do validate_snapshot(item.owner,draft.changes[item.key]) end
-    publish_load(draft.owners,draft.drafts,draft.live,draft.publication)
+    local _,ids=publish_load(draft.owners,draft.drafts,draft.parents,draft.live,draft.publication)
+    draft.ids=ids
     release_owners(draft.batch)
     draft.committed=true
     return draft.owners

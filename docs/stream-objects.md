@@ -1,6 +1,6 @@
 # 流式对象与显式状态
 
-`require("shiny.stream_objects")` 管理一个已发布地图块中的普通实体。
+`require("shiny.stream_objects")` 管理已发布地图块中的实体和复合 prefab。
 它使用 `sc.spawn_many`、对象持久 ID 和分块存档，不保存运行时句柄、VM 或
 求解器。游戏提供两个普通 Lua 函数：
 
@@ -27,10 +27,19 @@ if ok then sc.stream.release(0, 0) end
 
 `prepare(object, saved_data)` 返回实体规格与房间内玩法数据；模块负责填入
 `persistent_id`，不允许改名。`owner.entries` 保持地图对象顺序，包含 `object`、
-活动对象的 `id/data`；已删除对象没有实体。对象跨越块边界移动仍归原块所有；
+活动对象的 `id/ids/children/components/data`；已删除对象没有实体。对象跨越块边界移动仍归原块所有；
 静态导入几何的锚点保留由 [stream_world](stream-object-coverage.md) 协调，
 任意移动超出导入几何时游戏仍须显式保留该锚点。
-目前一个地图对象对应一个实体，复合 prefab 和动态对象归属迁移尚未整合。
+一个地图对象也可对应多层 prefab，整组实体归同一个根对象持久 ID；动态对象
+跨块归属迁移仍由游戏处理。
+
+prepare 可返回 `{entity=..., children=..., components=...}` 作为第一值，子对象
+写法与 [prefab](prefab.md) 相同。根实体的 `persistent_id` 由模块填入；子对象
+不得另填对象持久 ID。`entry.id` 是根句柄，`entry.ids` 为整棵树的句柄，
+`entry.children[name]` 提供命名子对象及其组件数据。`export` 可接收第四参数
+`entry`，显式选择子对象状态；恢复时由 prepare 重新构造整组对象。销毁整组对象
+应调用 `Objects.destroy(entry)`；直接销毁根实体会使仍活动的子对象失去归属，
+保存时会被拒绝。卸载时先销毁子对象，再卸载根对象；旧句柄全部失效。
 
 `Objects.snapshot(owner, export)` 生成独立记录，不写盘、不卸载。记录格式为
 `{format=1, objects={ [persistent_id]={data=...} 或 {deleted=true} }}`。
@@ -41,7 +50,8 @@ if ok then sc.stream.release(0, 0) end
 卸载前完成全部导出和所有权检查，再通过 `sc.save.write_chunks` 原子保存。
 失败时保持 owner 和实体可用；成功后活动实体变为 `unloaded`、旧句柄失效，
 游戏已销毁的对象保留 `deleted`。读取记录后重建会恢复删除标记，不复活该对象。
-同一个 owner 只能成功卸载一次。游戏可 `sc.destroy` 删除对象；不得在 owner
+同一个 owner 只能成功卸载一次。单实体对象可 `sc.destroy`，复合对象使用
+`Objects.destroy` 删除；不得在 owner
 之外卸载、重建或转移它。准备与导出回调不得修改世界、切房间或执行应用 IO。
 
 加载先完成全部规格准备，再登记对象为 unloaded，最后原子批量创建活动实体。
@@ -154,3 +164,7 @@ end
 它再次验证离开对象生命周期，联合发布成功后才释放旧实体，同一 draft 只能成功提交一次。
 发布失败可修正外部容量等条件后重试；不得改动 draft 或待离开对象。
 这些接口不管理原生请求及模拟暂停；通常直接使用 [stream_world](stream-world.md)。
+
+2026-09-27：复合对象已接入普通加载、联合地形/边界发布和异步 World 切换。
+定向真实宿主测试覆盖多层子对象重访与删除、原子失败、流式世界卸载恢复和
+子对象精灵驻留；这不是跨平台或完整游戏验收。

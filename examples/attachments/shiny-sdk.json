@@ -1,12 +1,12 @@
 {
   "format": 1,
-  "version": "1.0.0-dev.56",
+  "version": "1.0.0-dev.57",
   "engine_version": "1.0.0-dev",
   "contract_version": 1,
   "hash": "sha256-text-lf",
   "files": {
-    "docs/api.lua": "e765e30e8ca41e480a5c7683668c2008cd49373dace2ab4ac4afca95d44995b5",
+    "docs/api.lua": "e69e56a7c624825330a62a0af7eb5940e9d0c2deec9f8841c03e7c8869920781",
     "lib/shiny/LICENSE.txt": "5090cd7120174d2034a276d7deb4783760cec86e9642b9a3f34c3ca3aed5058c",
-    "lib/shiny/prefab.lua": "13f507212106b2866ec61b3eb622842b9d9dadab178d4a2bd643e5d88459f69c"
+    "lib/shiny/prefab.lua": "bd131204f633f580bea98026958afedc550efa07e1d3ec811e619aa4bb84d7b5"
   }
 }

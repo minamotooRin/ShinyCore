@@ -25,7 +25,7 @@ function Prefab.merge(defaults,overrides)
     -- Validate both graphs before merging; overrides must not invoke metamethods either.
     return merge(copy(defaults),copy(overrides or {}))
 end
-function Prefab.spawn(definition,overrides)
+function Prefab.plan(definition,overrides)
     local data=Prefab.merge(definition,overrides)
     assert(type(data.entity)=="table","prefab requires entity defaults")
     local specs,parents={data.entity},{0}
@@ -53,17 +53,30 @@ function Prefab.spawn(definition,overrides)
             end
             local index=#specs+1
             specs[index]=nested and child.entity or child;parents[index]=parent
-            local node={data=nested and (child.components or {}) or {},children={}}
+            local node={id=0,data=nested and (child.components or {}) or {},children={}}
             into[name]=node;slots[index]=node
             if nested and child.children~=nil then append(child.children,index,node.children,depth+1) end
         end
     end
     append(data.children or {},1,instance.children,1)
-    -- Native preflight covers creation and all relationships in one transaction.
-    local ids=sc.spawn_many(specs,parents)
-    instance.id=ids[1];instance.ids=ids
-    for i=2,#specs do slots[i].id=ids[i] end
+    instance.id=0;instance.ids={}
+    for i=1,#specs do instance.ids[i]=0 end
+    return {specs=specs,parents=parents,instance=instance,slots=slots,bound=false}
+end
+function Prefab.bind(plan,ids,first)
+    first=first or 1
+    assert(not plan.bound and #ids>=first+#plan.specs-1,"prefab binding requires complete batch IDs")
+    local instance=plan.instance
+    for i=1,#plan.specs do instance.ids[i]=ids[first+i-1] end
+    instance.id=instance.ids[1]
+    for i=2,#plan.specs do plan.slots[i].id=instance.ids[i] end
+    plan.bound=true
     return instance
+end
+function Prefab.spawn(definition,overrides)
+    local plan=Prefab.plan(definition,overrides)
+    -- Native preflight covers creation and all relationships in one transaction.
+    return Prefab.bind(plan,sc.spawn_many(plan.specs,plan.parents))
 end
 function Prefab.destroy(instance)
     if instance.destroyed then return false end

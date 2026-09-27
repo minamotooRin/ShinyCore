@@ -135,7 +135,9 @@ local function image_names(world,prepared,owners,drafts)
     for _,name in ipairs(world.retain_images) do add(name) end
     for _,owner in pairs(owners) do for _,entry in ipairs(owner.entries) do
         local current=sc.identity.resolve(entry.object.persistent_id)
-        if current.status=="active" then add(sc.get(current.id).sprite) end
+        if current.status=="active" then
+            for _,id in ipairs(entry.ids) do add(sc.get(id).sprite) end
+        end
     end end
     for _,spec in ipairs(drafts or {}) do add(spec.sprite) end
     local result={}
@@ -237,9 +239,11 @@ local function finish_transaction(world)
             local ok,incoming=pcall(Objects.commit_transition,transaction.draft)
             if not ok then transaction.error=tostring(incoming); return nil,transaction.error end
             if world.residency then
-                for i,entry in ipairs(transaction.draft.live) do
-                    local sprite=transaction.draft.drafts[i].sprite
-                    if sprite and sprite~="" then world.resource_names[sc.get(entry.id).sprite]=world.resource_names[sprite] or sprite end
+                for i,spec in ipairs(transaction.draft.drafts) do
+                    local sprite=spec.sprite
+                    if sprite and sprite~="" then
+                        world.resource_names[sc.get(transaction.draft.ids[i]).sprite]=world.resource_names[sprite] or sprite
+                    end
                 end
             end
             for i,entry in ipairs(transaction.ready) do transaction.owners[key(entry.x,entry.y)]=incoming[i] end

@@ -43,7 +43,7 @@ images 可传入图片路径到资源名的映射。`residency=true` 使本 owne
 独立绘制、弹体、粒子和材质采样等额外图片，默认空数组；它要求 residency=true。
 图片仍须在项目声明，只有 stream=true 的图片进入驻留缓存，常驻图片校验后跳过。
 自动依赖包含已准备的可见图块、动画所有帧、可见图像层，以及保留/进入块的对象
-精灵；原生端补齐绑定法线图。动态图集切换需事先列入 retain_images，不依赖首次
+与复合 prefab 子对象精灵；原生端补齐绑定法线图。动态图集切换需事先列入 retain_images，不依赖首次
 绘制时的同步加载。事务期间不要在模块外操作 sc.images。
 margin 默认 1，capacity 默认 256；
 加载边界和局部导航默认开启，可用 boundary=false、navigation=false 关闭。

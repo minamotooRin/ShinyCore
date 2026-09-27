@@ -1812,14 +1812,15 @@ function sc.stream.retry(sequence) end
 ---Phases: load, init, update, draw, ui_update.
 ---@return table
 function sc.stream.stats() end
----Atomically replace imported terrain with {x=0,y=0,w,h,one_way=false,vertices?} shapes in world pixels. Optional vertices are 3..8 local convex x,y pairs. Retain previous terrain on failure; remove finite room borders and camera clamping on success. Empty array clears imported terrain. Optional navigation {x,y,rows,cell_size=8} replaces the local grid in the same transaction and discards previous flow fields. Optional entering entity batch commits with terrain; returns IDs as second result. Invalid entities or capacity failure retain prior terrain/navigation. Load/init/update only.
+---Atomically replace imported terrain with validated shapes, optional navigation and an entity batch. Parent indices create visual attachments within the entering batch; invalid geometry, relationships or capacity retain the previous terrain/navigation/entities. Returns entity IDs as second result. Load/init/update only.
 ---Phases: load, init, update.
 ---Capacity: 16384 shapes; Lua data conversion budget 256 KiB.
 ---@param shapes table[]
----@param navigation table|nil
----@param entities ScEntityPatch[]|nil
+---@param navigation? table|nil
+---@param entities? ScEntityPatch[]|nil
+---@param parents? integer[]|nil # Optional zero-root/one-based batch parent indices; requires entities and shares their atomic terrain commit.
 ---@return boolean,ScEntityId[]|nil
-function sc.stream.terrain(shapes, navigation, entities) end
+function sc.stream.terrain(shapes, navigation, entities, parents) end
 ---Transfer socket ownership to the application; room teardown no longer closes it. Mutating operation; forbidden in draw/ui_update, check mode and candidate initialization.
 ---Phases: load, init, update.
 ---Capacity: At most 4 named sessions; duplicate names fail without transferring socket ownership.

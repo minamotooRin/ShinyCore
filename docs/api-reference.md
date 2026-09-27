@@ -975,7 +975,7 @@ also use the descriptions and [authoring annotations](api.lua).
 | sc.stream.request | x: integer, y: integer, commit_frame: integer | integer | load, init, update |
 | sc.stream.retry | sequence: integer | boolean | load, init, update, ui_update |
 | sc.stream.stats |  | table | load, init, update, draw, ui_update |
-| sc.stream.terrain | shapes: table[], navigation: table\|nil, entities: ScEntityPatch[]\|nil | boolean,ScEntityId[]\|nil | load, init, update |
+| sc.stream.terrain | shapes: table[], navigation?: table\|nil, entities?: ScEntityPatch[]\|nil, parents?: integer[]\|nil | boolean,ScEntityId[]\|nil | load, init, update |
 | sc.text | text: string, x: number, y: number, size: number, color: ScColor, screen?: boolean = false, options?: ScTextOptions\|nil | none | draw |
 | sc.tick |  | integer | load, init, update, draw, ui_update |
 | sc.tile | x: integer, y: integer, tile?: ScTile | ScTile | load, init, update, draw, ui_update; tile supplied (including nil): load, init, update |

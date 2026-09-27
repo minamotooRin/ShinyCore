@@ -1,5 +1,6 @@
 #include "shiny/physics.h"
 #include "shiny/navigation.h"
+#include "shiny/attachment.h"
 #include <box2d/box2d.h>
 #include <algorithm>
 #include <cmath>
@@ -172,10 +173,12 @@ bool shape_changed(const ScEntity& a,const ScEntity& b) {
         a.sensor!=b.sensor||a.solid!=b.solid||a.density!=b.density||a.friction!=b.friction||a.restitution!=b.restitution||a.category!=b.category||a.mask!=b.mask;
 }
 }
-std::expected<void,std::string> sc_physics_replace_terrain(ScWorld& w,std::span<const ScTerrainShape> shapes,std::span<ScEntity> entering) {
+std::expected<void,std::string> sc_physics_replace_terrain(ScWorld& w,std::span<const ScTerrainShape> shapes,
+                                                            std::span<ScEntity> entering,std::span<const std::size_t> parents) {
     if(shapes.size()>SC_MAX_TILES) return std::unexpected("stream terrain exceeds 16384 shapes");
     try {
         if(auto result=sc_spawn_preflight(w,entering);!result) return std::unexpected(std::string(result.error()));
+        if(auto result=sc_attachment_batch_preflight(entering,parents);!result) return std::unexpected(std::string(result.error()));
         for(const auto& shape:shapes) {
             for(float value:{shape.x,shape.y,shape.w,shape.h})
                 if(!std::isfinite(value)||std::fabs(value)>1e6f) throw std::runtime_error("stream terrain bounds outside range");
@@ -205,7 +208,7 @@ std::expected<void,std::string> sc_physics_replace_terrain(ScWorld& w,std::span<
         catch(...) { w.terrain_shapes=std::move(previous); w.map.bounded=bounded; w.terrain_revision=revision; throw; }
         if(blocked!=w.map.navigation_blocked) { w.map.navigation_blocked=blocked; ++w.map.navigation_revision; }
         // Terrain publication cannot alter entity slots or identity records.
-        for(auto& draft:entering) draft.id=sc_spawn(&w,&draft);
+        if(auto result=sc_spawn_many(w,entering,parents);!result) throw std::runtime_error(result.error());
         return {};
     } catch(const std::exception& error) { return std::unexpected(std::string(error.what())); }
 }

@@ -215,4 +215,52 @@ end}''')
     assert(#owner.entries==2 and sc.get(owner.entries[2].id))
 end}''')
 
+    def test_compound_prefab_unload_restore_and_delete(self):
+        self.run_game('''local only={objects={chunk.objects[1]}}
+local function compound(object,saved)
+    return {entity={x=saved and saved.x or object.x,y=10,w=8,h=8,body=false},
+        components={kind="lantern"},children={beam={entity={x=8,w=4,h=4,body=false},
+            components={power=saved and saved.power or 3},
+            children={spark={entity={x=3,w=2,h=2,body=false}}}}}}, {used=false}
+end
+local function explicit(entity,data,object,entry)
+    assert(object.persistent_id=="actors:1" and entry.components.kind=="lantern")
+    return {x=entity.x,power=entry.children.beam.data.power}
+end
+return {update=function()
+    if sc.tick()~=0 then return end
+    local owner=Objects.load(only,nil,compound)
+    local entry=owner.entries[1]
+    assert(#entry.ids==3 and entry.id==entry.ids[1])
+    assert(entry.children.beam.id==entry.ids[2] and entry.children.beam.children.spark.id==entry.ids[3])
+    assert(sc.presentation.attachment(entry.ids[3]).parent==entry.ids[2])
+    sc.set(entry.id,{x=50}); assert(sc.get(entry.ids[3]).x==61)
+    entry.children.beam.data.power=9
+    local stale=entry.ids[3]
+    assert(Objects.unload(owner,"slot","compound:0",explicit))
+    assert(not pcall(sc.get,stale) and sc.identity.resolve("actors:1").status=="unloaded")
+    local saved=assert(sc.save.read_chunk("slot","compound:0"))
+    owner=Objects.load(only,saved,compound); entry=owner.entries[1]
+    assert(entry.id~=stale and sc.get(entry.id).x==50 and entry.children.beam.data.power==9)
+    assert(sc.get(entry.ids[3]).x==61)
+    assert(Objects.destroy(entry))
+    assert(sc.identity.resolve("actors:1").status=="deleted")
+    assert(Objects.unload(owner,"slot","compound:0",explicit))
+    saved=assert(sc.save.read_chunk("slot","compound:0"))
+    owner=Objects.load(only,saved,compound)
+    assert(owner.entries[1].id==nil and sc.identity.resolve("actors:1").status=="deleted")
+end}''')
+
+    def test_compound_invalid_child_keeps_existing_owner(self):
+        self.run_game('''local only={objects={chunk.objects[1]}}
+return {init=function()
+    local old=Objects.load(only,nil,prepare)
+    local original=old.entries[1].id
+    local function bad(object)
+        return {entity={x=object.x,body=false},children={visual={entity={x=8,dynamic=true}}}}
+    end
+    assert(not pcall(Objects.load,{objects={chunk.objects[2]}},nil,bad))
+    assert(sc.get(original).x==10 and sc.identity.resolve("actors:2").status=="unloaded")
+end}''')
+
 if __name__=='__main__': unittest.main()

@@ -149,10 +149,10 @@ function Regions.ready(region)
     return chunks
 end
 
-function Regions.commit(region,terrain,navigation,entities)
+function Regions.commit(region,terrain,navigation,entities,parents)
     local plan=assert(region.pending,"no pending region request")
     assert(plan.chunks,"prepare entering chunks with ready() before committing")
-    assert(terrain~=nil or (navigation==nil and entities==nil),"navigation/entity commit requires terrain")
+    assert(terrain~=nil or (navigation==nil and entities==nil and parents==nil),"navigation/entity commit requires terrain")
     local incoming={}
     if entities then
         assert(type(entities)=="table" and getmetatable(entities)==nil,"entities must be a plain array")
@@ -160,19 +160,30 @@ function Regions.commit(region,terrain,navigation,entities)
         for index in pairs(entities) do integer(index,1,#incoming,"entity index") end
     end
     local object_count=#incoming
+    local relations
+    if parents then
+        assert(entities and type(parents)=="table" and getmetatable(parents)==nil,"parents require entities")
+        relations={}
+        for i,parent in ipairs(parents) do relations[i]=integer(parent,0,object_count,"parent index") end
+        assert(#relations==object_count,"parent count must match entities")
+        for index in pairs(parents) do integer(index,1,object_count,"parent index") end
+    end
     local walls=region.walls
     local replace_walls=region.boundary and plan.visible_changed
     local specs
     if replace_walls then
         sc.get_many(walls)
         specs=boundary_specs(region,plan.visible)
-        for _,spec in ipairs(specs) do incoming[#incoming+1]=spec end
+        for _,spec in ipairs(specs) do
+            incoming[#incoming+1]=spec
+            if relations then relations[#relations+1]=0 end
+        end
     end
     local replacement
     if terrain~=nil then
         -- Native preflight covers terrain, navigation and all replacement walls.
         local ok
-        ok,replacement=sc.stream.terrain(terrain,navigation,(entities or specs) and incoming or nil)
+        ok,replacement=sc.stream.terrain(terrain,navigation,(entities or specs) and incoming or nil,relations)
         assert(ok,"terrain publication failed")
     elseif specs then replacement=sc.spawn_many(specs) end
     if replace_walls then

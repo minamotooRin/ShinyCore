@@ -10,12 +10,21 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Streamed authored objects can now own a nested prefab tree. Native terrain and
+entity publication preflight the full parent batch; chunk unload and explicit
+deletion release descendants before the persistent root. The async world scans
+child sprites for image residency and restores the group from root-owned explicit
+state. Focused full-build host tests cover rollback, revisit, deletion, world
+transitions and child image residency; full/lightweight builds pass. Annotated
+project SDKs are pinned to dev.57. Per-child persistent identity and dynamic
+cross-chunk ownership remain open; see [streamed objects](stream-objects.md).
+
 Lua prefab composition now accepts nested named children with per-node component
 data. It preserves direct leaf specs and sends the sorted tree through one atomic
 native spawn batch; destruction releases descendants before ancestors. A focused
 host test covers transforms, rollback and stale handles, and an inspected hidden
-native capture shows nested visual attachments. Five project SDKs are pinned to
-dev.56. Compound ownership in streamed object chunks remains open; see
+native capture shows nested visual attachments. Five project SDKs were pinned to
+dev.56 at that checkpoint. Compound ownership in streamed object chunks now uses this module; see
 [prefab](prefab.md).
 
 Material create/uniform definitions and the info, capacity and pipeline results

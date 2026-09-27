@@ -108,15 +108,33 @@ int stream_metadata(lua_State* L) {
 }
 int stream_terrain(lua_State* L) {
     mutable_phase(L);
-    if(lua_gettop(L)<1||lua_gettop(L)>3) return luaL_error(L,"stream.terrain expects shapes, optional navigation and entering entities");
+    if(lua_gettop(L)<1||lua_gettop(L)>4) return luaL_error(L,"stream.terrain expects shapes, optional navigation, entities and parents");
     auto* s=script(L); if(!s->stream) return luaL_error(L,"stream is not open");
     const bool replace_navigation=lua_gettop(L)>=2&&!lua_isnil(L,2);
-    const bool entering=lua_gettop(L)==3&&!lua_isnil(L,3);
+    const bool entering=lua_gettop(L)>=3&&!lua_isnil(L,3);
+    const bool has_parents=lua_gettop(L)>=4&&!lua_isnil(L,4);
     lua_createtable(L,2,0);
     lua_pushvalue(L,1); lua_rawseti(L,-2,1);
     if(replace_navigation) { lua_pushvalue(L,2); lua_rawseti(L,-2,2); }
     read(L,-1); lua_pop(L,1);
     if(entering) sc_script_prepare_spawn_batch(L,3);
+    s->batch_parents.clear();
+    if(has_parents) {
+        if(!entering) throw std::runtime_error("stream.terrain parents require entities");
+        auto value=sc_lua_read(L,4); if(!value) throw std::runtime_error(value.error());
+        const auto* array=std::get_if<ScValue::Array>(&value->data);
+        const auto* empty=std::get_if<ScValue::Object>(&value->data);
+        if(!array&&(!empty||!empty->empty())) throw std::runtime_error("stream.terrain parents must be a dense array");
+        const auto count=array?array->size():0;
+        if(count!=s->batch_entities.size()) throw std::runtime_error("stream.terrain parents must match entities");
+        s->batch_parents.resize(count);
+        for(std::size_t i=0;i<count;++i) {
+            const auto* n=std::get_if<double>(&(*array)[i].data);
+            if(!n||!std::isfinite(*n)||*n<0||*n>static_cast<double>(count)||std::floor(*n)!=*n)
+                throw std::runtime_error("stream.terrain parent index outside entity batch");
+            s->batch_parents[i]=static_cast<std::size_t>(*n);
+        }
+    }
     {
         std::vector<ScTerrainShape> shapes;
         const auto& args=std::get<ScValue::Array>(s->scratch.data);
@@ -171,7 +189,7 @@ int stream_terrain(lua_State* L) {
             if(blocked!=region->map.navigation_blocked&&region->map.navigation_revision==UINT64_MAX)
                 throw std::runtime_error("navigation revision exhausted");
         }
-        auto result=sc_physics_replace_terrain(*s->world,shapes,entering?std::span<ScEntity>(s->batch_entities):std::span<ScEntity>{});
+        auto result=sc_physics_replace_terrain(*s->world,shapes,entering?std::span<ScEntity>(s->batch_entities):std::span<ScEntity>{},s->batch_parents);
         if(!result) throw std::runtime_error(result.error());
         if(replace_navigation) {
             s->navigation_region=std::move(candidate);
@@ -191,7 +209,8 @@ constexpr ScLuaContract stream_get_contract{stream_coordinates,"table|nil",ScLua
 constexpr ScLuaContract stream_release_contract{stream_coordinates,nullptr,ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
 constexpr ScLuaContract stream_stats_contract{{},"table",ScLuaPhases::read,nullptr,nullptr,"streaming"};
 constexpr ScLuaContract stream_metadata_contract{{},"ScStreamMetadata",ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
-constexpr ScLuaParameter stream_terrain_parameters[]={{"shapes","table[]"},{"navigation","table|nil"},{"entities","ScEntityPatch[]|nil"}};
+constexpr ScLuaParameter stream_terrain_parameters[]={{"shapes","table[]"},{"navigation","table|nil",false},
+    {"entities","ScEntityPatch[]|nil",false},{"parents","integer[]|nil",false,"Optional zero-root/one-based batch parent indices; requires entities and shares their atomic terrain commit."}};
 constexpr ScLuaContract stream_terrain_contract{stream_terrain_parameters,"boolean,ScEntityId[]|nil",ScLuaPhases::mutate,"16384 shapes; Lua data conversion budget 256 KiB",nullptr,"streaming"};
 constexpr ScLuaParameter stream_retry_parameters[]={
     {"sequence","integer",true,"Current failure().sequence; stale, pending, successful or unknown requests raise an error.",nullptr,1,4503599627370495.0}};
@@ -206,7 +225,7 @@ const ScLuaApi stream_api[]={
     {"release",sc_lua_guard<stream_chunk<2>>,"release(x,y)","Release one chunk reference; zero references cancel visibility. Pending cancellation drains at its planned boundary.",&stream_release_contract},
     {"stats",sc_lua_guard<stream_stats>,"stats() -> counters","Read reserved cache bytes, visible/pinned chunks and scheduled request counts; worker completion timing is not exposed.",&stream_stats_contract},
     {"metadata",sc_lua_guard<stream_metadata>,"metadata() -> table","Copy format, chunk_size, tilewidth/height, layers, groups, map properties, sparse object_coverage, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.",&stream_metadata_contract},
-    {"terrain",sc_lua_guard<stream_terrain>,"terrain(shapes,navigation?,entities?) -> true,ids?","Atomically replace imported terrain with {x=0,y=0,w,h,one_way=false,vertices?} shapes in world pixels. Optional vertices are 3..8 local convex x,y pairs. Retain previous terrain on failure; remove finite room borders and camera clamping on success. Empty array clears imported terrain. Optional navigation {x,y,rows,cell_size=8} replaces the local grid in the same transaction and discards previous flow fields. Optional entering entity batch commits with terrain; returns IDs as second result. Invalid entities or capacity failure retain prior terrain/navigation. Load/init/update only.",&stream_terrain_contract},
+    {"terrain",sc_lua_guard<stream_terrain>,"terrain(shapes,navigation?,entities?,parents?) -> true,ids?","Atomically replace imported terrain with validated shapes, optional navigation and an entity batch. Parent indices create visual attachments within the entering batch; invalid geometry, relationships or capacity retain the previous terrain/navigation/entities. Returns entity IDs as second result. Load/init/update only.",&stream_terrain_contract},
     {nullptr,nullptr,nullptr,nullptr}
 };
 #endif

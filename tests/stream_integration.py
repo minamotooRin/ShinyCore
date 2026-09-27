@@ -650,9 +650,14 @@ return {init=function()
     for i=1,4097 do too_many[i]={tag="candidate"} end
     assert(not pcall(sc.stream.terrain,{},nil,too_many)); retained()
     assert(not pcall(sc.stream.terrain,{{w=0,h=8}},nil,{{tag="candidate"}})); retained()
+    assert(not pcall(sc.stream.terrain,{},nil,{{x=-8,body=false},{x=8,dynamic=true}},{0,1})); retained()
+    assert(not pcall(sc.stream.terrain,{},nil,{{x=-8,body=false},{x=8,body=false}},{0,3})); retained()
     local ok,ids=sc.stream.terrain({},nil,{{x=-8,y=-8,tag="candidate"},{x=8,y=-8,tag="candidate"}})
     assert(ok and #ids==2 and ids[1]~=ids[2] and #sc.find_all("candidate")==2)
     assert(sc.physics.ray(12,-8,0,24)==nil)
+    for _,id in ipairs(ids) do sc.destroy(id) end
+    ok,ids=sc.stream.terrain({},nil,{{x=-8,y=-8,body=false},{x=8,body=false}},{0,1})
+    assert(ok and sc.presentation.attachment(ids[2]).parent==ids[1] and sc.get(ids[2]).x==0)
     for _,id in ipairs(ids) do sc.destroy(id) end
     Regions.request(region,{{x=-8,y=-8}},0)
 end,update=function()
@@ -752,12 +757,13 @@ end}''')
         (self.root/'saves/stream-test').mkdir(parents=True)
         (self.root/'saves/stream-test/corrupt.json').write_text('{broken',encoding='utf-8')
         self.scene('''local World=require("shiny.stream_world")
-local world,old
+local world,old,old_child
 return {init=function()
     local missing,err=sc.save.read_chunk("slot","forest:0:-1"); assert(missing==nil and err==nil)
     local bad,why=sc.save.read_chunk("corrupt","forest:0:-1"); assert(bad==nil and type(why)=="string")
     world=World.new{index="index.json",name="forest",slot="slot",margin=0,
-        prepare=function(object,saved) return {x=saved and saved.x or object.x,y=object.y},{} end,
+        prepare=function(object,saved) return {entity={x=saved and saved.x or object.x,y=object.y,body=false},
+            children={marker={x=5,w=2,h=2,body=false}}},{} end,
         export=function(entity) return {x=entity.x} end}
     World.request(world,{{x=8,y=-8}},0)
 end,update=function(dt)
@@ -765,7 +771,9 @@ end,update=function(dt)
     local tick=sc.tick()
     if tick==1 then
         assert(changed and World.contains(world,{x=8,y=-8}) and #world.region.walls==4)
-        old=world.owners["0:-1"].entries[1].id; sc.set(old,{x=72})
+        local entry=world.owners["0:-1"].entries[1]
+        old=entry.id; old_child=entry.children.marker.id; sc.set(old,{x=72})
+        assert(sc.get(old_child).x==77)
         assert(world.prepared[1][1].id==0)
         World.request(world,{{x=264,y=-8}},sc.tick()+1)
     elseif tick==2 then
@@ -773,13 +781,14 @@ end,update=function(dt)
         assert(sc.get(old).x==72 and World.contains(world,{x=8,y=-8}))
         assert(not pcall(World.patch,world,{}))
     elseif tick==4 then
-        assert(changed and not pcall(sc.get,old) and world.owners["0:-1"]==nil)
+        assert(changed and not pcall(sc.get,old) and not pcall(sc.get,old_child) and world.owners["0:-1"]==nil)
         assert(sc.save.read_chunk("slot","forest:0:-1").objects["actor:0"].data.x==72)
         assert(world.prepared[1][1].id==1 and World.contains(world,{x=264,y=-8}))
         World.request(world,{{x=8,y=-8}},sc.tick()+1)
     elseif tick==3 or tick==5 or tick==6 or tick==8 then assert(not changed and World.status(world))
     elseif tick==7 then
-        assert(changed and sc.get(world.owners["0:-1"].entries[1].id).x==72)
+        local entry=world.owners["0:-1"].entries[1]
+        assert(changed and sc.get(entry.id).x==72 and sc.get(entry.children.marker.id).x==77)
         assert(world.prepared[1][1].id==0)
         World.request(world,{},sc.tick()+1)
     elseif tick==9 then
