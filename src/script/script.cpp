@@ -1080,7 +1080,7 @@ static bool callback(ScScript *script, int callback_id, bool has_argument, float
     return ok;
 }
 
-bool sc_script_open(ScScript *script, ScWorld *world, const char *root, const char *entry) {
+bool sc_script_load(ScScript *script, ScWorld *world, const char *root, const char *entry) {
     if (!script) return false;
     // Preserve potentially aliased input paths before releasing a previous VM.
     char root_copy[SC_PATH_MAX]{}, entry_copy[SC_PATH_MAX]{};
@@ -1098,6 +1098,7 @@ bool sc_script_open(ScScript *script, ScWorld *world, const char *root, const ch
     script->projectile_limit = 32768;
     script->instruction_budget = 0;
     script->has_ui_update=false;
+    script->initialized=false;
     script->phase=0;
     if (!valid) {
         std::snprintf(script->error, sizeof script->error, "invalid project root or scene path"); return false;
@@ -1110,8 +1111,26 @@ bool sc_script_open(ScScript *script, ScWorld *world, const char *root, const ch
     *static_cast<ScScript **>(lua_getextraspace(script->lua)) = script;
     lua_pushcfunction(script->lua, sc_lua_guard<bootstrap>);
     if (!protected_call(script, 0)) { sc_script_close(script); return false; }
-    if (!callback(script, 0, false, 0, false) || !sc_script_images_preload(*script)) { sc_script_close(script); return false; }
     return true;
+}
+bool sc_script_initialize(ScScript *script) {
+    if (!script||!script->lua) return false;
+    if(script->initialized) {
+        std::snprintf(script->error,sizeof script->error,"%s: scene already initialized",script->entry);
+        return false;
+    }
+    if (!callback(script, 0, false, 0, false) || !sc_script_images_preload(*script)) { sc_script_close(script); return false; }
+#ifdef SC_HAS_STREAMING
+    if(!script->preloaded_index_path.empty()) {
+        std::snprintf(script->error,sizeof script->error,"%s: declared stream index was not opened in init",script->entry);
+        sc_script_close(script); return false;
+    }
+#endif
+    script->initialized=true;
+    return true;
+}
+bool sc_script_open(ScScript *script, ScWorld *world, const char *root, const char *entry) {
+    return sc_script_load(script,world,root,entry)&&sc_script_initialize(script);
 }
 
 void ScScript::LuaCloser::operator()(lua_State *state) const noexcept {
@@ -1140,8 +1159,11 @@ void sc_script_close(ScScript *script) noexcept {
         script->stream.reset();
         script->images.reset();
         script->initial_images=0;
+        script->preloaded_index_path.clear();
+        script->preloaded_index=ScValue{};
 #endif
         script->preload_images=ScValue{};
+        script->initialized=false;
         script->navigation_region.reset();
         for(auto& field:script->flow_fields) field.reset();
         script->watches.clear();
@@ -1231,6 +1253,7 @@ void sc_script_describe(void) {
 #endif
     std::printf("\"save\":{\"format\":%d,\"index_bytes\":%zu,\"chunk_bytes\":%zu,\"chunks\":%zu,\"world_bytes\":%zu},",
         SC_SAVE_FORMAT,SC_SAVE_BYTES,SC_STATE_BYTES,SC_SAVE_CHUNKS,SC_SAVE_WORLD_BYTES);
+    std::printf("\"project_fields\":[\"id\",\"entry\",\"rooms\",\"resources\",\"data_version\",\"limits\",\"modules\",\"display\",\"stream_indexes\"],");
     std::printf("\"scene_fields\":[\"title\",\"width\",\"height\",\"gravity\",\"ambient\",\"map\",\"entities\",\"preload_images\",\"init\",\"update\",\"draw\",\"ui_update\"],");
     std::printf("\"entity_fields\":[");
     for (size_t i=0; SC_ENTITY_KEYS[i]; ++i) std::printf("%s\"%s\"",i?",":"",SC_ENTITY_KEYS[i]);

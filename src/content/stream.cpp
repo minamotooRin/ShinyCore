@@ -17,27 +17,35 @@ int integer(const ScValue* v,int low,int high) {
 void coordinates(int x,int y) {
     if(x<-31250||x>31250||y<-31250||y>31250) throw std::runtime_error("chunk coordinates outside range");
 }
+ScValue read_index(const std::string& path,std::size_t budget) {
+    if(budget<65536||budget>128u*1024u*1024u) throw std::invalid_argument("stream cache budget must be 64 KiB..128 MiB");
+    auto index=sc_json_file(path,16*1024*1024,32);
+    if(!index) throw std::runtime_error(index.error());
+    return std::move(*index);
+}
 }
 ScStream::ScStream(const std::string& path,std::size_t budget,Reader reader)
     : ScStream(path,budget,nullptr,std::move(reader)) {}
 ScStream::ScStream(const std::string& path,ScContentLoader& loader,std::size_t budget)
     : ScStream(path,budget,&loader,{}) {}
-ScStream::ScStream(const std::string& path,std::size_t budget,ScContentLoader* loader,Reader reader) : budget_(budget) {
+ScStream::ScStream(const std::string& path,ScValue index,ScContentLoader& loader,std::size_t budget)
+    : ScStream(path,std::move(index),budget,&loader,{}) {}
+ScStream::ScStream(const std::string& path,std::size_t budget,ScContentLoader* loader,Reader reader)
+    : ScStream(path,read_index(path,budget),budget,loader,std::move(reader)) {}
+ScStream::ScStream(const std::string& path,ScValue index,std::size_t budget,ScContentLoader* loader,Reader reader) : budget_(budget) {
     if(budget<65536||budget>128u*1024u*1024u) throw std::invalid_argument("stream cache budget must be 64 KiB..128 MiB");
-    auto index=sc_json_file(path,16*1024*1024,32);
-    if(!index) throw std::runtime_error(index.error());
-    if(!index->get("format")||index->get("format")->number()!=3)
+    if(!index.get("format")||index.get("format")->number()!=3)
         throw std::runtime_error("unsupported stream index format; expected 3");
-    integer(index->get("chunk_size"),32,32);
-    layout_.width=integer(index->get("tilewidth"),1,256); layout_.height=integer(index->get("tileheight"),1,256);
-    const auto* layers=index->get("layers");
+    integer(index.get("chunk_size"),32,32);
+    layout_.width=integer(index.get("tilewidth"),1,256); layout_.height=integer(index.get("tileheight"),1,256);
+    const auto* layers=index.get("layers");
     const auto* declared=layers?std::get_if<ScValue::Array>(&layers->data):nullptr;
     if(!declared||declared->size()>1000) throw std::runtime_error("stream index requires at most 1000 layers");
     for(std::size_t i=0;i<declared->size();++i)
         if(const auto* type=(*declared)[i].get("type");type&&type->text()=="objectgroup") layout_.object_layers.set(i);
     const auto parent=sc_path(path).parent_path().generic_u8string();
     const std::string root(reinterpret_cast<const char*>(parent.data()),parent.size());
-    const auto* chunks=index->get("chunks");
+    const auto* chunks=index.get("chunks");
     const auto* list=chunks?std::get_if<ScValue::Array>(&chunks->data):nullptr;
     if(!list||list->size()>65536) throw std::runtime_error("stream index requires at most 65536 chunks");
     for(const auto& chunk:*list) {
@@ -49,7 +57,7 @@ ScStream::ScStream(const std::string& path,std::size_t budget,ScContentLoader* l
         entry.bytes=static_cast<std::size_t>(integer(chunk.get("bytes"),1,2*1024*1024));
         if(!entries_.emplace(key,std::move(entry)).second) throw std::runtime_error("duplicate stream chunk");
     }
-    metadata_=std::move(*index);
+    metadata_=std::move(index);
     if(loader) loader_=loader;
     else { owned_loader_=std::make_unique<ScContentLoader>(std::move(reader)); loader_=owned_loader_.get(); }
 }

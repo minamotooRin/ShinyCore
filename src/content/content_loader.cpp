@@ -69,26 +69,30 @@ std::size_t image_bytes(const ScImageRequest& request) {
 }
 struct ScContentLoader::State {
     struct Chunk { std::string path; std::size_t bytes; int x,y; Layout layout; };
+    struct Index { std::string path; };
     struct Job {
-        std::variant<Chunk,ScImageRequest> request;
+        std::variant<Chunk,Index,ScImageRequest> request;
         std::size_t charge{};
         bool running{},cancelled{};
         std::optional<ScResult<Payload>> result;
     };
     Reader reader;
+    IndexReader index_reader;
     ImageReader image_reader;
     std::mutex mutex;
     std::condition_variable condition;
     std::map<std::uint64_t,std::unique_ptr<Job>> jobs;
     std::deque<std::uint64_t> queue;
     std::uint64_t next{};
-    std::size_t image_bytes{},chunk_count{},image_count{};
+    std::size_t image_bytes{},chunk_count{},index_count{},image_count{};
     bool stopping{};
     std::jthread worker;
     void erase(std::uint64_t ticket) {
         const auto charge=jobs.at(ticket)->charge;
         image_bytes-=charge;
-        if(charge) --image_count; else --chunk_count;
+        if(charge) --image_count;
+        else if(std::holds_alternative<Index>(jobs.at(ticket)->request)) --index_count;
+        else --chunk_count;
         jobs.erase(ticket);
     }
     void work() {
@@ -108,6 +112,10 @@ struct ScContentLoader::State {
                         validate_chunk(*value,chunk->x,chunk->y,chunk->layout.width,chunk->layout.height,chunk->layout.object_layers);
                         result=Payload{std::move(*value)};
                     } else result=std::unexpected(std::move(value.error()));
+                } else if(const auto* index=std::get_if<Index>(&job->request)) {
+                    auto value=index_reader(index->path);
+                    if(value) result=Payload{std::move(*value)};
+                    else result=std::unexpected(std::move(value.error()));
                 } else {
                     const auto& request=std::get<ScImageRequest>(job->request);
                     auto pixels=image_reader(request);
@@ -132,11 +140,16 @@ struct ScContentLoader::State {
     std::uint64_t submit(std::unique_ptr<Job> job,bool defer=false) {
         std::lock_guard lock(mutex);
         if(stopping) throw std::runtime_error("content loader stopped");
-        // Two rooms' chunk/image queues and at most one cancelled in-flight job.
+        // Two rooms' queues and at most one cancelled in-flight chunk/image job.
         if(next==max_sequence) throw std::runtime_error("application content job ID capacity exhausted");
-        if((job->charge?image_count>=128:chunk_count>=2049)) {
+        const bool index=std::holds_alternative<Index>(job->request);
+        const auto count=index?index_count:job->charge?image_count:chunk_count;
+        const auto limit=index?2u:job->charge?128u:2049u;
+        if(count>=limit) {
             if(defer) return 0;
-            throw std::runtime_error("application content job capacity exhausted");
+            const char* kind=index?"index":job->charge?"image":"chunk";
+            throw std::runtime_error(std::string("application content ")+kind+" job capacity exhausted ("+
+                std::to_string(count)+"/"+std::to_string(limit)+")");
         }
         if(job->charge>ScContentLoader::image_budget-image_bytes) {
             if(defer) return 0;
@@ -149,11 +162,11 @@ struct ScContentLoader::State {
         jobs.emplace(ticket,std::move(job));
         try { queue.push_back(ticket); } catch(...) { jobs.erase(ticket); throw; }
         image_bytes+=charge;
-        if(charge) ++image_count; else ++chunk_count;
+        if(charge) ++image_count; else if(index) ++index_count; else ++chunk_count;
         next=ticket; condition.notify_one(); return ticket;
     }
 };
-ScContentLoader::ScContentLoader(Reader reader,ImageReader image_reader) : state_(std::make_unique<State>()) {
+ScContentLoader::ScContentLoader(Reader reader,ImageReader image_reader,IndexReader index_reader) : state_(std::make_unique<State>()) {
     state_->reader=reader?std::move(reader):Reader{[](const std::string& file,std::size_t bytes)->ScResult<ScValue> {
         std::error_code error;
         const auto actual=std::filesystem::file_size(sc_path(file),error);
@@ -162,6 +175,9 @@ ScContentLoader::ScContentLoader(Reader reader,ImageReader image_reader) : state
         return sc_json_file(file,bytes,20);
     }};
     state_->image_reader=image_reader?std::move(image_reader):ImageReader{sc_read_png};
+    state_->index_reader=index_reader?std::move(index_reader):IndexReader{[](const std::string& path) {
+        return sc_json_file(path,16u*1024u*1024u,32);
+    }};
 }
 ScContentLoader::~ScContentLoader() {
     { std::lock_guard lock(state_->mutex); state_->stopping=true; }
@@ -179,28 +195,41 @@ std::uint64_t ScContentLoader::try_submit_image(ScImageRequest request) {
     const auto bytes=image_bytes(request);
     return state_->submit(std::make_unique<State::Job>(State::Job{std::move(request),bytes,false,false,{}}),true);
 }
-std::optional<ScResult<ScContentLoader::Payload>> ScContentLoader::take(std::uint64_t ticket,bool image) {
+std::uint64_t ScContentLoader::submit_index(const std::string& path) {
+    if(path.empty()||path.find('\0')!=path.npos) throw std::invalid_argument("stream index path is empty or contains NUL");
+    return state_->submit(std::make_unique<State::Job>(State::Job{State::Index{path},0,false,false,{}}));
+}
+std::optional<ScResult<ScContentLoader::Payload>> ScContentLoader::take(std::uint64_t ticket,Kind kind) {
     auto& s=*state_; std::unique_lock lock(s.mutex,std::try_to_lock);
     if(!lock.owns_lock()) return std::nullopt;
     const auto found=s.jobs.find(ticket);
     if(found==s.jobs.end()||found->second->cancelled) throw std::runtime_error("unknown content job");
     auto& job=*found->second;
-    if(image!=std::holds_alternative<ScImageRequest>(job.request)) throw std::runtime_error("content job kind mismatch");
+    if((kind==Kind::chunk&&!std::holds_alternative<State::Chunk>(job.request))||
+       (kind==Kind::index&&!std::holds_alternative<State::Index>(job.request))||
+       (kind==Kind::image&&!std::holds_alternative<ScImageRequest>(job.request)))
+        throw std::runtime_error("content job kind mismatch");
     if(!job.result&&!s.stopping) return std::nullopt;
     if(!job.result) job.result=std::unexpected("content loader stopped");
     auto result=std::move(job.result); s.erase(ticket); return result;
 }
 std::optional<ScResult<ScValue>> ScContentLoader::take_chunk(std::uint64_t ticket) {
-    auto result=take(ticket,false);
+    auto result=take(ticket,Kind::chunk);
     if(!result) return std::nullopt;
     if(!*result) return std::unexpected(std::move(result->error()));
     return std::get<ScValue>(std::move(**result));
 }
 std::optional<ScResult<ScImagePixels>> ScContentLoader::take_image(std::uint64_t ticket) {
-    auto result=take(ticket,true);
+    auto result=take(ticket,Kind::image);
     if(!result) return std::nullopt;
     if(!*result) return std::unexpected(std::move(result->error()));
     return std::get<ScImagePixels>(std::move(**result));
+}
+std::optional<ScResult<ScValue>> ScContentLoader::take_index(std::uint64_t ticket) {
+    auto result=take(ticket,Kind::index);
+    if(!result) return std::nullopt;
+    if(!*result) return std::unexpected(std::move(result->error()));
+    return std::get<ScValue>(std::move(**result));
 }
 void ScContentLoader::cancel(std::uint64_t ticket) noexcept {
     auto& s=*state_; std::lock_guard lock(s.mutex);

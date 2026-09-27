@@ -7,6 +7,7 @@
 -- The VM allows base, table, string, math, utf8, with no file/process API.
 -- Optional sc.net is available only in SHINY_NETWORK=ON builds (see networking.md).
 -- Optional sc.material requires SHINY_ADVANCED_RENDER=ON; headless checks do not compile GPU shaders.
+-- project.stream_indexes maps room .lua paths to built .json indexes; declared indexes load on the content worker before room init.
 -- Project-local require is available; dofile/loadfile/load, math.random and math.randomseed are unavailable.
 -- pcall/xpcall cannot suppress the callback instruction limit. print -> stderr.
 -- Ordinary metatables work; __gc finalizers are disabled because Lua disables hooks there.
@@ -1785,7 +1786,7 @@ function sc.stream.get(x, y) end
 ---Phases: load, init, update.
 ---@return ScStreamMetadata
 function sc.stream.metadata() end
----Open a built map index with a single worker and 128 MiB bounded cache; load/init only.
+---Open a built map index with a 128 MiB bounded cache. project.stream_indexes preloads it on the worker before init; undeclared indexes parse synchronously.
 ---Phases: load, init.
 ---Capacity: 128 MiB cache; 16 MiB index; 65536 chunks.
 ---@param index_path string

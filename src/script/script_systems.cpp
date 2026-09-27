@@ -50,7 +50,14 @@ int stream_open(lua_State* L) {
     if(length>=SC_PATH_MAX||std::memchr(path,0,length)||!sc_script_validate_path(path)) return luaL_error(L,"stream index must be project-relative");
     auto* s=script(L);
     const auto file=std::string(s->root)+"/"+path;
-    s->stream=s->content_loader?std::make_unique<ScStream>(file,*s->content_loader):std::make_unique<ScStream>(file);
+    if(const auto* indexes=s->project.get("stream_indexes"))
+        if(indexes->get(s->entry)&&s->preloaded_index_path.empty())
+            throw std::invalid_argument("declared stream index opens in init after host preparation");
+    if(!s->preloaded_index_path.empty()) {
+        if(s->preloaded_index_path!=path) throw std::invalid_argument("stream.open path disagrees with project.stream_indexes for this room");
+        s->stream=std::make_unique<ScStream>(file,std::move(s->preloaded_index),*s->content_loader);
+        s->preloaded_index_path.clear();
+    } else s->stream=s->content_loader?std::make_unique<ScStream>(file,*s->content_loader):std::make_unique<ScStream>(file);
     return 0;
 }
 template<int Operation> int stream_chunk(lua_State* L) {
@@ -219,7 +226,7 @@ constexpr ScLuaContract stream_retry_contract{stream_retry_parameters,"boolean",
 const ScLuaApi stream_api[]={
     {"failure",sc_lua_guard<stream_failure>,"failure() -> failure|nil","Copy the first failure observed at a scheduled boundary; nil while healthy or retrying. Does not expose background completion timing or change pins/cache order.",&stream_failure_contract},
     {"retry",sc_lua_guard<stream_retry>,"retry(sequence) -> true","Queue the current failed read again without waiting. Retains request sequence, deadline, references, cache reservation and old visible world. Clears failure until the next boundary attempt. Allowed in ui_update; draw forbidden.",&stream_retry_contract},
-    {"open",sc_lua_guard<stream_open>,"open(index_path)","Open a built map index with a single worker and 128 MiB bounded cache; load/init only.",&stream_open_contract},
+    {"open",sc_lua_guard<stream_open>,"open(index_path)","Open a built map index with a 128 MiB bounded cache. project.stream_indexes preloads it on the worker before init; undeclared indexes parse synchronously.",&stream_open_contract},
     {"request",sc_lua_guard<stream_chunk<0>>,"request(x,y,commit_frame) -> sequence","Pin and prefetch a 32x32 chunk for a planned simulation tick. Deadlines follow request order; sparse empty regions return sequence 0.",&stream_request_contract},
     {"get",sc_lua_guard<stream_chunk<1>>,"get(x,y) -> chunk|nil","Read committed chunk data without waiting; nil until its planned boundary. Absent sparse chunks are empty. Load/init/update only.",&stream_get_contract},
     {"release",sc_lua_guard<stream_chunk<2>>,"release(x,y)","Release one chunk reference; zero references cancel visibility. Pending cancellation drains at its planned boundary.",&stream_release_contract},

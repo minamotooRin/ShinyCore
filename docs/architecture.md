@@ -5,8 +5,8 @@ This is the current development implementation, not a complete-edition acceptanc
 ShinyCore owns one simulation world per room, one Lua VM per runtime, and one native backend per host. There is no ECS, plugin framework or generated editor scene database.
 
 With streaming enabled, the application owns one lazy `ScContentLoader` worker in
-`src/content/content_loader.cpp`; room-owned `ScStream` caches borrow it. Its two
-concrete job types read map chunks or decode PNG pixels, using owned inputs and
+`src/content/content_loader.cpp`; room-owned `ScStream` caches borrow it. Its three
+concrete job types read map indexes, map chunks or decode PNG pixels, using owned inputs and
 results without room/VM/world/GPU references. Room destruction cancels jobs without
 joining; only application shutdown waits for an in-flight read. Chunk publication
 remains ordered on the main thread. PNG jobs reserve decoded bytes and use a bounded
@@ -36,8 +36,10 @@ Synchronous APIs remain explicit utilities. Batch async reads select or retain o
 complete snapshot on the same worker; successful release pins its index for later
 reads. Stream-world uses this API before preparing entering objects/terrain, then
 saves outgoing data and publishes. Read/write exclusion prevents this application's
-collection from racing readers. Title-menu listing/loading and map-index opening
-still use synchronous APIs.
+collection from racing readers. Title-menu listing/loading remains synchronous.
+Rooms declaring `project.stream_indexes` stage index parsing on the content worker
+between scene-table loading and `init`, then consume the parsed index in `sc.stream.open`.
+Undeclared indexes still open synchronously.
 See [save lifetimes](chunk-saves.md) and [world coordination](stream-world.md).
 
 The pixel scene uses the authored render resolution. Unlayered screen/UI commands
@@ -283,7 +285,8 @@ image commit, first draw and native resource preflight does it replace the activ
 runtime and audio draft. Failure destroys the candidate and preserves active
 resources. Tick trace/debug completion waits for that decision, including at a
 frame limit. Startup displays a native loading notice without another Lua VM or
-physics world. Eager resources, Lua and project/map parsing still run synchronously;
+physics world. Eager resources, Lua and ordinary project/map parsing still run synchronously;
+declared stream indexes are the exception and finish before `init`;
 see [image residency](image-residency.md) for the exact boundary.
 
 The Windows executable owns a platform manifest declaring UTF-8 process paths

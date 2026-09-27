@@ -95,6 +95,7 @@ python tools/new_game.py ../my-game
 - [Workshop / Tiled 工作流](examples/workshop/README.md)
 - [Aseprite PNG＋JSON 动画导入](docs/aseprite.md)
 - [Tiled JSON 地图与外部 TSX 图集](docs/tiled-tsx.md)；[JSON/XML 对象模板](docs/tiled-templates.md)；[地图与组属性](docs/tiled-map-properties.md)；[跨块对象覆盖](docs/stream-object-coverage.md)
+- [声明式流式地图索引与固定帧提交](docs/streaming.md)
 - [联机协议与 API](docs/networking.md)
 - [当前开发树验证与限制](docs/verification-complete-dev.md)
 

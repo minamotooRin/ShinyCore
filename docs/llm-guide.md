@@ -5,7 +5,7 @@
 ## 一次完整的迭代
 
 1. 使用 `python tools/new_game.py 新目录` 创建项目，或修改已有项目中的最小相关模块。
-2. 在 project.lua 声明入口、rooms 和资源。每个房间要能在空 sc.state 下初始化；默认值属于游戏脚本。
+2. 在 project.lua 声明入口、rooms 和资源。流式房间可用 `stream_indexes` 将房间路径映射到已构建索引，使索引在 `init` 前由工作线程读取；房间的 `init` 仍调用同一路径的 `sc.stream.open`。每个房间要能在空 sc.state 下初始化；默认值属于游戏脚本。
 3. 运行 `shiny --check-all 项目目录`，覆盖配置、模块、init、初始 draw、物理几何和资源预检。
 4. 运行 `shiny --headless 项目目录 --frames 180 --seed 42 --replay smoke.replay`。断言位置、接触、状态和场景行为，不只比较哈希。
 5. 修改画面后运行原生程序，并通过 `--frames 90 --capture 截图绝对路径.png` 检查结果。

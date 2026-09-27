@@ -5,6 +5,20 @@
 玩家/相机区域的请求与引用管理可使用 [Lua 关注区域模块](stream-regions.md)。
 已发布的图块层可使用 [流式图块模块](stream-tiles.md)准备并绘制。
 
+需要避免房间切换时同步解析索引的项目，在 `project.lua` 声明房间到索引的映射：
+
+```lua
+return {modules={"streaming"},rooms={"main.lua"},
+    stream_indexes={["main.lua"]="built/map-world/index.json"}}
+```
+
+宿主先加载房间表，后台工作线程读取索引，成功后才调用该房间的 `init`。
+`init` 中照常调用同一路径的 `sc.stream.open`，其元数据立即可用；路径不一致或
+未打开已声明索引会使候选失败。活动房间在等待期间继续绘制与处理设备、UI 和网络，
+索引失败时保留活动房间。最多声明 256 个房间路径，每个对应一个项目内 `.json`
+索引；未声明的房间仍使用同步 `sc.stream.open`。初次启动没有活动房间可保留，
+但图形宿主会在读取期间显示加载画面。发行清单仍需包含该索引及其块文件。
+
 ```lua
 return {
     init = function()

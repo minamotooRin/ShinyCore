@@ -830,6 +830,8 @@ are recoverable statuses; retries reuse loaded records, failed IO retries retain
 requests, and cancelling reads never starts outgoing writes. Initial loading also waits
 for its read result. Wayfarer's SDK is dev.22; the other five annotated SDKs are dev.21.
 Map-index opening and title-menu save selection/loading remain synchronous.
+Later work added `project.stream_indexes`: declared room indexes now parse on the
+application content worker before `init`; undeclared indexes and title saves remain synchronous.
 See [checkpoint evidence](verification-chunk-saves.md).
 Text controls support grapheme-safe pointer drag selection, Shift extension,
 outside release and cancellation when hidden/disabled. Headless replay covers

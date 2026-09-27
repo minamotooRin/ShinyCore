@@ -9,6 +9,7 @@ public:
     using Reader=ScContentLoader::Reader;
     explicit ScStream(const std::string& index_path,std::size_t budget=128u*1024u*1024u,Reader reader={});
     ScStream(const std::string& index_path,ScContentLoader&,std::size_t budget=128u*1024u*1024u);
+    ScStream(const std::string& index_path,ScValue index,ScContentLoader&,std::size_t budget=128u*1024u*1024u);
     ~ScStream();
     ScStream(const ScStream&)=delete;
     ScStream& operator=(const ScStream&)=delete;
@@ -31,6 +32,7 @@ private:
         ScResult<ScValue> value=std::unexpected("not loaded");
     };
     ScStream(const std::string&,std::size_t,ScContentLoader*,Reader);
+    ScStream(const std::string&,ScValue,std::size_t,ScContentLoader*,Reader);
     std::unique_ptr<ScContentLoader> owned_loader_; // Standalone native use only.
     ScContentLoader* loader_{};
     ScContentLoader::Layout layout_;

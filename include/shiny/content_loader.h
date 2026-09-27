@@ -15,9 +15,10 @@ struct ScImagePixels { int width{},height{}; std::vector<unsigned char> rgba; };
 class ScContentLoader final {
 public:
     using Reader=std::function<ScResult<ScValue>(const std::string&,std::size_t)>;
+    using IndexReader=std::function<ScResult<ScValue>(const std::string&)>;
     using ImageReader=std::function<ScResult<ScImagePixels>(const ScImageRequest&)>;
     static constexpr std::size_t image_budget=128u*1024u*1024u;
-    explicit ScContentLoader(Reader reader={},ImageReader image_reader={});
+    explicit ScContentLoader(Reader reader={},ImageReader image_reader={},IndexReader index_reader={});
     ~ScContentLoader();
     ScContentLoader(const ScContentLoader&)=delete;
     ScContentLoader& operator=(const ScContentLoader&)=delete;
@@ -27,6 +28,8 @@ public:
     std::uint64_t submit_image(ScImageRequest);
     std::uint64_t try_submit_image(ScImageRequest); // 0 while cancelled/in-flight jobs occupy the queue budget.
     std::optional<ScResult<ScImagePixels>> take_image(std::uint64_t);
+    std::uint64_t submit_index(const std::string& path);
+    std::optional<ScResult<ScValue>> take_index(std::uint64_t);
     void cancel(std::uint64_t) noexcept;
 private:
     struct Layout { int width{},height{}; std::bitset<1000> object_layers; };
@@ -34,7 +37,8 @@ private:
     struct State;
     std::unique_ptr<State> state_;
     std::uint64_t submit(const std::string&,std::size_t,int,int,const Layout&);
-    std::optional<ScResult<Payload>> take(std::uint64_t,bool image);
+    enum class Kind { chunk,index,image };
+    std::optional<ScResult<Payload>> take(std::uint64_t,Kind);
     std::optional<ScResult<ScValue>> take_chunk(std::uint64_t);
     friend class ScStream;
 };

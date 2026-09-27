@@ -55,6 +55,7 @@ public:
 #endif
     int phase = 0; // 0 load/init, 1 update, 2 draw, 3 migration, 4 UI update.
     bool has_ui_update{};
+    bool initialized{}; // Host completes init once, after any declared index preparation.
     float draw_alpha{1};
     ScValue state{ScValue::Object{}}, pending_state{ScValue::Object{}}, project{ScValue::Object{}};
     ScValue scratch, preload_images; // Declarative initial image names, consumed after init.
@@ -64,6 +65,8 @@ public:
     std::unique_ptr<ScRoomImages> images;
     std::uint64_t initial_images{}; // Host-owned preparation; never exposed as a Lua request.
     std::unique_ptr<ScStream> stream;
+    std::string preloaded_index_path; // Declared room index, supplied before init by the host.
+    ScValue preloaded_index;
 #endif
     ScValue::Object watches;
 #ifdef SC_HAS_ADVANCED_RENDER
@@ -90,11 +93,14 @@ private:
     // Declared last so callbacks can still access all accounting fields on close.
     std::unique_ptr<lua_State, LuaCloser> state_;
     friend bool sc_script_open(ScScript *, ScWorld *, const char *, const char *);
+    friend bool sc_script_load(ScScript *, ScWorld *, const char *, const char *);
     friend void sc_script_close(ScScript *) noexcept;
 };
 
 /* Initializes VM, validates returned scene table, runs optional init(). */
 bool sc_script_open(ScScript *script, ScWorld *world, const char *root, const char *entry);
+bool sc_script_load(ScScript *script, ScWorld *world, const char *root, const char *entry); // Stops before init.
+bool sc_script_initialize(ScScript *script); // Runs init and prepares eager images once.
 void sc_script_close(ScScript *script) noexcept; // Optional early release; destructor handles normal lifetime.
 bool sc_script_update(ScScript *script); /* invokes update(SC_DT), before sc_step */
 // Host UI input is borrowed for this call; fixed simulation input is restored on error too.

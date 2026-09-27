@@ -52,11 +52,17 @@ struct Runtime final {
     ScWorld world{};
     ScScript script{};
     bool prepared{};
+#ifdef SC_HAS_STREAMING
+    std::uint64_t index_ticket{};
+#endif
     Runtime()=default;
     Runtime(const Runtime&)=delete;
     Runtime& operator=(const Runtime&)=delete;
     Runtime(Runtime&&)=delete;
     Runtime& operator=(Runtime&&)=delete;
+#ifdef SC_HAS_STREAMING
+    ~Runtime() { if(index_ticket&&script.content_loader) script.content_loader->cancel(index_ticket); }
+#endif
 };
 using RuntimeOwner=std::unique_ptr<Runtime>;
 
@@ -210,14 +216,36 @@ Result<RuntimeOwner> open_runtime(const Options& options,const char* entry,const
 #ifdef SC_HAS_DEVTOOLS
     if(debugger) debugger->attach(runtime->script,frame);
 #endif
-    if (!sc_script_open(&runtime->script,&runtime->world,options.project.c_str(),entry))
+    if (!sc_script_load(&runtime->script,&runtime->world,options.project.c_str(),entry))
         return std::unexpected(Error{"scene",runtime->script.error});
+#ifdef SC_HAS_STREAMING
+    if(const auto* indexes=runtime->script.project.get("stream_indexes"))
+        if(const auto* index=indexes->get(runtime->script.entry)) {
+            runtime->script.preloaded_index_path=index->text();
+            try {
+                runtime->index_ticket=runtime->script.content_loader->submit_index(
+                    options.project+"/"+runtime->script.preloaded_index_path);
+            } catch(const std::exception& error) {
+                return std::unexpected(Error{"resources","stream index "+runtime->script.preloaded_index_path+": "+error.what()});
+            }
+        }
+    if(runtime->index_ticket) return runtime;
+#endif
+    if(!sc_script_initialize(&runtime->script)) return std::unexpected(Error{"scene",runtime->script.error});
     return runtime;
 }
 // Poll once per host frame. Only the candidate changes until every preparation succeeds.
 Result<bool> prepare_runtime(Runtime& runtime,const Options& options,bool graphics=false) {
     if(runtime.prepared) return true;
 #ifdef SC_HAS_STREAMING
+    if(runtime.index_ticket) {
+        auto result=runtime.script.content_loader->take_index(runtime.index_ticket);
+        if(!result) return false;
+        runtime.index_ticket=0;
+        if(!*result) return std::unexpected(Error{"resources","stream index "+runtime.script.preloaded_index_path+": "+result->error()});
+        runtime.script.preloaded_index=std::move(**result);
+        if(!sc_script_initialize(&runtime.script)) return std::unexpected(Error{"scene",runtime.script.error});
+    }
     if(runtime.script.initial_images) {
         ScResult<bool> ready;
 #ifdef SC_HAS_GRAPHICS

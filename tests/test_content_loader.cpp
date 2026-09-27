@@ -113,10 +113,36 @@ void budgets_and_cancellation() {
     ScContentLoader throwing({},[](const ScImageRequest&)->ScResult<ScImagePixels>{throw 7;});
     check(!await(throwing,throwing.submit_image({"throw",1,1})),"unknown callback exceptions become failed results");
 }
+void index_read_and_cancel() {
+    Fixture fixture; Gate gate;
+    const std::string content="{\"format\":3,\"chunk_size\":32,\"tilewidth\":8,\"tileheight\":8,\"layers\":[],\"chunks\":[]}";
+    const auto path=fixture.write("index.json",std::vector<unsigned char>(content.begin(),content.end()));
+    std::thread::id worker;
+    ScContentLoader loader({}, {}, [&](const std::string& file)->ScResult<ScValue> {
+        worker=std::this_thread::get_id(); gate.wait();
+        return sc_json_file(file,16u*1024u*1024u,32);
+    });
+    Release cleanup{gate};
+    const auto running=loader.submit_index(path); gate.await_entry();
+    const auto queued=loader.submit_index(path);
+    rejects([&]{(void)loader.submit_index(path);},"at most two index results may be resident");
+    loader.cancel(queued);
+    check(!loader.take_index(running),"index polling does not wait for disk");
+    rejects([&]{(void)loader.take_index(queued);},"cancelled index ticket expires");
+    gate.release();
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    std::optional<ScResult<ScValue>> result;
+    while(!(result=loader.take_index(running))) {
+        check(std::chrono::steady_clock::now()<deadline,"index completion timeout");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    check(result&&*result&&(**result).get("format")->number()==3&&worker!=std::this_thread::get_id(),
+        "index is parsed on the content worker and transferred to the caller");
+}
 }
 int main() {
     try {
-        pixels_and_errors(); budgets_and_cancellation();
+        pixels_and_errors(); budgets_and_cancellation(); index_read_and_cancel();
         std::cout<<"content loader: PNG pixels, errors, budgets and cancellation passed\n";
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

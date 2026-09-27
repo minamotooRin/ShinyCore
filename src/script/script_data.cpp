@@ -169,7 +169,7 @@ void sc_script_project_load(lua_State* L) {
         if(!std::holds_alternative<ScValue::Object>(project->data)) throw std::runtime_error("project must return a data table");
         for(const auto& [name,value]:std::get<ScValue::Object>(project->data)) {
             (void)value;
-            if(name!="id"&&name!="entry"&&name!="rooms"&&name!="resources"&&name!="data_version"&&name!="limits"&&name!="modules"&&name!="display") throw std::runtime_error("unknown project field: "+name);
+            if(name!="id"&&name!="entry"&&name!="rooms"&&name!="resources"&&name!="data_version"&&name!="limits"&&name!="modules"&&name!="display"&&name!="stream_indexes") throw std::runtime_error("unknown project field: "+name);
         }
         if(auto id=project->get("id")) {
             auto name=id->text();
@@ -186,6 +186,23 @@ void sc_script_project_load(lua_State* L) {
             const auto* entries=std::get_if<ScValue::Array>(&rooms->data);
             if(!entries||entries->size()>256) throw std::runtime_error("project.rooms requires an array of at most 256 paths");
             for(const auto& entry:*entries) entry_path(entry);
+        }
+        if(auto indexes=project->get("stream_indexes")) {
+#ifndef SC_HAS_STREAMING
+            (void)indexes;
+            throw std::runtime_error("project.stream_indexes requires the streaming build module");
+#else
+            const auto* entries=std::get_if<ScValue::Object>(&indexes->data);
+            if(!entries||entries->size()>256) throw std::runtime_error("project.stream_indexes requires an object of at most 256 room paths");
+            for(const auto& [room,index]:*entries) {
+                if(room.size()>=SC_PATH_MAX||!sc_script_validate_path(room.c_str())||!room.ends_with(".lua"))
+                    throw std::runtime_error("project.stream_indexes room key requires a relative .lua path: "+room);
+                const auto path=index.text();
+                if(path.size()>=SC_PATH_MAX||path.find('\0')!=std::string::npos||
+                   !sc_script_validate_path(path.c_str())||!path.ends_with(".json"))
+                    throw std::runtime_error("project.stream_indexes."+room+" requires a relative .json path");
+            }
+#endif
         }
         if(auto modules=project->get("modules")) {
             const auto* required=std::get_if<ScValue::Array>(&modules->data);

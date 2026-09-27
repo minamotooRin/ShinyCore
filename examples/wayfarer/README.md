@@ -57,11 +57,13 @@ current map stays active until state reads, world/image preparation, saving and 
 gameplay pauses during this transaction, including initial loading. Failures show
 stage-specific retry and return-to-menu controls, including image decode/upload errors. Returning keeps the current scene
 and does not undo a disk commit. Room ui_update services recovery while fixed updates
-wait. Ordinary menus wait for world preparation; normal loading preserves held
+wait. The room index is declared in `project.stream_indexes` and parsed on the content
+worker before `init`; its metadata is ready when `shiny.stream_world` opens it.
+Ordinary menus wait for world preparation; normal loading preserves held
 movement for resumption, while the failure panel consumes gameplay actions. Forest tiles and herb sprites use stream=true; the world collects their image dependencies
 and commits prepared textures with terrain/objects. Initial player/healer/courier sprites
 remain eager resources. The stream watch includes pinned image count. Title-menu loading
-and map-index opening remain synchronous. For a bounded visual fault check, run
+remains synchronous. For a bounded visual fault check, run
 `python tests/native_wayfarer_save.py build/full/shiny.exe --output build/wayfarer-save-check`.
 
 In the source checkout, map content is assets/forest.json, assets/tiles.png and assets.build.json.
