@@ -5,7 +5,7 @@ chime.wav are unchanged original Workshop assets; wisp.png is from Lantern.
 These assets use the repository's MIT license.
 
 theme.ogg is an original 20-second stereo forest melody authored for Wayfarer.
-Rebuild it with `python tools/build_wayfarer_music.py examples/wayfarer/assets/theme.ogg`;
+Rebuild it with `python tools/build_sample_music.py wayfarer`;
 the offline generator uses Python's standard library and ffmpeg's Vorbis encoder.
 The shipped Ogg file needs neither tool at runtime and uses the repository MIT license.
 

@@ -37,9 +37,10 @@ combat indicators; it consumes no random numbers and keeps no saved state.
 `sound.lua` provides bounded per-cue cooldowns and stereo position, using twelve
 sound voices. Shooting/hits have lower priority than injury and outcome cues;
 voice rejection is cosmetic. Wave/upgrade/outcome cues use the UI bus, combat uses
-SFX, and the original theme uses persistent music through result loads/restarts.
+SFX, and its original 15-second theme uses persistent music through result loads/restarts.
 Nine original short WAVs are rebuildable with `tools/build_barrage_audio.py`; they
-add about 142 KiB. No audio state is saved or fed into challenge randomness.
+add about 142 KiB. Rebuild the theme with `python tools/build_sample_music.py barrage`.
+No audio state is saved or fed into challenge randomness.
 `challenge.lua` holds plain progression data and the explicit
 challenge seed (260926). Restarting reproduces its spawn/upgrade random sequence;
 input and upgrade choices determine the result. Particle randomness is separate.

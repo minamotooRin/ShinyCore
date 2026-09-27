@@ -54,6 +54,14 @@ the original 20-second loop also advances across its end in a headless run.
 Hidden native title/world captures were inspected. This verifies logical
 continuity, not audible device behavior or final music quality.
 
+Crossing and Barrage now use distinct, reproducible 16- and 15-second original
+themes in place of their 0.3-second placeholder loops. All three sample themes
+rebuild byte-for-byte in the current offline encoder environment and cross their
+loop boundaries with one voice in the real headless host. Crossing/Barrage
+packages include the new tracks; hidden native scene captures were inspected.
+See [sample music verification](verification-sample-music.md). Real speaker
+playback and subjective mixing remain unaccepted.
+
 The host backend owns `ScAudioDevice` in `src/audio/device.cpp`. It owns the device,
 decoded sound cache, playback aliases, music streams and transient synthesized tones.
 Candidate voices are prepared without playing; all GPU and audio preparations must

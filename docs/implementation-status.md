@@ -10,6 +10,13 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+The three samples now use distinct, reproducible 20/16/15-second original music
+loops. A shared offline builder reproduces each bundled Ogg byte-for-byte in the
+current encoder environment; focused host runs cross all three loop boundaries
+with one active voice. Crossing/Barrage lightweight packages contain the tracks,
+and their hidden native captures were inspected. Speaker playback and final
+subjective quality remain open; see [sample music](verification-sample-music.md).
+
 Prefab merge now replaces any numerically keyed table as a whole, including sparse
 arrays cleared with `{}`; string-keyed maps still merge recursively. The failing
 real-host case was reproduced before the fix. Focused prefab and streamed-object

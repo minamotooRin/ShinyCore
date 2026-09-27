@@ -44,7 +44,8 @@ to the title. Escape cannot bypass the title or ending.
 The checkpoint reconstructs the current room from explicit campaign data: collected
 object persistent IDs, gates/switch sequence, player/crate positions, motion phase and
 death counts. Native handles are never persisted. Save data version is 2.
-The original Workshop keeper, chime and music are bundled locally; see assets/README.md.
+The Workshop keeper/chime and an original 16-second theme are bundled locally; see
+assets/README.md. Rebuild the theme with `python tools/build_sample_music.py crossing`.
 The theme is acquired with `sc.audio.music` and keeps one application-owned voice
 through all rooms and in-process loads. No voice handle is stored in campaign saves.
 Fresh launches start playback anew; audible device continuity still needs acceptance.

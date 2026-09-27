@@ -11,7 +11,7 @@ completed quest as unfinished gameplay.
 The title and world acquire one application-owned theme voice. Returning to the
 title or beginning a new journey keeps its playback position; sound effects remain
 room-local. The theme is an original 20-second loop built offline from
-`tools/build_wayfarer_music.py`; running or packaging the game does not need ffmpeg.
+`tools/build_sample_music.py`; running or packaging the game does not need ffmpeg.
 
 WASD moves, E talks/gathers or clears the stone at (328,128), I opens the journal,
 F6 saves, and Escape opens pause/settings. A controller uses the left stick or D-pad

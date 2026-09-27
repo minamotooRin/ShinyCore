@@ -1,8 +1,10 @@
 # Asset provenance
 
-keeper.png, chime.wav and theme.ogg are unchanged copies of the original ShinyCore
-Workshop assets in examples/workshop/assets. They are covered by the repository's
-MIT license. Room geometry, palettes and level data are authored in levels.lua/game.lua.
+keeper.png and chime.wav are unchanged copies of the original ShinyCore Workshop
+assets in examples/workshop/assets. The original 16-second stereo theme.ogg is
+built with `python tools/build_sample_music.py crossing`. They are covered by the
+repository MIT license. Room geometry, palettes and level data are authored in
+levels.lua/game.lua.
 There are no runtime downloads or external asset paths.
 
 The five short cues `jump/land/switch/error/rescue.wav` are original mono PCM

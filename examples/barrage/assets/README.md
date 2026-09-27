@@ -1,8 +1,9 @@
 # Asset provenance
 
-keeper.png, chime.wav and theme.ogg are unchanged copies of the original ShinyCore
-Workshop assets; wisp.png is from Lantern. All are covered by this repository's
-MIT license. The project uses local files and does not download runtime assets.
+keeper.png and chime.wav are unchanged copies of the original ShinyCore Workshop
+assets; wisp.png is from Lantern. The original 15-second stereo theme.ogg is built
+with `python tools/build_sample_music.py barrage`. All use the repository MIT
+license. The project uses local files and does not download runtime assets.
 
 `arena-v1.png` is a new background generated on 2026-09-27 with the built-in
 image generation tool, without reference images. The exact request is saved in
@@ -27,4 +28,4 @@ break, dash, hurt, heal, wave, win and lose. Rebuild from the repository root wi
 stdlib generator uses fixed chirps, local deterministic noise and note envelopes;
 it never reads gameplay RNG. The nine mono 22,050 Hz / 16-bit PCM files total
 145,708 bytes and are covered by the repository MIT license. Runtime needs only
-the local WAV files, not Python. Original chime/theme assets remain unchanged.
+the local WAV files, not Python. The chime remains unchanged.
