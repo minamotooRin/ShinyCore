@@ -15,11 +15,13 @@ python tools/package.py build/shiny.exe build/packages/Game --project my-game --
 时保留保守复制。新建项目和三款完整样例已提供清单。源项目与包内项目分别通过
 `--check-all`，后者失败时移除本次未完成的输出，不留下看似成功的包。
 
-最新 Windows 开发包为 `build/sample-packages-portable-20260927/`：Crossing/Barrage
-使用轻量引擎，Wayfarer 使用完整引擎。三包已从含中文和空格的外部目录，经自带
-启动器、系统 PATH 和隐藏静音短回放验证，并查看原生截图。Windows 进程清单修复
-了绝对 Unicode 路径进入命令行时的字符丢失；目标 Windows 10 1903+。详见
-[可移动包记录与大小](verification-portable-packages.md)。这不是全平台/干净系统验收。
+当前 Windows 开发包为 `build/sample-packages-scenarios-20260927/`：Crossing/Barrage
+使用轻量引擎，Wayfarer 使用完整引擎。本轮重新打包纳入三份
+完整流程场景清单，源项目和包内 `--check-all`、运行库审计通过；从中性工作目录
+运行包内 180 帧场景断言，三款通过。报告与 ZIP 均含完整流程清单。旧版移动目录的
+Unicode/原生截图证据见[可移动包记录与大小](verification-portable-packages.md)，
+不自动证明本轮包已在源码外移动或执行完整流程；这些仍待验收。
+这不是全平台/干净系统验收。
 
 ## 内容清单
 
