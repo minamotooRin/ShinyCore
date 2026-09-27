@@ -1,0 +1,11 @@
+{
+  "frames": 3243,
+  "replay": "walkthrough.jsonl",
+  "assertions": [
+    {"path": "watches.quest.mode", "equals": "end"},
+    {"path": "watches.quest.complete", "equals": true},
+    {"path": "state.herbs", "equals": 24},
+    {"path": "state.route_cleared", "equals": true},
+    {"path": "state.quest_stage", "equals": "complete"}
+  ]
+}

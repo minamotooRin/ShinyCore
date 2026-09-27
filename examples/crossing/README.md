@@ -63,6 +63,7 @@ They use visual randomness and are never saved; rescue does not fake a landing b
 .\build\full\shiny.exe examples/crossing --headless --frames 2876 --replay examples/crossing/gamepad.jsonl
 python tests/crossing_analog.py build/full/shiny.exe
 python tests/crossing_integration.py build/full/shiny.exe
+python tools/scenario.py build/full/shiny.exe examples/crossing/walkthrough.scenario.json
 ```
 
 The checkpoint replay walks to the first light and saves. The walkthrough uses only

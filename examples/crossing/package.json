@@ -25,6 +25,7 @@
     "assets/switch.wav",
     "assets/README.md",
     "assets/theme.ogg",
-    "scenario.json"
+    "scenario.json",
+    "walkthrough.scenario.json"
   ]
 }

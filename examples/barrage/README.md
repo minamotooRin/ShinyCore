@@ -67,6 +67,7 @@ The seal is passable decoration, not a separate damageable objective.
 .\build\full\shiny.exe examples/barrage --headless --frames 18138 --replay examples/barrage/challenge.jsonl
 .\build\full\shiny.exe examples/barrage --headless --frames 18138 --replay examples/barrage/gamepad.jsonl
 python tests/barrage_integration.py build/full/shiny.exe
+python tools/scenario.py build/full/shiny.exe examples/barrage/walkthrough.scenario.json
 python tools/capture_samples.py build/full/shiny.exe --output build/barrage-endings --case barrage-ending --case barrage-defeat
 ```
 

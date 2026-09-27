@@ -24,6 +24,7 @@
     "assets/theme.ogg",
     "assets/wisp.png",
     "scenario.json",
+    "walkthrough.scenario.json",
     "failure.jsonl",
     "assets/audio/shot.wav",
     "assets/audio/hit.wav",

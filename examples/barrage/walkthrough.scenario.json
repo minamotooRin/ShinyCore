@@ -1,0 +1,15 @@
+{
+  "frames": 18138,
+  "replay": "challenge.jsonl",
+  "assertions": [
+    {"path": "watches.game.mode", "equals": "end"},
+    {"path": "watches.game.won", "equals": true},
+    {"path": "watches.game.wave", "equals": 6},
+    {"path": "watches.game.elapsed", "min": 300},
+    {"path": "watches.game.upgrades", "length": 5},
+    {"path": "watches.game.kills", "min": 300},
+    {"path": "watches.game.hits", "min": 400},
+    {"path": "state.result.won", "equals": true},
+    {"path": "state.result.seed", "equals": 260926}
+  ]
+}

@@ -81,6 +81,7 @@ name glyphs; it is not linked into the engine.
 .\build\full\shiny.exe examples/wayfarer --headless --frames 3243 --replay examples/wayfarer/walkthrough.jsonl --save-dir build/wayfarer-walkthrough
 .\build\full\shiny.exe examples/wayfarer --headless --frames 3243 --replay examples/wayfarer/gamepad.jsonl --save-dir build/wayfarer-gamepad
 python tests/wayfarer_integration.py build/full/shiny.exe
+python tools/scenario.py build/full/shiny.exe examples/wayfarer/walkthrough.scenario.json
 python tools/capture_samples.py build/full/shiny.exe --output build/wayfarer-gather-captures --case wayfarer-gather-ready --case wayfarer-gathered
 ```
 

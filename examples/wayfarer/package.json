@@ -23,6 +23,7 @@
     "assets/tiles.png",
     "assets/wisp.png",
     "scenario.json",
+    "walkthrough.scenario.json",
     "gamepad.jsonl",
     "controller-journal.jsonl",
     "assets/landmarks-v1.png"

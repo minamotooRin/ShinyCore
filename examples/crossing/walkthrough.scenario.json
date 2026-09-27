@@ -1,0 +1,14 @@
+{
+  "frames": 2876,
+  "replay": "walkthrough.jsonl",
+  "assertions": [
+    {"path": "watches.crossing.mode", "equals": "end"},
+    {"path": "state.campaign.complete", "equals": true},
+    {"path": "state.campaign.room", "equals": 3},
+    {"path": "state.campaign.stages", "length": 3},
+    {"path": "state.campaign.stages.2.sequence", "equals": 3},
+    {"path": "state.campaign.stages.0.lights", "length": 5},
+    {"path": "state.campaign.stages.1.lights", "length": 5},
+    {"path": "state.campaign.stages.2.lights", "length": 5}
+  ]
+}
