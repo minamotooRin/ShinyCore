@@ -1,0 +1,10 @@
+{
+  "frames": 4,
+  "replay": "navigation.jsonl",
+  "assertions": [
+    {"path": "watches.focus", "frame": 1, "equals": "right"},
+    {"path": "watches.selected", "frame": 1, "equals": "center"},
+    {"path": "watches.selected", "frame": 3, "equals": "right"},
+    {"path": "watches.focus", "equals": "right"}
+  ]
+}

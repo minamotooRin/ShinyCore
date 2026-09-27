@@ -5,6 +5,19 @@
     {
       "path": "frames",
       "equals": 180
+    },
+    {
+      "path": "watches.game.mode",
+      "frame": 1,
+      "equals": "game"
+    },
+    {
+      "path": "watches.game.shots",
+      "min": 1
+    },
+    {
+      "path": "watches.game.hits",
+      "min": 1
     }
   ]
 }

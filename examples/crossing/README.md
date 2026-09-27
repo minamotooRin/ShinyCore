@@ -53,6 +53,8 @@ Five original short WAV cues now mark jump, landing, switch, failed interaction 
 rescue. The first room contact is silent; landing plays only after actual airtime.
 These cues are cosmetic and do not advance campaign randomness. Regenerate them with
 `python tools/build_crossing_audio.py examples/crossing/assets`.
+Takeoff and genuine landing also emit short-lived dust particles at the player's feet.
+They use visual randomness and are never saved; rescue does not fake a landing burst.
 
 ```powershell
 .\build\full\shiny.exe examples/crossing --check-all

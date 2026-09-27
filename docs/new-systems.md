@@ -205,7 +205,14 @@ Server clock estimation and the four-player game protocol remain game-level work
 `--trace` writes explicit snapshots only when requested. `sc.debug.watch` exposes
 up to 64 bounded named values. `tools/compare_traces.py` reports the first differing
 frame/path with a float tolerance; it skips only top-level diagnostic hashes and
-engine version. `tools/scenario.py` checks authored snapshot assertions.
+engine version. `tools/scenario.py` runs a replay in an isolated save directory and
+checks final snapshots by default, an exact one-based `frame`, or `any_frame` within
+an inclusive `start`/`end` window. Paths such as `watches.quest.stage`,
+`entities.0.x`, and `watches.focus` address gameplay, position, event, or UI values
+explicitly exposed in snapshots. Assertions accept `equals`, `near` with absolute
+`tolerance`, `min`, `max`, `contains`, and `length`; failures name the frame and path.
+For example, `{"path":"watches.focus","frame":3,"equals":"right"}`.
+See the three game `scenario.json` files and `examples/ui_panels/scenario.json`.
 `--profile` separates CPU phases from presentation/pacing, records asynchronous
 GPU samples, pool occupancy and process resident memory. `tools/profile_report.py`
 checks measured intervals, percentiles and explicit limits; see [profiling](profiling.md)

@@ -5,6 +5,19 @@
     {
       "path": "frames",
       "equals": 180
+    },
+    {
+      "path": "watches.quest.mode",
+      "any_frame": {"start": 1, "end": 180},
+      "equals": "game"
+    },
+    {
+      "path": "watches.quest.stage",
+      "equals": "meet"
+    },
+    {
+      "path": "watches.stream.chunks",
+      "min": 1
     }
   ]
 }

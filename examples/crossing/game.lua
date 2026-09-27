@@ -31,7 +31,7 @@ function Game.room(index)
     local level=levels[index]
     local c,stage,shell,player,gate,platform,crate,lights,controls,notice,respawn
     local notice_time=0
-    local actions,animation,plate,airborne,ground_seen
+    local actions,animation,plate,airborne,ground_seen,dust
     local function notify(text)
         if #text>120 then
             local last=0
@@ -83,6 +83,9 @@ function Game.room(index)
         title="ShinyCore / Crossing / "..level.name,width=384,height=216,gravity=550,ambient=1,map=terrain(level),
         init=function()
             actions=Controls.new(); animation=View.player(); airborne=false; ground_seen=false
+            dust=sc.particles.define{speed_min=12,speed_max=34,life_min=.24,life_max=.42,
+                angle_min=-math.pi,angle_max=0,gravity=.6,
+                curve={{time=0,size=3,color=0xE5DFC6D8},{time=1,size=0,color=0xE5DFC600}}}
             c=Campaign.new(sc.state.get("campaign")); c.room=index; stage=c.stages[index]
             player=sc.spawn{persistent_id="traveler",tag="player",x=stage.position.x,y=stage.position.y,w=10,h=16,
                 sprite="keeper",frame_w=12,frame_h=18,layer=2,body={type="dynamic",shape="capsule",friction=0,fixed_rotation=true}}
@@ -141,12 +144,18 @@ function Game.room(index)
             local in_water=level.gap and p.x+p.w>level.gap[1] and p.x<level.gap[2] and p.y>192
             if in_water or p.y>244 or Input.pressed(actions,"rescue") then reset_player(); publish(); return end
             if p.grounded then
-                if airborne then sound("land") end
+                if airborne then
+                    sound("land")
+                    sc.particles.burst(dust,p.x+p.w*.5,p.y+p.h-2,10)
+                end
                 airborne=false;ground_seen=true
             elseif ground_seen and math.abs(p.vy)>15 then airborne=true end
             local direction=Input.axis(actions,"left","right")
             local patch={vx=respawn>0 and 0 or direction*90}
-            if p.grounded and Input.pressed(actions,"jump") then patch.vy=-240; sound("jump") end
+            if p.grounded and Input.pressed(actions,"jump") then
+                patch.vy=-240; sound("jump")
+                sc.particles.burst(dust,p.x+p.w*.5,p.y+p.h-2,7)
+            end
             patch.frame,patch.flip_x=View.animate(animation,p,patch.vx/90,dt,patch.vy~=nil)
             sc.set(player,patch)
             if platform then

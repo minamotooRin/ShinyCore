@@ -5,6 +5,19 @@
     {
       "path": "frames",
       "equals": 180
+    },
+    {
+      "path": "watches.crossing.mode",
+      "frame": 1,
+      "equals": "game"
+    },
+    {
+      "path": "watches.crossing.room",
+      "equals": 1
+    },
+    {
+      "path": "watches.crossing.objective",
+      "contains": "two lights"
     }
   ]
 }
