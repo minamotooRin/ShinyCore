@@ -111,6 +111,30 @@ REPLAY = '''{"version":3}
 {"frame":150,"keys":[],"gamepad":{"connected":false}}
 '''
 
+PROJECT_GUIDE = '''# 用 Agent 开发本项目
+
+先读根目录 `AGENTS.md`、`project.lua` 和 `docs/api.lua`。`shiny --api` 显示当前
+可执行文件真正提供的模块；不要假定开发机上有引擎源码或额外工具。
+
+1. 在 `project.lua` 声明房间、资源与容量；房间初始状态应能从空 `sc.state` 创建。
+2. 游戏规则留在普通 Lua 中；`require("game.controller")` 加载本项目模块，
+   `require("shiny.input")` 等加载 `lib/shiny/` 内固定版本的标准模块。
+3. 从项目目录运行 `shiny --check-all .`，检查全部声明房间和初始绘制。
+4. 运行 `shiny --headless . --frames 180 --replay smoke.jsonl`，检查玩法快照和
+   显式状态。回放是版本 3 JSON Lines 设备快照。
+5. 改动画面后，用图形构建的引擎以 `--capture-hidden --mute --capture` 执行有界
+   截图并实际查看 PNG；无窗口运行不能证明像素、声音或实体设备行为。
+
+`sc.get(id)` 返回副本，修改实体请用 `sc.set(id, patch)`。实体和声音句柄只在
+当前房间有效；跨房间和存档只保存显式数据及对象持久 ID。存档测试使用隔离目录，
+避免覆盖真实用户记录。`draw` 只提交绘制命令，不在其中首次加载模块或修改玩法。
+
+输入读取 `sc.input` 的固定帧快照；命名和可重绑定动作可用 `shiny.input`。
+键名与函数签名以 `docs/api.lua` 为准，回放格式见 `docs/input.md`。
+`--debug-keys` 才启用宿主调试快捷键。引擎报错应保留字段路径与房间上下文，
+不要吞掉错误；检查失败后修复最小触发条件再重跑相关命令。
+'''
+
 
 def command(arguments: list[str]) -> str:
     return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
@@ -118,8 +142,7 @@ def command(arguments: list[str]) -> str:
 
 def create_project(destination: Path) -> list[str]:
     api = ROOT / "docs" / "api.lua"
-    guide = ROOT / "docs" / "llm-guide.md"
-    if not api.is_file() or not guide.is_file():
+    if not api.is_file():
         raise OSError("engine API documentation is missing; run this tool from a complete ShinyCore checkout")
     if os.path.lexists(destination):
         raise FileExistsError(f"destination already exists; refusing to overwrite: {destination}")
@@ -133,17 +156,17 @@ def create_project(destination: Path) -> list[str]:
     portable, checks = commands("shiny"), commands(binary)
     agents = f'''# Working on this ShinyCore game
 
-Read the authoritative Lua API at `{api}` and the workflow at `{guide}`.
+Read the authoritative Lua API at `docs/api.lua` and the workflow at `docs/llm-guide.md`.
 
 All keyboard keys belong to the game by default; close the window to exit.
 Use `--debug-keys` explicitly for F1/F2/F3/F5/P/O/Escape host controls.
 Custom controls use `sc.input.key_down/pressed/released` and `sc.input.gamepad_*`;
-keep binding names in Lua tables. Device replay format is documented at `{ROOT / "docs" / "input.md"}`.
+keep rebindable actions in Lua tables. Device replay format is documented at `docs/input.md`.
 The `.luarc.json` file links that same API for Lua Language Server completion.
 
 - Keep game rules in Lua and assets in this project. Each scene returns a table.
 - Keep package.json script/resource roots current; literal require dependencies are collected automatically.
-- shiny-sdk.json pins the local SDK and engine version. Record intentional SDK edits with tools/sdk.py and a new local version before packaging.
+- shiny-sdk.json pins the local SDK and engine version; keep it in sync if the bundled SDK is intentionally changed.
 - Use only documented `sc` APIs. Unknown configuration fields are errors.
 - `sc.get()` returns a copy; apply changes with `sc.set(id, patch)`.
 - Update simulation state only in `init()` or `update(dt)`. `dt` is always 1/60.
@@ -177,7 +200,7 @@ From this directory, after building ShinyCore:
 
 `smoke.jsonl` uses version-3 input snapshots to move right, jump, stop, then move left.
 Headless mode prints a JSON snapshot and exits nonzero for script errors.
-The API reference is `{api}`; see `AGENTS.md` for the LLM workflow.
+The API reference is `docs/api.lua`; see `AGENTS.md` for the LLM workflow.
 Keep `shiny` on PATH or replace that command word with your built executable path.
 The project and its local Lua modules move together without source-checkout paths.
 '''
@@ -192,14 +215,12 @@ The project and its local Lua modules move together without source-checkout path
     try:
         (destination / "docs").mkdir()
         shutil.copy2(api, destination / "docs/api.lua")
-        shutil.copy2(guide, destination / "docs/llm-guide.md")
+        (destination / "docs/llm-guide.md").write_text(PROJECT_GUIDE, encoding="utf-8")
         shutil.copy2(ROOT / "docs/input.md", destination / "docs/input.md")
         shutil.copytree(ROOT / "lua/shiny", destination / "lib/shiny", ignore=shutil.ignore_patterns("version.json"))
         shutil.copy2(ROOT / "LICENSE", destination / "lib/shiny/LICENSE.txt")
         sdk.write(destination, sdk.read(ROOT / "lua/shiny/version.json"))
         # All SDK references are project-relative; only the separately built executable has a host path.
-        agents = agents.replace(str(api), "docs/api.lua").replace(str(guide), "docs/llm-guide.md").replace(str(ROOT / "docs/input.md"), "docs/input.md")
-        readme = readme.replace(str(api), "docs/api.lua")
         (destination / "game").mkdir()
         (destination / "rooms").mkdir()
         (destination / "game/controller.lua").write_text(CONTROLLER, encoding="utf-8")
