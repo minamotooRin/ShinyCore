@@ -2,6 +2,10 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **UI 长文本越界拖选已改为有界滚动：** 指针捕获沿实际裁剪边缘定位，
+  多行纵向/单行横向按 UI 时间推进；释放和 `dt=0` 不增加越界滚动步长。定向回放
+  与隐藏原生截图已检查，五个使用 `shiny.ui` 的项目 SDK 更新为 dev.60。
+  见 verification-ui-text-drag.md。实体鼠标交互仍待验收，不重做字体问题。
 - **原生共享流场现在跟踪格子像素尺寸：** 宽高和通行版本不变、仅 tile_size
   变化时旧场也报告 stale，refresh 按新尺寸重新计算身体余量。定向
   `test_systems --navigation` 与 Lua 导航边界检查通过；见 navigation-refresh.md。Lua 替换区域

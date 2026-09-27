@@ -1295,6 +1295,54 @@ end}''')
             event(5,mouse=dict(x=500,y=40,inside=False,buttons=['left']))])
         self.invoke('--replay',path,'--frames',6)
 
+    def test_text_drag_outside_scrolls_in_bounded_steps(self):
+        shutil.copytree(ROOT/'lua/shiny',self.path/'lib/shiny')
+        self.source('''local UI=require('shiny.ui')
+local Edit=require('shiny.textedit')
+local value={}; for i=0,99 do value[#value+1]=string.format('row%03d',i) end
+value=table.concat(value,'\\n')
+local node={id='entry',kind='input',multiline=true,w=180,h=54,value=value}
+local ui=UI.new({id='root',padding=0,children={node}})
+local first,initial
+return {update=function(dt)
+    if sc.tick()==17 then UI.set(ui,'entry',{h=1600}) end
+    UI.update(ui,dt,384,216)
+    local e=node.editor;local tick=sc.tick()
+    if tick==1 then
+        first=e.cursor;initial=node.text_scroll_y
+        assert(first<60 and initial<60)
+    elseif tick==15 then
+        assert(e.cursor>first and e.cursor<#value+1 and node.text_scroll_y>initial)
+    elseif tick==16 then
+        assert(e.cursor<#value+1 and #Edit.selected(e)>0)
+    elseif tick==17 then
+        assert(node.text_scroll_y==0)
+    end
+    assert(e.value==value and #e.undo==0)
+end}''')
+        rows=[event(mouse=dict(x=14,y=12,inside=True,buttons=['left']))]
+        rows.extend(event(i,mouse=dict(x=14,y=1000,inside=False,buttons=['left'])) for i in range(1,16))
+        rows.append(event(16,mouse=dict(x=14,y=1000,inside=False,buttons=[])))
+        rows.append(event(17))
+        self.invoke('--replay',self.replay(rows),'--frames',18)
+
+        self.source('''local UI=require('shiny.ui')
+local Edit=require('shiny.textedit')
+local value=string.rep('A',100)
+local node={id='entry',kind='input',w=90,h=28,value=value}
+local ui=UI.new({id='root',padding=0,children={node}})
+local first
+return {update=function(dt)
+    UI.update(ui,dt,384,216)
+    local e=node.editor;local tick=sc.tick()
+    if tick==1 then first=e.cursor;assert(first<30 and node.text_scroll_x<100) end
+    if tick==12 then assert(e.cursor>first and e.cursor<#value+1 and node.text_scroll_x>0) end
+    assert(e.value==value and #e.undo==0)
+end}''')
+        rows=[event(mouse=dict(x=14,y=12,inside=True,buttons=['left']))]
+        rows.extend(event(i,mouse=dict(x=1000,y=12,inside=False,buttons=['left'])) for i in range(1,13))
+        self.invoke('--replay',self.replay(rows),'--frames',13)
+
     def test_text_drag_selection_graphemes_and_release(self):
         shutil.copytree(ROOT/'lua/shiny',self.path/'lib/shiny')
         self.source('''local UI=require('shiny.ui')

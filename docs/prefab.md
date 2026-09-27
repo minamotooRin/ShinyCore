@@ -1,7 +1,8 @@
 # 对象模板
 
 `shiny.prefab` 用普通 Lua 表组合实体默认值、命名子对象和游戏组件数据。
-项目携带模块副本；使用本模块的项目当前分发为 SDK `1.0.0-dev.59`。
+项目携带模块副本；本页数组覆盖修复最早随 SDK `1.0.0-dev.59` 分发，
+具体项目版本以其 `shiny-sdk.json` 为准。
 
 ```lua
 local Prefab = require("shiny.prefab")

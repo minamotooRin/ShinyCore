@@ -491,6 +491,14 @@ local function visible_rect(ui,node)
     end
     if right>x and bottom>y then return {x=x,y=y,w=right-x,h=bottom-y} end
 end
+local function drag_axis(scroll,point,first,last,maximum,size,dt)
+    local overflow=point<first and point-first or point>last and point-last or 0
+    if overflow~=0 and dt>0 then
+        local speed=math.min(size*12,size*4+math.abs(overflow)*4)
+        scroll=math.max(0,math.min(maximum,scroll+(overflow<0 and -1 or 1)*speed*math.min(dt,.25)))
+    end
+    return scroll,math.max(first,math.min(last,point))
+end
 local function update_tooltip(ui,dt,modal,x,y,viewport,bar_pointer,wheel_pointer,was_visible)
     local hint=ui.hint
     local pressed=sc.input.mouse_pressed("left") or sc.input.mouse_pressed("right") or sc.input.mouse_pressed("middle")
@@ -840,7 +848,25 @@ function UI.update(ui,dt,width,height,actions)
             pointer_press or pointer_drag or pointer_release then focused.text_goal_x=nil end
         focused.text_goal_layout=before
         if not composing and (pointer_press or pointer_drag or pointer_release) then
-            e.cursor=locate(x-focused.rect.x-6+(focused.text_scroll_x or 0),y-focused.rect.y-4+(focused.text_scroll_y or 0))
+            local px,py=x,y
+            if pointer_drag or pointer_release then
+                local visible=visible_rect(ui,focused)
+                if visible then
+                    local step=pointer_drag and dt or 0
+                    local left=math.min(visible.x+6,visible.x+visible.w-1)
+                    local top=math.min(visible.y+4,visible.y+visible.h-1)
+                    if focused.multiline then
+                        focused.text_scroll_y,py=drag_axis(focused.text_scroll_y or 0,y,top,
+                            visible.y+visible.h-1,math.max(0,before.height-focused.rect.h+8),before.size,step)
+                        px=math.max(visible.x,math.min(visible.x+visible.w-1,x))
+                    else
+                        focused.text_scroll_x,px=drag_axis(focused.text_scroll_x or 0,x,left,
+                            visible.x+visible.w-1,math.max(0,before.positions[#before.positions].x-focused.rect.w+20),before.size,step)
+                        py=math.max(visible.y,math.min(visible.y+visible.h-1,y))
+                    end
+                end
+            end
+            e.cursor=locate(px-focused.rect.x-6+(focused.text_scroll_x or 0),py-focused.rect.y-4+(focused.text_scroll_y or 0))
             if pointer_press and not shift then e.anchor=e.cursor end
         end
         if not composing and not spatial then
@@ -903,8 +929,16 @@ function UI.update(ui,dt,width,height,actions)
     if text_focus and text_focus.kind=="input" and text_focus.editor then
         local updated=text_focus.text_layout
         local position=caret_position(updated,updated.preedit_cursor or text_focus.editor.cursor)
-        text_focus.text_scroll_x=math.max(0,position.x-text_focus.rect.w+20)
-        text_focus.text_scroll_y=math.max(0,position.y-text_focus.rect.h+updated.size+8)
+        local visible_w=math.max(1,text_focus.rect.w-14)
+        local visible_h=math.max(1,text_focus.rect.h-8)
+        local sx,sy=text_focus.text_scroll_x or 0,text_focus.text_scroll_y or 0
+        if position.x<sx then sx=position.x
+        elseif position.x+1>sx+visible_w then sx=position.x+1-visible_w end
+        if position.y<sy then sy=position.y
+        elseif position.y+updated.size>sy+visible_h then sy=position.y+updated.size-visible_h end
+        local content_w=text_focus.multiline and updated.width or updated.positions[#updated.positions].x
+        text_focus.text_scroll_x=math.max(0,math.min(sx,content_w-visible_w+1))
+        text_focus.text_scroll_y=math.max(0,math.min(sy,updated.height-visible_h))
         sc.input.focus_text(text_focus.rect.x+6+position.x-text_focus.text_scroll_x,
             text_focus.rect.y+4+position.y-text_focus.text_scroll_y+updated.size)
     end

@@ -10,6 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Dragging a selection beyond a long input widget now clamps hit testing to the
+visible viewport and advances multiline vertical or single-line horizontal
+scroll in bounded UI-time steps. Release and zero-delta updates add no timed
+overflow step; ordinary caret visibility adjustment remains active.
+Focused replays and an inspected hidden native capture pass; five UI-using
+project-local SDKs and the scaffold source are pinned to dev.60. Physical mouse
+behavior remains unaccepted; see [drag verification](verification-ui-text-drag.md).
+
 Native shared flow fields now treat a grid cell-size change as stale even when
 dimensions and passability revision are unchanged. Refresh recomputes body
 clearance using the new pixel size. The full build, focused navigation systems
