@@ -48,14 +48,14 @@ with tempfile.TemporaryDirectory(prefix='shiny-barrage-') as directory:
     assert abs(position['x']-(188+98*.5/60*3))<.0001
     assert held['watches']['game']['dashes']==0 and held['watches']['game']['mode']=='game'
     # LAST RESULT restores only the authored score screen, then NEW CHALLENGE resets gameplay.
-    load=[event(0,'tab'),event(1),event(2,'tab'),event(3),event(4,'enter'),event(5)]
-    restored=run(project,'--frames','6','--replay',write(temp/'load-result.jsonl',load),'--save-dir',str(savedir))
+    load=[event(0),event(1,'tab'),event(2),event(3,'tab'),event(4),event(5,'enter'),event(6)]
+    restored=run(project,'--frames','7','--replay',write(temp/'load-result.jsonl',load),'--save-dir',str(savedir))
     assert restored['state']['result']==result and restored['state']['show_result']
     watch=restored['watches']['game']
     assert watch['mode']=='end' and watch['won'] and watch['score']==game['score'] and watch['wave']==6
     assert watch['elapsed']==game['elapsed'] and watch['upgrades']==game['upgrades']
-    restarted=run(project,'--frames','10','--replay',write(temp/'result-restart.jsonl',load+[
-        event(6,'enter'),event(7),event(8,'enter'),event(9)]),'--save-dir',str(savedir))
+    restarted=run(project,'--frames','11','--replay',write(temp/'result-restart.jsonl',load+[
+        event(7,'enter'),event(8),event(9,'enter'),event(10)]),'--save-dir',str(savedir))
     watch=restarted['watches']['game']
     assert watch['mode']=='game' and watch['wave']==1 and watch['score']==0 and watch['elapsed']<1
     assert not restarted['state']['show_result'] and restarted['state']['result']==result

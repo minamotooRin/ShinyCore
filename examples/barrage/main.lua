@@ -12,6 +12,7 @@ local effects
 local player_animation
 local shell,run,player,enemies,choice,offers,spark,bullet
 local spawn_clock,fire_clock,invulnerable,dash,cooldown,boss_spawned
+local request,request_kind,probe_needed,result_status
 local aim_x,aim_y=1,0
 local kinds={
     scout={health=2,speed=23,size=8,points=10},
@@ -26,6 +27,7 @@ local function publish()
         kills=run.kills,enemies=#enemies,elapsed=run.elapsed,wave_time=run.time,seed=run.seed,rng=run.rng,
         upgrades=run.upgrades,offers=names,mode=choice and "upgrade" or shell.mode,won=run.won,
         shots=run.shots,hits=run.hits,spawned=run.spawned,wounds=run.wounds,dashes=run.dashes})
+    if shell.mode=="end" then sc.debug.watch("result_io",{status=result_status}) end
 end
 local function burst(x,y,count) sc.particles.burst(spark,x,y,count) end
 local function spawn_enemy(name,p)
@@ -63,13 +65,45 @@ local function fire_player(p)
     sc.projectiles.spawn(batch); run.shots=run.shots+#batch
     Sound.play(sound,"shot",p.x+5)
 end
+local function ending_message()
+    return run.won and "The last guardian has fallen." or "The lantern fades. Try a different upgrade."
+end
 local function ending()
     local seconds=math.floor(run.elapsed)
     UI.set(shell.ui,"play",{text="NEW CHALLENGE"})
-    Shell.finish(shell,run.won and "The last guardian has fallen." or "The lantern fades. Try a different upgrade.",{
+    Shell.finish(shell,ending_message(),{
         title=run.won and "BEACON DEFENDED" or "LANTERN LOST",
         color=run.won and "#66D9B0FF" or "#FF899AFF",
         details=string.format("SCORE %d / KILLS %d\nTIME %d:%02d / SEED %d",run.score,run.kills,seconds//60,seconds%60,run.seed)})
+end
+local begin_save
+local function save_done(ok,err)
+    result_status=ok and "saved" or "failed"
+    UI.set(shell.ui,"play",{disabled=false,text=ok and "NEW CHALLENGE" or "NEW CHALLENGE (UNSAVED)"})
+    UI.set(shell.ui,"settings",{disabled=false})
+    UI.set(shell.ui,"checkpoints",{visible=not ok})
+    shell.notice=nil
+    UI.set(shell.ui,"subtitle",{text=ok and ending_message() or "Result not saved. Retry or start unsaved."})
+    if not ok then
+        if err then sc.log("result save: "..err) end
+        UI.set(shell.ui,"save",{visible=true,text="RETRY SAVE",on_click=begin_save})
+        UI.set(shell.ui,"load",{visible=false})
+    end
+end
+begin_save=function()
+    result_status="pending"
+    UI.set(shell.ui,"play",{disabled=true,text="SAVING RESULT..."})
+    UI.set(shell.ui,"settings",{disabled=true})
+    UI.set(shell.ui,"checkpoints",{visible=false})
+    UI.set(shell.ui,"subtitle",{text="Saving result..."})
+    shell.notice=nil
+    local id,err=sc.save.write_async("last_result")
+    if not id and err and err:find("disk save directory",1,true) then
+        local ok,reason=sc.save.write("last_result")
+        save_done(ok,reason); return
+    end
+    if not id then save_done(false,err); return end
+    request,request_kind=id,"save"
 end
 local function finish(won)
     run.won=won; sc.projectiles.clear()
@@ -78,10 +112,37 @@ local function finish(won)
         shots=run.shots,hits=run.hits,wounds=run.wounds,dashes=run.dashes,
         wave=run.wave,wave_time=run.time,max_health=run.max_health,spawned=run.spawned})
     sc.state.set("show_result",true)
-    local ok,err=sc.save.write("last_result")
-    if not ok then shell.notice=err end
     ending()
     Sound.play(sound,won and "win" or "lose")
+    begin_save()
+end
+local function load_last()
+    local ok,err=sc.save.load("last_result")
+    if not ok then shell.notice=err end
+end
+local function show_probe(record,err)
+    UI.set(shell.ui,"settings",{disabled=false})
+    if shell.mode~="title" then return end
+    local previous=sc.state.get("result")
+    shell.notice=nil
+    UI.set(shell.ui,"subtitle",{text=err and "Result read failed. Retry or start a new challenge." or
+        (record and (previous and string.format("Last challenge: %d points",previous.score) or
+            "LAST RESULT is available") or "Auto fire / SETTINGS > CONTROLS")})
+    UI.set(shell.ui,"checkpoints",{visible=record~=nil or err~=nil})
+    UI.set(shell.ui,"load",{text=err and "RETRY RESULT" or "LAST RESULT",disabled=record==nil and err==nil,
+        on_click=err and function() probe_needed=true; shell.notice=nil end or load_last})
+end
+local function probe()
+    probe_needed=false
+    UI.set(shell.ui,"settings",{disabled=true})
+    UI.set(shell.ui,"load",{text="CHECKING RESULT",disabled=true})
+    local id,err=sc.save.read_chunks_async("last_result",{})
+    if id then request,request_kind=id,"probe"; return end
+    -- Headless runs without --save-dir use the bounded in-memory save service.
+    if err and err:find("disk save directory",1,true) then
+        local record,reason=sc.save.read("last_result")
+        show_probe(record,reason~="save slot does not exist" and reason or nil)
+    else show_probe(nil,err) end
 end
 local function hurt(p)
     if invulnerable>0 or dash>0 then return end
@@ -111,6 +172,7 @@ return {
     title="ShinyCore / Barrage",width=384,height=216,gravity=0,ambient=1,
     init=function()
         run=Challenge.new(); enemies={}; spawn_clock=0; fire_clock=0; invulnerable=0; dash=0; cooldown=0; boss_spawned=false
+        result_status="none"
         effects=View.new(); sound=Sound.new(); player_animation=View.player_animation()
         actions=Controls.new()
         sc.projectiles.configure()
@@ -121,30 +183,31 @@ return {
         player=sc.spawn{persistent_id="keeper",tag="player",x=188,y=104,w=10,h=14,sprite="keeper",
             frame_w=12,frame_h=18,body={type="kinematic",sensor=true,category=2,mask=0},layer=2}
         shell=Shell.new("BARRAGE / "..run.seed,"Auto fire / SETTINGS > CONTROLS")
+        probe_needed=not sc.state.get("show_result")
         local previous=sc.state.get("result")
         if previous and not sc.state.get("show_result") then
-            shell.notice=string.format("Last challenge: %d points",previous.score)
+            UI.set(shell.ui,"subtitle",{text=string.format("Last challenge: %d points",previous.score)})
         end
-        UI.set(shell.ui,"checkpoints",{visible=sc.save.read("last_result")~=nil})
+        UI.set(shell.ui,"checkpoints",{visible=true})
         UI.set(shell.ui,"save",{visible=false})
-        UI.set(shell.ui,"load",{text="LAST RESULT",on_click=function()
-            local ok,err=sc.save.load("last_result"); if not ok then shell.notice=err end
-        end})
+        UI.set(shell.ui,"load",{text="CHECKING RESULT",disabled=true,on_click=load_last})
         UI.set(shell.ui,"play",{on_click=function()
             if shell.mode=="end" then sc.state.set("show_result",false); sc.scene("main.lua")
-            else shell.mode="game"; sc.app.pause(false) end
+            else UI.set(shell.ui,"checkpoints",{visible=false}); shell.mode="game"; sc.app.pause(false) end
         end})
         sc.audio.music("theme",{loop=true,volume=.07,fade=.4})
         if sc.state.get("show_result") then
             assert(previous and previous.wave and previous.max_health,"invalid saved challenge result")
             for key,value in pairs(previous) do if run[key]~=nil then run[key]=value end end
             run.elapsed=previous.seconds; run.time=previous.wave_time
+            result_status="restored"
             ending()
         end
         UI.layout(shell.ui,384,216)
         sc.app.pause(true); publish()
     end,
     update=function(dt)
+        if probe_needed then probe() end
         controller=sc.input.gamepad_connected()
         Input.update(actions,"ui")
         if choice then
@@ -227,6 +290,20 @@ return {
             if run.wave==Challenge.waves then finish(true) else choose_upgrade() end
         end
         publish()
+    end,
+    ui_update=function(dt)
+        if not request then return end
+        local status=sc.save.status(request)
+        if status.status=="pending" then
+            Input.update(actions,"ui"); Shell.update(shell,dt,actions)
+            return
+        end
+        local kind=request_kind
+        local record=kind=="probe" and status.status=="complete" and sc.save.result(request).record
+        sc.save.release(request)
+        request,request_kind=nil,nil
+        if kind=="probe" then show_probe(record,status.error)
+        else save_done(status.status=="complete",status.error) end
     end,
     draw=function()
         sc.image("arena",0,0,384,216,{layer=-100})

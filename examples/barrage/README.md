@@ -48,6 +48,11 @@ The engine's `--seed` does not override this sample's explicit challenge seed.
 
 Challenge results are saved to `last_result` (data version 3). LAST RESULT on the
 title restores the victory/defeat score screen, including time and challenge seed.
+The title probes the disk slot on the save worker; result writes complete on the
+worker before NEW CHALLENGE becomes available. A failed write keeps the current
+score screen and offers RETRY SAVE or an explicitly unsaved new challenge. The
+`result_io` watch reports pending/saved/failed/restored on the result screen.
+Headless runs without `--save-dir` use the in-memory slot.
 NEW CHALLENGE always resets gameplay. This is a result record, not a mid-challenge
 resume; no enemy, projectile or runtime handle is persisted. Settings are separate.
 Sprite/audio assets are bundled locally with provenance in assets/README.md.
@@ -67,6 +72,7 @@ The seal is passable decoration, not a separate damageable objective.
 .\build\full\shiny.exe examples/barrage --headless --frames 18138 --replay examples/barrage/challenge.jsonl
 .\build\full\shiny.exe examples/barrage --headless --frames 18138 --replay examples/barrage/gamepad.jsonl
 python tests/barrage_integration.py build/full/shiny.exe
+python tests/barrage_result_async.py build/full/shiny.exe
 python tools/scenario.py build/full/shiny.exe examples/barrage/walkthrough.scenario.json
 python tools/capture_samples.py build/full/shiny.exe --output build/barrage-endings --case barrage-ending --case barrage-defeat
 ```

@@ -10,6 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Barrage now probes `last_result` on the application save worker after its title
+initializes and writes victory/defeat results asynchronously. The result screen
+holds until write completion, offers retry on failure and labels an unsaved new
+challenge. A focused disk/restore/failure check, the full six-wave scenario and
+inspected hidden native success/failure captures pass; see
+[Barrage result saves](verification-barrage-result-async.md). Physical devices,
+slow-disk behavior and final packages remain open.
+
 `ScBody`, `ScBodyShape`, `ScProject`, `ScProjectLimits` and `ScResource` now have
 structured native `--api` fields, defaults, ranges and constraints. Generated
 LuaLS declarations include shader resources and streamed index declarations.
@@ -826,7 +834,8 @@ prior pause restoration and save-success/publication-failure are covered by five
 focused Release and headless sanitizer checks. Wayfarer's dev.20 SDK and native
 save-error/menu captures are inspected; the I/O footer leaves recovery controls
 visible. The SDK versions and streamed reads have since advanced as described below.
-Crossing/Barrage checkpoint conversion and GPU residency remain open.
+Subsequent work converted Crossing checkpoints and Barrage result saves to the
+application worker; GPU residency and other save workflows remain open.
 The same service now also reads checkpoint summaries and selected chunks through
 read_chunks_async/result, with a single worker/transaction and fixed-boundary
 publication. It retains a pinned index or selects one complete valid snapshot,
@@ -836,9 +845,10 @@ phases, keeping the old world while reading, preparing and saving. Preparation e
 are recoverable statuses; retries reuse loaded records, failed IO retries retain their
 requests, and cancelling reads never starts outgoing writes. Initial loading also waits
 for its read result. Wayfarer's SDK is dev.22; the other five annotated SDKs are dev.21.
-Map-index opening and title-menu save selection/loading remain synchronous.
 Later work added `project.stream_indexes`: declared room indexes now parse on the
-application content worker before `init`; undeclared indexes and title saves remain synchronous.
+application content worker before `init`; undeclared indexes remain synchronous.
+Wayfarer and Barrage title summaries now use asynchronous reads; explicit `load`
+still reconstructs the selected scene on the main thread.
 See [checkpoint evidence](verification-chunk-saves.md).
 Text controls support grapheme-safe pointer drag selection, Shift extension,
 outside release and cancellation when hidden/disabled. Headless replay covers
