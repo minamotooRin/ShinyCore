@@ -6,6 +6,7 @@ Python 不实现另一套 Tiled 碰撞栅格。此工具在开发期运行；游
 
 ```sh
 python tools/nav_bake.py build/full/shiny.exe examples/wayfarer/maps/world build/wayfarer-nav.json
+python tools/nav_graph.py build/wayfarer-nav.json my-game/maps/forest_route.lua
 # 可指定与游戏一致的格子尺寸、身体半径和包含空块的矩形范围：
 python tools/nav_bake.py build/full/shiny.exe examples/wayfarer/maps/world build/area-nav.json \
   --cell-size 8 --radius 0 --bounds 0 0 3 3
@@ -23,7 +24,25 @@ python tools/nav_bake.py build/full/shiny.exe examples/wayfarer/maps/world build
 每次最多在一个临时无窗口项目中扫描 256 块，避免把全地图放入单个 Lua VM。
 原生地形/流式缓存的容量错误也会直接报告，绝不输出部分有效文件。
 
-当前产物是**静态通行快照**，不包含存档中的地图修改；它尚未形成跨块连通图，
-也没有接入 `World.route`。下一步是从这些掩码生成分量与边界入口，运行时按入口
-规划已加载窗口外的路线，并对已加载的动态修改失效或重建相关分量。当前
-`World.path/flow` 仍只查询已发布窗口；参见[流式世界](stream-world.md)。
+`nav_graph.py` 把每块的四邻域连通分量和相邻边界上的首个入口编译成普通 Lua 表。
+完整开放块只存一个分量号；有阻挡但仍连通的块保留掩码行，分裂的块保留格子分量号。
+生成模块与项目一起发行，不需要 Python；`require` 可由打包器追踪。图中每对分量
+只保留一个确定的入口，路线保证静态连通，不承诺最短像素路程。
+
+```lua
+local Route = require('shiny.stream_route')
+local graph = Route.new(require('maps.forest_route'))
+local result = Route.route(graph, player_x, player_y, goal_x, goal_y, 16384)
+-- result.points = 起点、每次跨块的入口两侧格子中心、终点。
+```
+
+`Route.route` 查询世界像素坐标，返回 `status, visited, points` 字段；状态为
+`ok`、`unreachable`、`unloaded` 或 `budget_exhausted`。它遍历块分量图，
+适合按目标建立一条长程路线，不应为 2000 个单位每帧各跑一次。游戏需要按下一入口
+预取块，再用 `World.path` 或共享流场验证和执行当前已加载路段；未准备块仍受加载边界
+保护。图的 `radius` 应与局部寻路半径一致，`cell_size` 应与 World 设置一致。
+
+烘焙产物和图都是**静态数据**，不包含存档中的地图修改。已加载块改变后，局部
+`World.path` 仍以当前地图为准；此图尚不会自动修复动态分量和远处存档覆盖，
+不能把粗路线视作最终移动许可。下一步完成局部失效/重建与保存状态整合。
+参见[流式世界](stream-world.md)。

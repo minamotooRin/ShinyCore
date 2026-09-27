@@ -10,12 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
-The offline [navigation bake](navigation-bake.md) now drives a headless native engine
+The offline [navigation bake](navigation-bake.md) drives a headless native engine
 to export per-chunk passability from the existing Tiled terrain and navigation code.
-It includes terrain reach beyond the immediate neighbor and cross-chunk object
-anchors, and records input/tool/engine fingerprints. Focused native checks cover
-determinism and both distant collision sources. The output remains a static mask;
-component portals, runtime global routes and saved edits remain open.
+It includes distant tile collision and cross-chunk object anchors. A second tool
+compiles connected components and portals into a project-local Lua module;
+`shiny.stream_route` can now plan coarse routes beyond the published window.
+Focused native checks cover deterministic compilation, negative chunks,
+disconnections and portal waypoints. The graph remains static: saved tile edits
+and runtime component repair remain open.
 
 `sc.navigation.mask(radius?)` now exposes a bounded read-only snapshot of the
 selected grid's exact path/flow clearance mask and world origin. It updates after
@@ -27,8 +29,9 @@ The streamed-world helper now accepts world-pixel path and flow goals against it
 published navigation window. Wayfarer's courier no longer reads internal chunk
 tables or hardcodes their size. Focused negative-chunk/transition checks, the full
 Wayfarer integration run and an inspected hidden native frame pass; see
-[stream-world navigation](verification-stream-world-navigation.md). Routes across
-unloaded sparse chunks remain open.
+[stream-world navigation](verification-stream-world-navigation.md). The newer
+static portal graph can plan beyond this local window; saved tile edits are not yet
+reflected in that graph.
 
 Wayfarer's checkpoint-gated ending now has a minimal streaming/graphics Release
 package with network, advanced rendering and dev tools disabled. The relocated
