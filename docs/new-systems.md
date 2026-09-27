@@ -221,7 +221,9 @@ frame/source stepping, breakpoints, stack/local-table pagination, watches and UI
 inspection without evaluating Lua expressions. See [debug protocol](debug-stdio.md)
 for limits, `--debug-load` startup stops and remaining native-panel acceptance gaps.
 
-`tools/new_game.py` copies `lib/shiny` and local LuaLS docs into each project.
+`tools/new_game.py` copies `lib/shiny` and local LuaLS docs into each project;
+the starter uses `sc.input`, version-3 JSONL replay and `--check-all` commands
+with no source-checkout path in project documentation.
 `--api.contract_version=1` includes native entity patch/read/batch-record field
 contracts and structured parameters, returns and phases for nine entity functions.
 Typed member tables drive scalar validation, defaults and reads. `tools/api_docs.py`

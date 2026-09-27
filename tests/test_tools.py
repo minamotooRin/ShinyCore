@@ -68,12 +68,17 @@ class ToolTests(unittest.TestCase):
         self.cli(ROOT / "tools" / "new_game.py", destination)
         self.assertEqual(
             {path.name for path in destination.iterdir()},
-            {"main.lua", "project.lua", "package.json", "shiny-sdk.json", "game", "rooms", "smoke.replay", "README.md", "AGENTS.md", ".luarc.json", "lib", "docs"},
+            {"main.lua", "project.lua", "package.json", "shiny-sdk.json", "game", "rooms", "smoke.jsonl", "README.md", "AGENTS.md", ".luarc.json", "lib", "docs"},
         )
         config = json.loads((destination / ".luarc.json").read_text(encoding="utf-8"))
         self.assertEqual(config["runtime.version"], "Lua 5.4")
         self.assertEqual(config["workspace.library"], ["docs/api.lua", "lib/shiny"])
         self.assertIn("docs/api.lua", (destination / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertIn("shiny --check-all .", (destination / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertNotIn(str(ROOT), (destination / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertNotIn(str(ROOT), (destination / "README.md").read_text(encoding="utf-8"))
+        self.assertEqual(json.loads((destination / "smoke.jsonl").read_text(encoding="utf-8").splitlines()[0]), {"version": 3})
+        self.assertIn("sc.input", (destination / "game/controller.lua").read_text(encoding="utf-8"))
         (destination / "main.lua").write_text("user changes must survive", encoding="utf-8")
         self.cli(ROOT / "tools" / "new_game.py", destination, ok=False)
         self.assertEqual((destination / "main.lua").read_text(encoding="utf-8"), "user changes must survive")
@@ -152,10 +157,10 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return json.loads(result.stdout)
 
-        checked = run_engine(BINARY, "--check", project)
+        checked = run_engine(BINARY, "--check-all", project)
         self.assertTrue(checked["ok"])
         initial = next(entity for entity in checked["entities"] if entity["tag"] == "player")
-        jumped = run_engine(BINARY, "--headless", project, "--frames", 60, "--replay", project / "smoke.replay")
+        jumped = run_engine(BINARY, "--headless", project, "--frames", 60, "--replay", project / "smoke.jsonl")
         jumping_player = next(entity for entity in jumped["entities"] if entity["tag"] == "player")
         self.assertGreater(jumping_player["x"], initial["x"])
         self.assertLess(jumping_player["y"], initial["y"])

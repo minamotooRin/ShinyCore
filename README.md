@@ -84,7 +84,7 @@ Workshop 展示中文 UI、Tiled 图层、箱子、斜坡、移动平台、Lua �
 python tools/new_game.py ../my-game
 ./build/shiny --api
 ./build/shiny --check-all ../my-game
-./build/shiny --headless ../my-game --frames 180 --replay ../my-game/smoke.replay
+./build/shiny --headless ../my-game --frames 180 --replay ../my-game/smoke.jsonl
 ```
 
 `project.lua` 声明项目 ID、入口、房间、资源和存档版本；省略时默认读取 `main.lua`。场景返回包含 `init/update/draw` 的表。`sc.get(id)` 返回副本，使用 `sc.set(id, patch)` 提交修改。`draw` 只排入绘制指令。
@@ -113,7 +113,7 @@ ctest --test-dir build-headless --output-on-failure
 
 ## 键盘与手柄
 
-Lua 可直接查询完整桌面键盘、标准单人手柄的按钮、双摇杆和扳机。例如 `sc.key_pressed("escape")`、`sc.gamepad_down("south")`、`sc.gamepad_axis("left_x")`。摇杆轴为 `[-1,1]`，扳机为 `[0,1]`，默认逐轴死区 `0.2`；第二参数传 `0` 可关闭死区。没有设备时返回中立值；拔出手柄会产生释放边沿。
+Lua 可通过 `sc.input` 查询桌面键盘、鼠标和最多四个手柄。例如 `sc.input.key_pressed("escape")`、`sc.input.gamepad_down("south")`、`sc.input.gamepad_axis("left_x")`。摇杆轴为 `[-1,1]`，扳机为 `[0,1]`，默认逐轴死区 `0.2`；第二参数传 `0` 可关闭死区。没有设备时返回中立值；拔出手柄会产生释放边沿。
 
 旧六动作 API 继续有效，键盘和手柄可同时使用。新接口读取固定模拟帧快照，也支持新版 JSON Lines 无窗口回放。完整控件名见 `--api` 和 [Lua 注解](docs/api.lua)，格式及语义见 [输入说明](docs/input.md)。运行 `shiny examples/input` 可查看设备状态，或添加 `--replay examples/input/demo.jsonl --frames 125` 查看演示。
 

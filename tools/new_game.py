@@ -56,11 +56,11 @@ return {
     end,
     update = function(dt)
         Controller.update(controller, dt)
-        if sc.pressed("action") then
+        if sc.input.key_pressed("e") or sc.input.gamepad_pressed("west") then
             if sc.get(player).x > 300 then sc.scene("rooms/second.lua")
             else assert(sc.save.write("checkpoint")) end
         end
-        if sc.pressed("up") then
+        if sc.input.key_pressed("up") then
             local ok, error = sc.save.load("checkpoint")
             if not ok then sc.log(error) end
         end
@@ -74,13 +74,41 @@ return {
 }
 '''
 
-REPLAY = '''# Fixed-tick held input. Right, jump, stop, then move left.
-0 2
-30 18
-31 2
-90 0
-120 1
-150 0
+CONTROLLER = '''-- Fixed-tick movement and jump buffering stay in ordinary game Lua.
+local Controller = {}
+function Controller.new(id) return {id=id,coyote=0,buffer=0} end
+function Controller.update(c,dt)
+    local input=sc.input
+    local p=sc.get(c.id)
+    c.coyote=p.grounded and .1 or math.max(0,c.coyote-dt)
+    local jump=input.key_pressed("space") or input.key_pressed("z") or input.gamepad_pressed("south")
+    c.buffer=jump and .12 or math.max(0,c.buffer-dt)
+    local left=input.key_down("a") or input.key_down("left") or input.gamepad_down("dpad_left")
+    local right=input.key_down("d") or input.key_down("right") or input.gamepad_down("dpad_right")
+    local axis=(right and 1 or 0)-(left and 1 or 0)
+    if axis==0 then axis=input.gamepad_axis("left_x") end
+    local vx,vy=axis*90,p.vy
+    if p.grounded then
+        if p.support~=0 then vx=vx+sc.get(p.support).vx end
+        if axis~=0 and p.normal_y<-.5 then vy=-vx*p.normal_x/p.normal_y end
+    end
+    if (input.key_down("s") or input.key_down("down") or input.gamepad_down("dpad_down")) and jump then
+        sc.physics.drop(c.id,.25);vy=50;c.buffer=0
+    elseif c.buffer>0 and c.coyote>0 then
+        vy=-220;c.buffer=0;c.coyote=0
+    end
+    sc.set(c.id,{vx=vx,vy=vy,flip_x=axis<0})
+end
+return Controller
+'''
+
+REPLAY = '''{"version":3}
+{"frame":0,"keys":["d"],"gamepad":{"connected":false}}
+{"frame":30,"keys":["d","space"],"gamepad":{"connected":false}}
+{"frame":31,"keys":["d"],"gamepad":{"connected":false}}
+{"frame":90,"keys":[],"gamepad":{"connected":false}}
+{"frame":120,"keys":["a"],"gamepad":{"connected":false}}
+{"frame":150,"keys":[],"gamepad":{"connected":false}}
 '''
 
 
@@ -95,22 +123,21 @@ def create_project(destination: Path) -> list[str]:
         raise OSError("engine API documentation is missing; run this tool from a complete ShinyCore checkout")
     if os.path.lexists(destination):
         raise FileExistsError(f"destination already exists; refusing to overwrite: {destination}")
-    binary = ROOT / "build" / ("shiny.exe" if os.name == "nt" else "shiny")
-    release_binary = ROOT / "build" / "Release" / "shiny.exe"
-    if os.name == "nt" and release_binary.is_file():
-        binary = release_binary
-    checks = [
-        command([str(binary), "--check", "."]),
-        command([str(binary), "--headless", ".", "--frames", "180", "--replay", "smoke.replay"]),
-        command([str(binary), "."]),
-    ]
+    executable = "shiny.exe" if os.name == "nt" else "shiny"
+    candidates = [ROOT / "build" / name / executable for name in ("full", "lightweight", "Release", "")]
+    binary = next((str(path) for path in candidates if path.is_file()), "shiny")
+    def commands(exe: str) -> list[str]:
+        return [command([exe, "--check-all", "."]),
+                command([exe, "--headless", ".", "--frames", "180", "--replay", "smoke.jsonl"]),
+                command([exe, "."])]
+    portable, checks = commands("shiny"), commands(binary)
     agents = f'''# Working on this ShinyCore game
 
 Read the authoritative Lua API at `{api}` and the workflow at `{guide}`.
 
 All keyboard keys belong to the game by default; close the window to exit.
 Use `--debug-keys` explicitly for F1/F2/F3/F5/P/O/Escape host controls.
-Custom controls use `sc.key_down/pressed/released` and `sc.gamepad_*`;
+Custom controls use `sc.input.key_down/pressed/released` and `sc.input.gamepad_*`;
 keep binding names in Lua tables. Device replay format is documented at `{ROOT / "docs" / "input.md"}`.
 The `.luarc.json` file links that same API for Lua Language Server completion.
 
@@ -127,15 +154,12 @@ The `.luarc.json` file links that same API for Lua Language Server completion.
 - Run these checks from this project's directory, then visually inspect rendering changes:
 
 ```sh
-{checks[0]}
-{checks[1]}
+{portable[0]}
+{portable[1]}
 ```
 
-The engine binary is built separately in its checkout. If the engine is moved,
-update the executable commands here; SDK paths in `.luarc.json` remain relative.
-On Windows, Visual Studio builds normally place the executable in
-`build/Release/shiny.exe` after `cmake --build build --config Release`; adjust
-the commands above if that configuration was built after project creation.
+The engine binary is built separately. Keep `shiny` on PATH or replace only that
+command word with your executable path; all project files and LuaLS paths are relative.
 '''
     readme = f'''# My ShinyCore Game
 
@@ -146,17 +170,16 @@ The game/controller.lua module is ordinary editable Lua. Press E to save, UP to 
 From this directory, after building ShinyCore:
 
 ```sh
-{checks[0]}
-{checks[1]}
-{checks[2]}
+{portable[0]}
+{portable[1]}
+{portable[2]}
 ```
 
-`smoke.replay` moves right, jumps, stops, and moves left over 180 fixed ticks.
+`smoke.jsonl` uses version-3 input snapshots to move right, jump, stop, then move left.
 Headless mode prints a JSON snapshot and exits nonzero for script errors.
 The API reference is `{api}`; see `AGENTS.md` for the LLM workflow.
-On Windows with Visual Studio, build with `cmake --build build --config Release`
-in the engine checkout. The resulting executable is normally
-`build/Release/shiny.exe`; adjust these commands if necessary.
+Keep `shiny` on PATH or replace that command word with your built executable path.
+The project and its local Lua modules move together without source-checkout paths.
 '''
     config = {
         "runtime.version": "Lua 5.4",
@@ -179,16 +202,15 @@ in the engine checkout. The resulting executable is normally
         readme = readme.replace(str(api), "docs/api.lua")
         (destination / "game").mkdir()
         (destination / "rooms").mkdir()
-        shutil.copy2(ROOT / "examples/workshop/game/controller.lua", destination / "game/controller.lua")
-        shutil.copy2(ROOT / "examples/workshop/game/animation.lua", destination / "game/animation.lua")
+        (destination / "game/controller.lua").write_text(CONTROLLER, encoding="utf-8")
         project_id = "game." + uuid.uuid4().hex
         (destination / "project.lua").write_text('return {id="' + project_id + '", data_version=1, rooms={"main.lua", "rooms/second.lua"}}\n', encoding="utf-8")
-        (destination / "rooms/second.lua").write_text('return {gravity=0, init=function() sc.message("SECOND ROOM / E TO RETURN") end, update=function() if sc.pressed("action") then sc.scene("main.lua") end end}\n', encoding="utf-8")
+        (destination / "rooms/second.lua").write_text('return {gravity=0, init=function() sc.message("SECOND ROOM / E TO RETURN") end, update=function() if sc.input.key_pressed("e") or sc.input.gamepad_pressed("west") then sc.scene("main.lua") end end}\n', encoding="utf-8")
         for name, contents in {
             "package.json": json.dumps({"format": 1, "scripts": ["main.lua", "rooms/second.lua"],
-                "files": ["smoke.replay", "README.md", "AGENTS.md", ".luarc.json", "docs/api.lua", "docs/llm-guide.md", "docs/input.md"]}, indent=2) + "\n",
+                "files": ["smoke.jsonl", "README.md", "AGENTS.md", ".luarc.json", "docs/api.lua", "docs/llm-guide.md", "docs/input.md"]}, indent=2) + "\n",
             "main.lua": SCENE,
-            "smoke.replay": REPLAY,
+            "smoke.jsonl": REPLAY,
             "README.md": readme,
             "AGENTS.md": agents,
             ".luarc.json": json.dumps(config, ensure_ascii=False, indent=2) + "\n",

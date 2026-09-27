@@ -7,7 +7,7 @@
 1. 使用 `python tools/new_game.py 新目录` 创建项目，或修改已有项目中的最小相关模块。
 2. 在 project.lua 声明入口、rooms 和资源。流式房间可用 `stream_indexes` 将房间路径映射到已构建索引，使索引在 `init` 前由工作线程读取；房间的 `init` 仍调用同一路径的 `sc.stream.open`。每个房间要能在空 sc.state 下初始化；默认值属于游戏脚本。
 3. 运行 `shiny --check-all 项目目录`，覆盖配置、模块、init、初始 draw、物理几何和资源预检。
-4. 运行 `shiny --headless 项目目录 --frames 180 --seed 42 --replay smoke.replay`。断言位置、接触、状态和场景行为，不只比较哈希。
+4. 运行 `shiny --headless 项目目录 --frames 180 --seed 42 --replay smoke.jsonl`。示例回放使用版本 3 的设备快照；断言位置、接触、状态和场景行为，不只比较哈希。
 5. 修改画面后运行原生程序，并通过 `--frames 90 --capture 截图绝对路径.png` 检查结果。
 6. 使用 `tools/package.py 引擎程序 新包目录 --project 项目目录`，移动包后再运行验证。
 
@@ -21,7 +21,7 @@
 
 局部 Lua 表用于当前房间逻辑；跨房间数据使用 `sc.state.set/get`，例如金币、任务标记和稳定的对象名称。不要把 entity/audio/joint ID 存入持久数据。启用 `--debug-keys` 后，F5 重建当前房间而保留显式状态；init 应基于已有数据重建世界。
 
-存档是显式数据加房间入口。磁盘测试必须指定临时 `--save-dir`，避免依赖真实用户存档。增加 data_version 后提供 project.migrate 模块，返回新的纯数据对象；失败不得改变活动状态。使用独立进程测试保存后的重新启动恢复。
+存档是显式数据加房间入口。磁盘测试必须指定临时 `--save-dir`，避免依赖真实用户存档。新版 data_version 不读取旧记录，并明确报告版本不支持；使用独立进程测试保存后的重新启动恢复。
 
 ## 物理与地图
 
@@ -33,7 +33,7 @@ Tiled 直接编辑 .tmj/.tsj 文件，设置 tile 的 collision 为 solid 或 on
 
 ## 资源与发行
 
-project.resources 集中声明 PNG、WAV、Ogg Vorbis 与字体；字体 characters 列出需要的字符，并保留许可证。中英文布局使用 sc.measure 与 sc.text 的 font/wrap/align，复杂文字塑形不在 0.2 范围内。
+project.resources 集中声明 PNG、WAV、Ogg Vorbis 与字体；字形按需缓存，字体需覆盖游戏使用的文字并保留许可证。中英文布局使用 sc.measure 与 sc.text 的 font/wrap/align；复杂文字塑形和双向排版不支持。
 
 资源路径相对于项目，使用正斜线，最多 127 字节。新增依赖保持版本和校验固定，不在游戏运行时联网获取素材。发行包只面向构建系统和架构；可选网络需单独开启并验证双进程交通。
 
@@ -41,6 +41,6 @@ project.resources 集中声明 PNG、WAV、Ogg Vorbis 与字体；字体 charact
 
 ## Device input and new replays
 
-Use `sc.key_down/pressed/released(name)` and `sc.gamepad_down/pressed/released(name)` for game-defined controls. Use `sc.gamepad_axis(axis, deadzone)` for analog motion and `sc.gamepad_connected()` for device status. Names come from `shiny --api` and `docs/api.lua`; invalid names fail explicitly. Keep game bindings in ordinary Lua tables. These queries read fixed-tick state, not text entry.
+Use `sc.input.key_down/pressed/released(name)` and `sc.input.gamepad_down/pressed/released(name)` for game-defined controls. `sc.input.gamepad_axis(axis, deadzone, slot)` handles analog motion; optional slots select one of four pads. Names come from `shiny --api` and `docs/api.lua`; invalid names fail explicitly. For rebindable actions use the bundled `shiny.input` module. These queries read fixed-tick state, not text entry.
 
-All keys belong to the game by default. Launch with `--debug-keys` to opt into F1/F2/F3/F5/P/O/Escape host shortcuts. Use version 2 device replay files to exercise custom keys and axes headlessly; existing six-action mask recordings still work. See [input.md](input.md) and `examples/input/demo.jsonl`.
+All keys belong to the game by default. Launch with `--debug-keys` to opt into host shortcuts. Use version-3 JSON Lines snapshots to exercise keys, axes, mouse, text and quick edges headlessly. See [input.md](input.md) and the bundled `smoke.jsonl`.
