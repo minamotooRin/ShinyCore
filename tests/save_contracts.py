@@ -8,7 +8,7 @@ import tempfile
 binary=Path(sys.argv[1]).resolve()
 api=json.loads(subprocess.check_output([str(binary),'--api'],encoding='utf-8'))
 contracts={f['name'].rsplit('.',1)[1]:f['contract'] for f in api['functions'] if f['name'].startswith('sc.save.')}
-assert set(contracts)=={'read','list','write','load','delete','read_chunk','write_chunks','write_async','write_chunks_async','read_chunks_async','result','status','retry','release'}
+assert set(contracts)=={'read','list','write','load','delete','delete_async','read_chunk','write_chunks','write_async','write_chunks_async','read_chunks_async','result','status','retry','release'}
 for name,contract in contracts.items():
     assert contract and all(p['required'] for p in contract['parameters'])
     expected=['load','init','update','draw','ui_update'] if name in ('read','list','status','result') else (
@@ -22,6 +22,7 @@ fields={name:{f['name']:f for f in api['types'][name]['fields']} for name in ('S
 assert set(fields['ScSaveRecord'])=={'format','project','data_version','scene','state','frame','saved_at','chunk_count'}
 assert set(fields['ScSaveSlot'])=={'slot','valid','scene','data_version','frame','saved_at','error'}
 assert not fields['ScSaveRecord']['frame']['required'] and fields['ScSaveRecord']['state']['required']
+assert next(field for field in api['types']['ScSaveStatus']['fields'] if field['name']=='operation')['type']=="'read'|'write'|'delete'"
 
 with tempfile.TemporaryDirectory(prefix='shiny-save-contract-') as directory:
     project=Path(directory)

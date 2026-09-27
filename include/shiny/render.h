@@ -32,7 +32,8 @@ bool sc_render_step_requested(void);
 // Enable only after opening a context. Unsupported timers return false.
 bool sc_render_profile_enable();
 const char* sc_render_device(); // Borrowed renderer description; nullptr without a context.
-enum class ScRenderNoticeKind { reload_error, save_pending, save_error, read_pending, read_error, stream_pending, stream_error, image_pending, image_error };
+enum class ScRenderNoticeKind { reload_error, save_pending, save_error, read_pending, read_error,
+    delete_pending, delete_error, stream_pending, stream_error, image_pending, image_error };
 struct ScRenderNotice {
     ScRenderNoticeKind kind{ScRenderNoticeKind::reload_error};
     const char* detail{""}; // Borrowed for this frame; full I/O diagnostics remain in stderr/API.

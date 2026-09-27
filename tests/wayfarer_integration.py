@@ -39,21 +39,36 @@ with tempfile.TemporaryDirectory(prefix='shiny-wayfarer-') as folder:
     invalid=run(project,'--frames','4','--replay',str(project/'smoke.jsonl'),
                 '--save-dir',str(temp/'broken'))
     assert invalid['scene']=='title.lua' and (broken/'checkpoint.json').read_text(encoding='utf-8')=='{broken'
+    delete_root=temp/'delete-fault'
+    delete_slot=delete_root/'shiny.wayfarer'
+    delete_slot.mkdir(parents=True)
+    (delete_slot/'checkpoint.json').write_text(json.dumps(dict(format=3,project='shiny.wayfarer',
+        data_version=2,scene='main.lua',state={})),encoding='utf-8')
+    backup=delete_slot/'checkpoint.json.bak'
+    backup.mkdir();(backup/'keep').write_text('fixture',encoding='utf-8')
+    delete_replay=temp/'delete-fault.jsonl'
+    presses=[['tab'],[],['tab'],[],['enter'],[],['tab'],[],['enter'],[]]
+    delete_replay.write_text('\n'.join([json.dumps({'version':3})]+[
+        json.dumps({'frame':frame,'keys':keys,'gamepad':{'connected':False}})
+        for frame,keys in enumerate(presses)])+'\n',encoding='utf-8')
+    delete_failed=run(project,'--frames','12','--replay',str(delete_replay),'--save-dir',str(delete_root))
+    assert delete_failed['scene']=='title.lua' and delete_failed['watches']['quest']['mode']=='delete_error'
+    assert (backup/'keep').read_text(encoding='utf-8')=='fixture'
     looped=run(project,'--frames','1201','--save-dir',str(temp/'music-loop'))
     assert len(looped['audio'])==1 and 0<looped['audio'][0]['position']<.05
-    saved=run(project,'--frames','46','--replay',str(project/'journal.jsonl'),'--save-dir',folder)
+    saved=run(project,'--frames','47','--replay',str(project/'journal.jsonl'),'--save-dir',folder)
     assert saved['state']['quest_stage']=='gather' and saved['state']['equipment']=='field'
     assert saved['state']['traveler']=='小林'
     assert (temp/'shiny.wayfarer/checkpoint.json').is_file()
     trace=temp/'controller-journal-trace.jsonl'
-    journal=run(project,'--frames','23','--replay',str(project/'controller-journal.jsonl'),
+    journal=run(project,'--frames','24','--replay',str(project/'controller-journal.jsonl'),
                 '--save-dir',str(temp/'controller-journal'),'--trace',str(trace))
     assert journal['state']['traveler']=='旅人i'
     frames=[json.loads(line) for line in trace.read_text(encoding='utf-8').splitlines()]
-    for i in [5,6,10,11,12,13]: assert frames[i]['watches']['quest']['mode']=='inventory'
-    for i in [7,8,9,14,15]: assert frames[i]['watches']['quest']['mode']=='game'
+    for i in [6,7,11,12,13,14]: assert frames[i]['watches']['quest']['mode']=='inventory'
+    for i in [8,9,10,15,16]: assert frames[i]['watches']['quest']['mode']=='game'
     def player_x(frame):return next(e['x'] for e in frame['entities'] if e['tag']=='player')
-    assert player_x(frames[7])==player_x(frames[15]) and player_x(frames[-1])>player_x(frames[15])
+    assert player_x(frames[8])==player_x(frames[16]) and player_x(frames[-1])>player_x(frames[16])
     replay=temp/'load.jsonl'
     events=[(0,['tab']),(1,[]),(2,['tab']),(3,[]),(4,['tab']),(5,[]),(6,['enter']),(7,[]),(8,['enter']),(9,[])]
     replay.write_text('\n'.join([json.dumps({'version':3})]+[json.dumps({'frame':frame,'keys':keys,'gamepad':{'connected':False}}) for frame,keys in events])+'\n')
@@ -63,10 +78,10 @@ with tempfile.TemporaryDirectory(prefix='shiny-wayfarer-') as folder:
     assert restored['watches']['quest']['stage']=='gather' and restored['watches']['quest']['equipment']=='field'
     # A fresh slot and only actual key input drive the complete forest route.
     journey=temp/'journey'
-    completed=run(project,'--frames','3244','--replay',str(project/'walkthrough.jsonl'),'--save-dir',str(journey))
+    completed=run(project,'--frames','3245','--replay',str(project/'walkthrough.jsonl'),'--save-dir',str(journey))
     assert completed['watches']['quest']['mode']=='end' and completed['watches']['quest']['complete']
     assert completed['state']['herbs']==24 and completed['state']['route_cleared']
-    controller=run(project,'--frames','3244','--replay',str(project/'gamepad.jsonl'),'--save-dir',str(temp/'controller'))
+    controller=run(project,'--frames','3245','--replay',str(project/'gamepad.jsonl'),'--save-dir',str(temp/'controller'))
     assert controller['state']==completed['state'] and controller['watches']==completed['watches']
     slot=journey/'shiny.wayfarer/checkpoint.json'
     data=json.loads(slot.read_text(encoding='utf-8'))

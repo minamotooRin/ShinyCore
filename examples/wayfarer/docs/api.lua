@@ -216,7 +216,7 @@
 ---@class ScSaveStatus
 -- Fields generated from native --api.
 ---@field request integer # Read-only. Live request ID, 1..2^52-1.
----@field operation 'read'|'write' # Read-only. Operation accepted by the application IO worker.
+---@field operation 'read'|'write'|'delete' # Read-only. Operation accepted by the application IO worker.
 ---@field status 'pending'|'complete'|'failed' # Read-only. Published by the host at a fixed boundary; Lua never observes raw worker timing.
 ---@field error? string # Read-only. Present only on failure; retry preserves the original frozen payload.
 
@@ -1689,6 +1689,13 @@ function sc.projectiles.stats() end
 ---@param slot string # 1..128 ASCII letters, digits, underscores or hyphens; project.id supplies the namespace.
 ---@return boolean
 function sc.save.delete(slot) end
+---Submit removal of a disk slot, backup and owned chunks on the application IO worker. Missing slots succeed. Wait for complete status and release before changing rooms; failed deletion may be retried. A failed partial removal cannot be undone.
+---Phases: update.
+---Capacity: One unreleased transaction per application; disk save directory required.
+---@param slot string # 1..128 ASCII letters, digits, underscores or hyphens; project.id supplies the namespace.
+---@return integer|nil request # Accepted request ID; acceptance is not disk completion.
+---@return string|nil error # Preflight/submission error; no request was accepted.
+function sc.save.delete_async(slot) end
 ---Sorted distinct slot metadata, including backup-only slots and invalid record diagnostics. Synchronous; requires project.id. Invalid arguments, directory errors and capacity overflow raise Lua errors.
 ---Phases: load, init, update, draw, ui_update.
 ---Capacity: 128 distinct disk slots; 16 in-memory slots.
@@ -1717,24 +1724,24 @@ function sc.save.read_chunk(slot, key) end
 ---@return integer|nil request # Accepted request ID; acceptance is not disk completion.
 ---@return string|nil error # Preflight/submission error; no request was accepted.
 function sc.save.read_chunks_async(slot, keys) end
----Release an observed result and invalidate its ID; never cancel pending IO or undo a commit. Successful reads pin their selected index; writes, failed or missing reads clear it. A released failure permits continuing the old world.
+---Release an observed result and invalidate its ID; never cancel pending IO or undo a commit. Successful reads pin their selected index; writes, deletes, failed or missing reads clear it. A released failure permits continuing the old world.
 ---Phases: update, ui_update.
----@param request integer # Live request returned by an asynchronous read or write. Range 1..4503599627370495.
+---@param request integer # Live request returned by an asynchronous read, write or delete. Range 1..4503599627370495.
 ---@return boolean
 function sc.save.release(request) end
----Copy a successfully completed read result with record summary and requested chunks. Errors for pending, failed, write or expired requests; does not release or modify state.
+---Copy a successfully completed read result with record summary and requested chunks. Errors for pending, failed, write, delete or expired requests; does not release or modify state.
 ---Phases: load, init, update, draw, ui_update.
----@param request integer # Live request returned by an asynchronous read or write. Range 1..4503599627370495.
+---@param request integer # Live request returned by an asynchronous read, write or delete. Range 1..4503599627370495.
 ---@return ScSaveReadResult
 function sc.save.result(request) end
----Retry an observed failed read/write using its original payload, selected snapshot and request ID. Update/ui_update only; candidate/check/draw forbidden.
+---Retry an observed failed read/write/delete using its original payload, selected snapshot and request ID. Update/ui_update only; candidate/check/draw forbidden.
 ---Phases: update, ui_update.
----@param request integer # Live request returned by an asynchronous read or write. Range 1..4503599627370495.
+---@param request integer # Live request returned by an asynchronous read, write or delete. Range 1..4503599627370495.
 ---@return boolean
 function sc.save.retry(request) end
 ---Copy the host-observed request status; never poll worker timing from Lua. Pending until the next fixed boundary; invalid/expired request errors.
 ---Phases: load, init, update, draw, ui_update.
----@param request integer # Live request returned by an asynchronous read or write. Range 1..4503599627370495.
+---@param request integer # Live request returned by an asynchronous read, write or delete. Range 1..4503599627370495.
 ---@return ScSaveStatus
 function sc.save.status(request) end
 ---Submit a frozen checkpoint to the application writer; disk required. Host waits before the next fixed update, keeping UI/devices alive. Submission is not success; inspect status then release. No other save operation or scene change while unreleased.

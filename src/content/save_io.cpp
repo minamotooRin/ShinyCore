@@ -39,6 +39,7 @@ struct ScSaveIo::State {
     };
     Write write;
     Read read;
+    Delete remove;
     std::mutex mutex;
     std::condition_variable condition;
     std::unique_ptr<Job> job;
@@ -58,7 +59,11 @@ struct ScSaveIo::State {
                 if(const auto* request=std::get_if<ScSaveWriteRequest>(&current->request)) {
                     auto written=write(*request);
                     if(!written) result=std::unexpected(written.error());
-                } else result=read(std::get<ScSaveReadRequest>(current->request));
+                } else if(const auto* reading=std::get_if<ScSaveReadRequest>(&current->request)) result=read(*reading);
+                else {
+                    auto removed=remove(std::get<ScSaveDeleteRequest>(current->request));
+                    if(!removed) result=std::unexpected(removed.error());
+                }
             }
             catch(const std::exception& error) { result=std::unexpected(error.what()); }
             catch(...) { result=std::unexpected("unexpected save IO exception"); }
@@ -66,11 +71,14 @@ struct ScSaveIo::State {
         }
     }
 };
-ScSaveIo::ScSaveIo(Write write,Read read) : state_(std::make_unique<State>()) {
+ScSaveIo::ScSaveIo(Write write,Read read,Delete remove) : state_(std::make_unique<State>()) {
     state_->write=write?std::move(write):Write{[](const ScSaveWriteRequest& request) {
         return sc_save_write(request.path,request.record,request.project,request.data_version,request.changes);
     }};
     state_->read=read?std::move(read):Read{read_chunks};
+    state_->remove=remove?std::move(remove):Delete{[](const ScSaveDeleteRequest& request) {
+        return sc_save_delete(request.path);
+    }};
 }
 ScSaveIo::~ScSaveIo() {
     { std::lock_guard lock(state_->mutex); state_->stopping=true; }
@@ -98,29 +106,32 @@ std::uint64_t ScSaveIo::submit(Request request) {
             if(bytes>SC_SAVE_ASYNC_BYTES) break;
         }
         if(bytes>SC_SAVE_ASYNC_BYTES) throw std::runtime_error("async save payload exceeds 1 MiB");
-    } else {
-        auto& read=std::get<ScSaveReadRequest>(request);
-        if(read.keys.size()>SC_SAVE_READ_KEYS) throw std::runtime_error("async read exceeds 1024 keys");
-        std::sort(read.keys.begin(),read.keys.end());
-        for(std::size_t i=0;i<read.keys.size();++i)
-            if(!sc_identity_name_valid(read.keys[i])||(i&&read.keys[i]==read.keys[i-1]))
+    } else if(auto* read=std::get_if<ScSaveReadRequest>(&request)) {
+        if(read->keys.size()>SC_SAVE_READ_KEYS) throw std::runtime_error("async read exceeds 1024 keys");
+        std::sort(read->keys.begin(),read->keys.end());
+        for(std::size_t i=0;i<read->keys.size();++i)
+            if(!sc_identity_name_valid(read->keys[i])||(i&&read->keys[i]==read->keys[i-1]))
                 throw std::runtime_error("async read keys must be valid and unique");
-        if(!std::holds_alternative<std::monostate>(read.snapshot.data)) {
-            auto valid=sc_save_validate(read.snapshot,read.project,read.data_version);
+        if(!std::holds_alternative<std::monostate>(read->snapshot.data)) {
+            auto valid=sc_save_validate(read->snapshot,read->project,read->data_version);
             if(!valid) throw std::runtime_error(valid.error());
         }
-        if(read.path.size()+read.project.size()>SC_SAVE_ASYNC_BYTES)
+        if(read->path.size()+read->project.size()>SC_SAVE_ASYNC_BYTES)
             throw std::runtime_error("async read path/project exceed 1 MiB");
+    } else if(const auto* remove=std::get_if<ScSaveDeleteRequest>(&request)) {
+        if(remove->path.size()+remove->project.size()>SC_SAVE_ASYNC_BYTES)
+            throw std::runtime_error("async delete path/project exceed 1 MiB");
     }
     auto& s=*state_; std::lock_guard lock(s.mutex);
     if(s.stopping) throw std::runtime_error("save IO stopped");
     const bool reading=std::holds_alternative<ScSaveReadRequest>(request);
+    const bool deleting=std::holds_alternative<ScSaveDeleteRequest>(request);
     auto job=std::make_unique<State::Job>(State::Job{std::move(request),true,{}});
     if(!s.worker.joinable()) s.worker=std::jthread([&s] {
         try { s.work(); }
         catch(...) { std::lock_guard failed(s.mutex); s.failed=true; s.stopping=true; }
     });
-    s.job=std::move(job); active_=true; reading_=reading; ++sequence_; s.condition.notify_one();
+    s.job=std::move(job); active_=true; reading_=reading; deleting_=deleting; ++sequence_; s.condition.notify_one();
     return sequence_;
 }
 void ScSaveIo::check(std::uint64_t request) const {

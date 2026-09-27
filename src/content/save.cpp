@@ -212,5 +212,6 @@ ScResult<void> sc_save_delete(const std::string& path) {
     if(error) return std::unexpected(error.message());
     collect(path,ScValue{},nullptr);
     std::filesystem::remove(sc_path(path+".chunks"),error); // Never recursively delete unrelated files.
+    if(error) return std::unexpected(error.message());
     return {};
 }

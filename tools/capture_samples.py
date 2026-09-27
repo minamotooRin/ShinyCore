@@ -10,13 +10,13 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 CASES={
     'wayfarer-title':('wayfarer',None,4),
-    'wayfarer-dialogue':('wayfarer','journal.jsonl',26),
-    'wayfarer-journal':('wayfarer','journal.jsonl',37),
-    'wayfarer-world':('wayfarer','travel.jsonl',181),
-    'wayfarer-gather-ready':('wayfarer','walkthrough.jsonl',186),
-    'wayfarer-gathered':('wayfarer','walkthrough.jsonl',193),
-    'wayfarer-camp':('wayfarer','walkthrough.jsonl',23),
-    'wayfarer-trail':('wayfarer','walkthrough.jsonl',113),
+    'wayfarer-dialogue':('wayfarer','journal.jsonl',27),
+    'wayfarer-journal':('wayfarer','journal.jsonl',38),
+    'wayfarer-world':('wayfarer','travel.jsonl',182),
+    'wayfarer-gather-ready':('wayfarer','walkthrough.jsonl',187),
+    'wayfarer-gathered':('wayfarer','walkthrough.jsonl',194),
+    'wayfarer-camp':('wayfarer','walkthrough.jsonl',24),
+    'wayfarer-trail':('wayfarer','walkthrough.jsonl',114),
     'crossing-ferry':('crossing','walkthrough.jsonl',435),
     'crossing-aqueduct':('crossing',None,10),
     'crossing-mill':('crossing',None,10),
@@ -30,7 +30,7 @@ CASES={
 # Reach the real checkpoint through authored input, then render its normal restore.
 PREPARE={
     'crossing-ending':('walkthrough.jsonl',2876,[['tab'],[],['tab'],[],['tab'],[],['enter'],[]]),
-    'wayfarer-ending':('walkthrough.jsonl',3244,[['enter'],[]]),
+    'wayfarer-ending':('walkthrough.jsonl',3245,[['enter'],[]]),
     'barrage-ending':('challenge.jsonl',18138,[['tab'],[],['tab'],[],['enter'],[]]),
     'barrage-defeat':('failure.jsonl',1800,[['tab'],[],['tab'],[],['enter'],[]]),
 }

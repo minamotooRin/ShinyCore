@@ -711,7 +711,7 @@ also use the descriptions and [authoring annotations](api.lua).
 | Field | Type | Contract |
 | --- | --- | --- |
 | request | integer | Read-only. Live request ID, 1..2^52-1. |
-| operation | 'read'\|'write' | Read-only. Operation accepted by the application IO worker. |
+| operation | 'read'\|'write'\|'delete' | Read-only. Operation accepted by the application IO worker. |
 | status | 'pending'\|'complete'\|'failed' | Read-only. Published by the host at a fixed boundary; Lua never observes raw worker timing. |
 | error? | string | Read-only. Present only on failure; retry preserves the original frozen payload. |
 
@@ -944,6 +944,7 @@ also use the descriptions and [authoring annotations](api.lua).
 | sc.rect | x: number, y: number, w: number, h: number, color: ScColor, screen?: boolean = false | none | draw |
 | sc.released | action: ScAction | boolean | load, init, update, draw, ui_update |
 | sc.save.delete | slot: string | boolean | update |
+| sc.save.delete_async | slot: string | request: integer\|nil, error: string\|nil | update |
 | sc.save.list |  | ScSaveSlot[] | load, init, update, draw, ui_update |
 | sc.save.load | slot: string | ok: boolean\|nil, error: string\|nil | update |
 | sc.save.read | slot: string | record: ScSaveRecord\|nil, error: string\|nil | load, init, update, draw, ui_update |

@@ -219,7 +219,7 @@ see [Crossing presentation evidence](verification-crossing-presentation.md). Ori
 artwork is retained; bespoke jump frames, foreground art and final visual acceptance
 remain incomplete. No native/standard-module change or SDK revision was needed.
 
-All 181 registered functions in the full build now expose structured call contracts;
+All 182 registered functions in the full build now expose structured call contracts;
 no missing entries remain in the lightweight build either. The final 27 core APIs
 include strict optional-argument semantics, conditional map writes, named measure
 returns and text options. Objects now rejects surplus arguments; emit/tone accept

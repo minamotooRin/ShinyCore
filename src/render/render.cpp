@@ -869,6 +869,8 @@ static void draw_notice(ScRenderNotice notice) {
     case ScRenderNoticeKind::save_error: text="SAVE FAILED - see log"; failed=true; break;
     case ScRenderNoticeKind::read_pending: text="READING CHECKPOINT..."; break;
     case ScRenderNoticeKind::read_error: text="SAVE READ FAILED - see log"; failed=true; break;
+    case ScRenderNoticeKind::delete_pending: text="REMOVING CHECKPOINT..."; break;
+    case ScRenderNoticeKind::delete_error: text="SAVE REMOVE FAILED - see log"; failed=true; break;
     case ScRenderNoticeKind::stream_pending: text="LOADING MAP CHUNKS..."; break;
     case ScRenderNoticeKind::stream_error: text="MAP LOAD FAILED - see log"; failed=true; break;
     case ScRenderNoticeKind::image_pending: text="PREPARING IMAGES..."; break;

@@ -268,12 +268,44 @@ void asynchronous_reads() {
     auto bounded=await(io,request);check(!bounded&&bounded.error().find("1 MiB")!=std::string::npos,"read batch bounded without partial result");
     io.release(request);
 }
+void asynchronous_delete() {
+    Directory directory; const auto path=directory.slot();
+    check(bool(sc_save_write(path,record(1),"test",1,{{"a",state(1)}})),"deletion source checkpoint");
+    bool fail_once=true; std::thread::id worker;
+    ScSaveIo io({}, {}, [&](const ScSaveDeleteRequest& request)->ScResult<void> {
+        worker=std::this_thread::get_id();
+        if(std::exchange(fail_once,false)) return std::unexpected("injected delete failure");
+        return sc_save_delete(request.path);
+    });
+    const auto id=io.submit(ScSaveDeleteRequest{path,"test",1});
+    check(io.deleting()&&!io.reading(),"delete request identified separately from read/write");
+    rejected([&]{ io.submit(ScSaveReadRequest{path,"test",1,{},{}}); },"delete excludes reads");
+    auto failed=await(io,id);
+    check(!failed&&failed.error()=="injected delete failure"&&bool(sc_save_read(path,"test",1)),
+        "failed delete retains source before retry");
+    io.retry(id);
+    check(bool(await(io,id))&&worker!=std::this_thread::get_id(),"retry deletes on worker");
+    check(!std::filesystem::exists(path)&&!std::filesystem::exists(path+".bak")
+        &&!std::filesystem::exists(path+".chunks"),"delete removes slot, backup and owned chunks");
+    io.release(id);
+    const auto missing=io.submit(ScSaveDeleteRequest{path,"test",1});
+    check(bool(await(io,missing)),"missing slot deletion is idempotent"); io.release(missing);
+    std::filesystem::create_directories(path+".chunks");
+    const auto unrelated=std::filesystem::path(path+".chunks")/"keep.txt";
+    write_text(unrelated,"unrelated");
+    const auto blocked=io.submit(ScSaveDeleteRequest{path,"test",1});
+    check(!await(io,blocked)&&std::filesystem::exists(unrelated),"nonempty chunk directory reports incomplete delete");
+    std::filesystem::remove(unrelated);
+    io.retry(blocked);
+    check(bool(await(io,blocked))&&!std::filesystem::exists(path+".chunks"),"delete retry removes empty chunk directory");
+    io.release(blocked);
+}
 }
 int main(int argc,char** argv) {
     try {
         const bool async_only=argc==2&&!std::strcmp(argv[1],"--async");
         check(argc==1||async_only,"expected optional --async");
-        asynchronous(); asynchronous_reads(); interruption();
+        asynchronous(); asynchronous_reads(); asynchronous_delete(); interruption();
         if(!async_only) { lifecycle(); corruption(); bounds_and_scale(); immutable_names(); }
         std::cout<<"chunk saves: selected atomic snapshot and asynchronous writer checks passed\n";
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

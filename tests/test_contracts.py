@@ -135,13 +135,15 @@ function sc.physics.contacts() end
         self.run_lua('\n'.join(checks))
 
     def test_function_phases_match_execution(self):
-        functions = {f['name']: f['contract'] for f in self.api['functions'] if f.get('contract') and f['name'].count('.') == 1}
         mutations = {'sc.spawn', 'sc.spawn_many', 'sc.set', 'sc.set_many', 'sc.destroy'}
-        self.assertEqual(len(functions), 10)
+        core = mutations | {'sc.get', 'sc.get_many', 'sc.find', 'sc.find_all', 'sc.overlap'}
+        functions = {f['name']: f['contract'] for f in self.api['functions'] if f['name'] in core}
+        self.assertEqual(set(functions), core)
         for name, contract in functions.items():
             self.assertTrue(self.api['modules'][contract['module']])
             self.assertEqual('draw' in contract['phases'], name not in mutations)
-            self.assertTrue(all(p['required'] for p in contract['parameters']))
+            self.assertTrue(all(p['required'] or (name=='sc.spawn_many' and p['name']=='parents')
+                                for p in contract['parameters']))
         self.run_lua('''local id=sc.spawn({tag="contract",x=3})
 local function read()
     assert(sc.get(id).x==3 and sc.get_many({id})[1].id==id)

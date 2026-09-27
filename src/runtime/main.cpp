@@ -535,7 +535,7 @@ Result<void> run(const Options& options) {
     uint64_t display_frame=0;
     bool io_waiting=false;
     std::string io_error;
-    [[maybe_unused]] bool io_saving=false,io_reading=false,io_images=false;
+    [[maybe_unused]] bool io_saving=false,io_reading=false,io_deleting=false,io_images=false;
 #ifdef SC_HAS_DEVTOOLS
     if(options.debug_stdio) {
         if(!debugger) debugger.emplace();
@@ -693,7 +693,7 @@ Result<void> run(const Options& options) {
                     candidate_tick=false;
                 }
             }
-            io_waiting=candidate!=nullptr; io_saving=false; io_images=true; io_error.clear();
+            io_waiting=candidate!=nullptr; io_saving=false; io_deleting=false; io_images=true; io_error.clear();
             steps=0;
 #ifdef SC_HAS_GRAPHICS
             accumulator=0;
@@ -705,7 +705,7 @@ Result<void> run(const Options& options) {
             const char* io_code="save";
             ScResult<bool> ready=true;
             if(save_io.active()) ready=save_io.advance(save_io.request());
-            io_saving=true; io_reading=save_io.reading(); io_images=false;
+            io_saving=true; io_reading=save_io.reading(); io_deleting=save_io.deleting(); io_images=false;
 #ifdef SC_HAS_STREAMING
             if(ready&&*ready) {
                 io_code="stream"; io_saving=false;
@@ -815,7 +815,7 @@ Result<void> run(const Options& options) {
                 auto prepared=started?advance_candidate():reject_candidate(started.error());
                 if(!prepared) return std::unexpected(prepared.error());
                 if(!*prepared) {
-                    candidate_tick=true; io_waiting=true; io_images=true; io_saving=false; io_error.clear();
+                    candidate_tick=true; io_waiting=true; io_images=true; io_saving=false; io_deleting=false; io_error.clear();
 #ifdef SC_HAS_GRAPHICS
                     accumulator=0;
 #endif
@@ -856,10 +856,14 @@ Result<void> run(const Options& options) {
             ScRenderNotice notice{ScRenderNoticeKind::reload_error,reload_error.c_str()};
             if(io_waiting) {
                 const bool failed=!io_error.empty();
-                notice={io_saving?(io_reading?(failed?ScRenderNoticeKind::read_error:ScRenderNoticeKind::read_pending)
-                                            :(failed?ScRenderNoticeKind::save_error:ScRenderNoticeKind::save_pending))
-                                 :io_images?(failed?ScRenderNoticeKind::image_error:ScRenderNoticeKind::image_pending)
-                                           :(failed?ScRenderNoticeKind::stream_error:ScRenderNoticeKind::stream_pending),io_error.c_str()};
+                ScRenderNoticeKind kind;
+                if(io_saving) {
+                    if(io_reading) kind=failed?ScRenderNoticeKind::read_error:ScRenderNoticeKind::read_pending;
+                    else if(io_deleting) kind=failed?ScRenderNoticeKind::delete_error:ScRenderNoticeKind::delete_pending;
+                    else kind=failed?ScRenderNoticeKind::save_error:ScRenderNoticeKind::save_pending;
+                } else if(io_images) kind=failed?ScRenderNoticeKind::image_error:ScRenderNoticeKind::image_pending;
+                else kind=failed?ScRenderNoticeKind::stream_error:ScRenderNoticeKind::stream_pending;
+                notice={kind,io_error.c_str()};
             }
             sc_render_frame(&runtime->world,alpha,notice,paused,profiling?&sample.render:nullptr,&runtime->script,capture);
             if (sc_render_error()[0]) return std::unexpected(Error{"render",sc_render_error()});

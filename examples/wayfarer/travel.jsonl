@@ -1,14 +1,14 @@
 {"version": 3}
 {"frame": 0, "keys": ["enter"], "gamepad": {"connected": false}}
-{"frame": 2, "keys": [], "gamepad": {"connected": false}}
-{"frame": 3, "keys": ["d"], "gamepad": {"connected": false}}
-{"frame": 121, "keys": [], "gamepad": {"connected": false}}
-{"frame": 122, "keys": ["s"], "gamepad": {"connected": false}}
-{"frame": 138, "keys": [], "gamepad": {"connected": false}}
-{"frame": 139, "keys": ["e"], "gamepad": {"connected": false}}
-{"frame": 140, "keys": ["f6"], "gamepad": {"connected": false}}
-{"frame": 141, "keys": ["d"], "gamepad": {"connected": false}}
-{"frame": 341, "keys": ["a"], "gamepad": {"connected": false}}
-{"frame": 541, "keys": [], "gamepad": {"connected": false}}
-{"frame": 542, "keys": ["f6"], "gamepad": {"connected": false}}
-{"frame": 543, "keys": [], "gamepad": {"connected": false}}
+{"frame": 3, "keys": [], "gamepad": {"connected": false}}
+{"frame": 4, "keys": ["d"], "gamepad": {"connected": false}}
+{"frame": 122, "keys": [], "gamepad": {"connected": false}}
+{"frame": 123, "keys": ["s"], "gamepad": {"connected": false}}
+{"frame": 139, "keys": [], "gamepad": {"connected": false}}
+{"frame": 140, "keys": ["e"], "gamepad": {"connected": false}}
+{"frame": 141, "keys": ["f6"], "gamepad": {"connected": false}}
+{"frame": 142, "keys": ["d"], "gamepad": {"connected": false}}
+{"frame": 342, "keys": ["a"], "gamepad": {"connected": false}}
+{"frame": 542, "keys": [], "gamepad": {"connected": false}}
+{"frame": 543, "keys": ["f6"], "gamepad": {"connected": false}}
+{"frame": 544, "keys": [], "gamepad": {"connected": false}}

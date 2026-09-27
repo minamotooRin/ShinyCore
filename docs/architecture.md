@@ -24,7 +24,7 @@ private revisions beside active pixels; commit changes future cache lookup prefe
 while other owners retain their old versions until release. See [image residency](image-residency.md).
 Standalone native streams can own a private loader; see [lifetimes and limits](streaming.md).
 
-`src/content/save_io.cpp` supplies a lazy, single-transaction native read/write service
+`src/content/save_io.cpp` supplies a lazy, single-transaction native read/write/delete service
 with owned checkpoint payloads, explicit result observation and retry. The host
 owns it and gates the next fixed update for Lua async requests, while servicing UI,
 devices and network. Unreleased requests exclude other save operations, room changes
@@ -39,7 +39,8 @@ reads. Stream-world uses this API before preparing entering objects/terrain, the
 saves outgoing data and publishes. Read/write exclusion prevents this application's
 collection from racing readers. Wayfarer probes its title checkpoint on the worker;
 after release, `sc.save.load` consumes the pinned index without rereading the slot.
-Explicit save deletion and slot enumeration remain synchronous utilities.
+Wayfarer uses async deletion for a confirmed new journey; synchronous deletion and
+slot enumeration remain explicit utilities.
 Rooms declaring `project.stream_indexes` stage index parsing on the content worker
 between scene-table loading and `init`, then consume the parsed index in `sc.stream.open`.
 Undeclared indexes still open synchronously.

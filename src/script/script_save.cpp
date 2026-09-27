@@ -159,7 +159,7 @@ int save_status(lua_State* L) {
     {
         const auto& result=s->save_io->outcome(id);
         ScValue::Object fields{{"request",ScValue{double(id)}},
-            {"operation",ScValue{std::string(s->save_io->reading()?"read":"write")}},
+            {"operation",ScValue{std::string(s->save_io->reading()?"read":s->save_io->deleting()?"delete":"write")}},
             {"status",ScValue{std::string(!result?"pending":*result?"complete":"failed")}}};
         if(result&&!*result) fields.emplace("error",ScValue{result->error()});
         s->scratch=ScValue{std::move(fields)};
@@ -301,6 +301,25 @@ int save_delete(lua_State* L) {
     }
     lua_pushboolean(L,true); return 1;
 }
+int save_delete_async(lua_State* L) {
+    if(lua_gettop(L)!=1) return luaL_error(L,"delete_async expects one slot");
+    auto* s=script(L);
+    if(s->phase!=1||s->checking||s->candidate) return luaL_error(L,"async deletion requires update in an active room");
+    const char* slot=save_slot(L,1);
+    idle_writer(L);
+    std::uint64_t request=0;
+    try {
+        if(!s->save_io||s->save_directory.empty()||s->pending_scene[0])
+            throw std::runtime_error("async deletion requires a host, disk save directory and no pending scene transition");
+        auto id=s->project.get("id"),version=s->project.get("data_version");
+        if(!id) throw std::runtime_error("saving requires project.id");
+        request=s->save_io->submit(ScSaveDeleteRequest{
+            s->save_directory+"/"+id->text()+"/"+slot+".json",id->text(),version?version->number():1});
+        if(s->save_snapshot_slot==slot) { s->save_snapshot=ScValue{}; s->save_snapshot_slot.clear(); }
+    } catch(const std::exception& error) { error_text(s,error.what()); }
+    if(request) { lua_pushinteger(L,static_cast<lua_Integer>(request)); return 1; }
+    lua_pushnil(L); lua_pushstring(L,s->error); return 2;
+}
 constexpr ScLuaParameter slot_parameter{"slot","string",true,"1..128 ASCII letters, digits, underscores or hyphens; project.id supplies the namespace."};
 constexpr ScLuaParameter slot_parameters[]={slot_parameter};
 constexpr ScLuaParameter read_chunk_parameters[]={slot_parameter,
@@ -327,7 +346,7 @@ constexpr ScLuaContract read_chunk_contract{.parameters=read_chunk_parameters,.r
     .capacity="256 KiB per chunk",.results=chunk_results};
 constexpr ScLuaContract write_chunks_contract{.parameters=write_chunks_parameters,.result=nullptr,.phases=ScLuaPhases::update,
     .capacity="256 KiB combined changes; 16384 chunks; 1 GiB world",.results=operation_results};
-constexpr ScLuaParameter request_parameters[]={{"request","integer",true,"Live request returned by an asynchronous read or write.",nullptr,1,4503599627370495.0}};
+constexpr ScLuaParameter request_parameters[]={{"request","integer",true,"Live request returned by an asynchronous read, write or delete.",nullptr,1,4503599627370495.0}};
 constexpr ScLuaParameter read_chunks_parameters[]={slot_parameter,
     {"keys","string[]",true,"0..1024 unique chunk keys using persistent-ID syntax; an empty array reads only the checkpoint summary."}};
 constexpr ScLuaReturn async_results[]={
@@ -341,15 +360,18 @@ constexpr ScLuaContract status_contract{request_parameters,"ScSaveStatus",ScLuaP
 constexpr ScLuaContract result_contract{request_parameters,"ScSaveReadResult",ScLuaPhases::read};
 constexpr ScLuaContract async_read_contract{.parameters=read_chunks_parameters,.result=nullptr,.phases=ScLuaPhases::update,
     .capacity="One unreleased transaction; 1024 keys; 1 MiB combined encoded chunks plus 4 MiB internal index",.results=async_results};
+constexpr ScLuaContract async_delete_contract{.parameters=slot_parameters,.result=nullptr,.phases=ScLuaPhases::update,
+    .capacity="One unreleased transaction per application; disk save directory required",.results=async_results};
 constexpr ScLuaContract request_action_contract{request_parameters,"boolean",ScLuaPhases::update_ui};
 const ScLuaApi save_api[]={
     {"read_chunks_async",sc_lua_guard<save_read_chunks_async>,"read_chunks_async(slot,keys) -> request|nil,error","Read selected chunks and a checkpoint summary on the application IO worker, using the pinned snapshot when available or selecting a complete valid snapshot. Missing slot/keys are absent data, corruption is a failure. No state or scene mutation. Host gates the next fixed update.",&async_read_contract},
-    {"result",sc_lua_guard<save_result>,"result(request) -> result","Copy a successfully completed read result with record summary and requested chunks. Errors for pending, failed, write or expired requests; does not release or modify state.",&result_contract},
+    {"delete_async",sc_lua_guard<save_delete_async>,"delete_async(slot) -> request|nil,error","Submit removal of a disk slot, backup and owned chunks on the application IO worker. Missing slots succeed. Wait for complete status and release before changing rooms; failed deletion may be retried. A failed partial removal cannot be undone.",&async_delete_contract},
+    {"result",sc_lua_guard<save_result>,"result(request) -> result","Copy a successfully completed read result with record summary and requested chunks. Errors for pending, failed, write, delete or expired requests; does not release or modify state.",&result_contract},
     {"write_async",sc_lua_guard<save_write_async>,"write_async(slot) -> request|nil,error","Submit a frozen checkpoint to the application writer; disk required. Host waits before the next fixed update, keeping UI/devices alive. Submission is not success; inspect status then release. No other save operation or scene change while unreleased.",&async_write_contract},
     {"write_chunks_async",sc_lua_guard<save_write_chunks_async>,"write_chunks_async(slot,changes) -> request|nil,error","Asynchronously commit a frozen checkpoint plus chunk changes with the same format and atomicity as write_chunks. Changes are copied at submission; false deletes a chunk. Host gates the next fixed update.",&async_chunks_contract},
     {"status",sc_lua_guard<save_status>,"status(request) -> status","Copy the host-observed request status; never poll worker timing from Lua. Pending until the next fixed boundary; invalid/expired request errors.",&status_contract},
-    {"retry",sc_lua_guard<save_request_action<true>>,"retry(request) -> true","Retry an observed failed read/write using its original payload, selected snapshot and request ID. Update/ui_update only; candidate/check/draw forbidden.",&request_action_contract},
-    {"release",sc_lua_guard<save_request_action<false>>,"release(request) -> true","Release an observed result and invalidate its ID; never cancel pending IO or undo a commit. Successful reads pin their selected index; writes, failed or missing reads clear it. A released failure permits continuing the old world.",&request_action_contract},
+    {"retry",sc_lua_guard<save_request_action<true>>,"retry(request) -> true","Retry an observed failed read/write/delete using its original payload, selected snapshot and request ID. Update/ui_update only; candidate/check/draw forbidden.",&request_action_contract},
+    {"release",sc_lua_guard<save_request_action<false>>,"release(request) -> true","Release an observed result and invalidate its ID; never cancel pending IO or undo a commit. Successful reads pin their selected index; writes, deletes, failed or missing reads clear it. A released failure permits continuing the old world.",&request_action_contract},
     {"read_chunk",sc_lua_guard<save_read_chunk>,"read_chunk(slot,key) -> state|nil,error","Read one disk chunk from a pinned complete snapshot; absent chunk or missing slot and backup returns nil without error. Invalid existing saves retain diagnostics. Load/init/update only, disabled in check. Keys use persistent-ID syntax.",&read_chunk_contract},
     {"write_chunks",sc_lua_guard<save_write_chunks>,"write_chunks(slot,changes) -> true|nil,error","Atomically save scene, shared state and chunk changes; a key maps to a state object or false to delete. Combined changes bounded to 256 KiB; update only, disk required.",&write_chunks_contract},
     {"list",sc_lua_guard<save_list>,"list() -> slots","Sorted distinct slot metadata, including backup-only slots and invalid record diagnostics. Synchronous; requires project.id. Invalid arguments, directory errors and capacity overflow raise Lua errors.",&list_contract},
@@ -378,7 +400,7 @@ ScValue sc_script_save_contracts() {
     const auto timestamp=field("saved_at","integer",false,"Unix seconds, 0..9007199254740991; not deterministic gameplay state. Optional for native-authored records.");
     return ScValue{ScValue::Object{
         {"ScSaveStatus",type({field("request","integer",true,"Live request ID, 1..2^52-1."),
-            field("operation","'read'|'write'",true,"Operation accepted by the application IO worker."),
+            field("operation","'read'|'write'|'delete'",true,"Operation accepted by the application IO worker."),
             field("status","'pending'|'complete'|'failed'",true,"Published by the host at a fixed boundary; Lua never observes raw worker timing."),
             field("error","string",false,"Present only on failure; retry preserves the original frozen payload.")},
             "Independent status copy. Release invalidates the request; pending requests cannot be released.")},
