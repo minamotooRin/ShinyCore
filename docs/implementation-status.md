@@ -10,6 +10,13 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Prefab merge now replaces any numerically keyed table as a whole, including sparse
+arrays cleared with `{}`; string-keyed maps still merge recursively. The failing
+real-host case was reproduced before the fix. Focused prefab and streamed-object
+checks, five project SDK/content audits and inspected hidden Crossing/Wayfarer
+captures pass; Wayfarer's pixels match its prior capture. Local SDKs and new-project
+scaffolding are pinned to dev.59. See [prefab](prefab.md).
+
 Wayfarer's title and forest now acquire the same application-owned theme voice.
 The original 0.3-second placeholder has been replaced by a reproducible 20-second
 Ogg melody. The full quest integration test checks unchanged voice identity and

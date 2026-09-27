@@ -25,6 +25,13 @@ return {width=384,height=216,gravity=0,ambient=1,map={rows={'.'},background='#11
  local cyclic={};cyclic.self=cyclic;assert(not pcall(P.merge,{},cyclic))
  local merged=P.merge({items={1,2},fields={a=1}},{items={},fields={b=2}})
  assert(#merged.items==0 and merged.fields.a==1 and merged.fields.b==2)
+ local sparse=P.merge({items={[2]='old'}},{items={}})
+ assert(next(sparse.items)==nil)
+ sparse=P.merge({items={[2]='old',label='old'}},{items={[4]='new'}})
+ assert(sparse.items[2]==nil and sparse.items.label==nil and sparse.items[4]=='new')
+ local defaults={fields={a=1}};local changes={fields={b={value=2}}}
+ local independent=P.merge(defaults,changes);independent.fields.b.value=9
+ assert(defaults.fields.b==nil and changes.fields.b.value==2)
  assert(not pcall(P.spawn,{entity={persistent_id='failed'},children={bad={w=-1}}}))
  assert(sc.identity.resolve('failed').status=='absent')
  assert(not pcall(P.spawn,{entity={persistent_id='body'},children={bad={dynamic=true}}}))

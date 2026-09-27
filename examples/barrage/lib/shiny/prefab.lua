@@ -11,12 +11,16 @@ local function copy(value, active)
     active[value] = nil
     return out
 end
-local function merge(defaults,overrides)
-    local result=copy(defaults)
+local function indexed(value)
+    for key in pairs(value) do if type(key)=="number" then return true end end
+    return false
+end
+local function merge(result,overrides)
     for key,value in pairs(overrides) do
-        if type(value)=="table" and type(result[key])=="table" and #value==0 and #result[key]==0 then
-            result[key]=merge(result[key],value)
-        else result[key]=copy(value) end
+        if type(value)=="table" and type(result[key])=="table"
+            and not indexed(value) and not indexed(result[key]) then
+            merge(result[key],value)
+        else result[key]=value end
     end
     return result
 end

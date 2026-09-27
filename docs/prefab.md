@@ -1,7 +1,7 @@
 # 对象模板
 
 `shiny.prefab` 用普通 Lua 表组合实体默认值、命名子对象和游戏组件数据。
-项目携带模块副本；使用本模块的项目当前分发为 SDK `1.0.0-dev.57`。
+项目携带模块副本；使用本模块的项目当前分发为 SDK `1.0.0-dev.59`。
 
 ```lua
 local Prefab = require("shiny.prefab")
@@ -23,8 +23,9 @@ local health = item.data.health
 Prefab.destroy(item)
 ```
 
-`merge(defaults, overrides)` 返回独立表：映射逐字段递归合并，数组整体替换，
-空表可以清空已有数组。合并前拒绝元表和循环，不修改输入；省略 overrides
+`merge(defaults, overrides)` 返回独立表：仅含字符串键的映射逐字段递归合并；
+含任意数字键的表按数组整体替换，即使下标稀疏或覆盖值为空表。需要合并的字典
+请使用字符串键。合并前拒绝元表和循环，不修改输入；省略 overrides
 等价于空表。components 只保存在实例 data 中，不自动执行游戏逻辑。
 
 spawn 按名称排序，将根和命名子对象通过 `sc.spawn_many(specs, parents)` 一次
@@ -83,3 +84,8 @@ Crossing 使用此模块的短冒烟检查见同目录记录；未运行全套�
 隐藏静音原生图 `build/prefab-nested-reviewed/attachments.png` 已实际查看，
 三个旋转示例的小亮点均跟随灯体。使用该模块的五个项目 SDK 更新为 dev.56；
 流式对象的复合 prefab 归属已在后续工作整合。
+
+2026-09-27：修复稀疏数组覆盖值 `{}` 未清空旧数据的问题。先在真实宿主中复现
+断言失败，修复后 prefab 与流式复合对象用例通过；五份项目本地模块/SDK
+更新为 dev.59，内容检查与 SDK 审计通过。Crossing 渡台、Wayfarer 森林的隐藏
+原生截图已目视检查，后者与修改前逐像素一致。无样例玩法或渲染规则改动。
