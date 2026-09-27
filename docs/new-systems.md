@@ -126,10 +126,11 @@ All file dependencies, parameters and tool version participate in the key.
 
 The importer converts finite/infinite orthogonal maps, negative chunks, integer
 or base64 raw/zlib/gzip data, groups, image/object layers, external tilesets and
-object templates into 32x32 blocks. It preserves layer metadata and decomposes
-concave object polygons. It is not yet wired into the full map drawing, collision
-and persistent-object lifecycle; the direct runtime Tiled reader still has its
-older restricted format contract.
+object templates into 32x32 blocks. It preserves map/group/layer metadata and decomposes
+concave object polygons. `shiny.stream_world` coordinates prepared drawing,
+terrain, navigation and persistent objects from these blocks; the direct runtime
+Tiled reader still has its older restricted format contract. Map and group
+properties are described in [the metadata contract](tiled-map-properties.md).
 
 Build with `SHINY_STREAMING=ON` to enable `sc.stream.open(index_path)` in init.
 `request(x,y,commit_frame)` prefetches for a planned simulation tick;

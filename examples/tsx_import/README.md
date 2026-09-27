@@ -2,8 +2,10 @@
 
 Run `shiny examples/tsx_import`. This small project shows a JSON map using two
 external TSX tilesets: an animated atlas and a sparse image collection. A tile
-object also inherits from the external XML `plaque.tx` template. The files
-are local, and only the readable built chunk index plus PNGs are needed at runtime.
+object also inherits from the external XML `plaque.tx` template. Map and group
+`file` properties remain readable through `sc.stream.metadata()`. The files
+are local. Runtime uses the built chunk index, PNGs and two note files retained
+by the package dependency closure.
 
 Rebuild from the engine checkout:
 

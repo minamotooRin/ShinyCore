@@ -1709,7 +1709,7 @@ function sc.stream.failure() end
 ---@param y integer
 ---@return table|nil
 function sc.stream.get(x, y) end
----Copy format, chunk_size, tilewidth, tileheight, layers, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.
+---Copy format, chunk_size, tilewidth/height, layers, groups, map properties, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.
 ---Phases: load, init, update.
 ---@return table
 function sc.stream.metadata() end

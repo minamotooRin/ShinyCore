@@ -76,20 +76,24 @@ return {update=function() require('game.later') end}
         self.manifest(stream_maps=['maps/index.json'])
         self.file('dialogue/npc.txt','hello');self.file('sprites/npc.png','image fixture')
         self.file('dialogue/tileset.txt','tileset');self.file('dialogue/tile.txt','tile')
-        self.file('dialogue/layer.txt','layer')
+        self.file('dialogue/layer.txt','layer');self.file('dialogue/map.txt','map')
+        self.file('dialogue/group.txt','group')
         content={'objects':[{'id':7,'properties':[{'name':'dialogue','type':'file','value':'dialogue/npc.txt'},
                                                 {'name':'optional','type':'file','value':''}]}]}
         def chunk():
             written=self.file('maps/0_0.json',json.dumps(content))
             self.file('maps/index.json',json.dumps({'format':3,'chunk_size':32,
                 'chunks':[{'path':'0_0.json','bytes':written.stat().st_size}],
+                'properties':[{'name':'story','type':'file','value':'dialogue/map.txt'}],
+                'groups':[{'name':'world','properties':[{'name':'note','type':'file','value':'dialogue/group.txt'}]}],
                 'tilesets':[{'name':'icons','properties':[{'name':'guide','type':'file','value':'dialogue/tileset.txt'}],
                              'tiles':[{'id':5,'image':'sprites/npc.png',
                                        'properties':[{'name':'note','type':'file','value':'dialogue/tile.txt'}]}]}],
                 'layers':[{'name':'ground','properties':[{'name':'hint','type':'file','value':'dialogue/layer.txt'}]}]}))
         chunk()
         files={item['path'] for item in closure(self.root)['files']}
-        self.assertTrue({'dialogue/npc.txt','dialogue/tileset.txt','dialogue/tile.txt','dialogue/layer.txt','sprites/npc.png'}<=files)
+        self.assertTrue({'dialogue/npc.txt','dialogue/tileset.txt','dialogue/tile.txt','dialogue/layer.txt',
+                         'dialogue/map.txt','dialogue/group.txt','sprites/npc.png'}<=files)
         content['objects'][0]['properties'][0]['value']='../outside.txt';chunk()
         with self.assertRaisesRegex(OSError,'object 7 property dialogue'):closure(self.root)
         content['objects'][0]['properties'][0]['value']='dialogue/npc.txt';chunk()

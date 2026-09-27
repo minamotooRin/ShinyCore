@@ -94,6 +94,9 @@ def closure(project: Path):
         try:
             data=json.loads(index.read_text(encoding='utf-8'))
             if data.get('format')!=3 or data.get('chunk_size')!=32:raise ValueError('expected built stream format 3 / 32 tiles')
+            file_properties(data.get('properties',[]),f"{path}: map")
+            for group in data.get('groups',[]):
+                file_properties(group.get('properties',[]),f"{path}: group {group.get('name','?')}")
             for chunk in data['chunks']:
                 name=chunk['path']
                 if not isinstance(name,str) or '/' in name or '\\' in name:raise ValueError('chunk path must be a filename')

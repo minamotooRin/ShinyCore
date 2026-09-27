@@ -2,6 +2,14 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **当前离线构建缓存版本为 13，地图/组属性链路已补齐：** Tiled JSON 的地图及嵌套组
+  `properties` 保存在可读分块索引；组父子关系和子层所属组以一基索引表示。
+  `sc.stream.metadata()` 可读取这些数据，发行依赖闭包包含其中的 `file` 引用。
+  TSX/TX 小例子验证运行时属性、对象持久 ID 和实际图块显示。定向资源与发行测试、
+  全/轻量编译、全功能无窗口 ASan/UBSan 30 帧、项目检查与 12 个 SDK 审计通过；
+  隐藏静音原生图已查看。11 个带注解的项目 SDK 升至 dev.48；Snapshot 没有注解，
+  保持其独立 dev.1。见 tiled-map-properties.md 与 `build/map-properties-reviewed/`。
+  手写格式夹具不代表真实 Tiled 编辑器导出、完整游戏或跨平台验收；不重做旧字体。
 - **命名输入绑定边界已收紧：** shiny.input 在 Input.new/bind/save 前验证来源数组、
   类型、设备名称及字段组合，并复制配置；失败不替换当前绑定，调用方后续修改原表
   不再悄悄改写生效输入。四项定向回放和五个使用 input.lua 的项目 --check-all 通过，
@@ -12,10 +20,10 @@
   XML 模板；可继承外部 TSX 图集 GID，覆盖属性，按来源解析 file 属性并纳入发行闭包。
   五项定向资源检查、TSX 示例的 30 帧无窗口运行、隐藏静音原生图检查通过；
   源 `.tx` 不进入运行包。见 tiled-templates.md 与 `build/tx-import-reviewed/`。
-  输入为手写格式夹具，非 Tiled 编辑器导出验收；TMX 地图仍不支持。缓存版本 12。
+  输入为手写格式夹具，非 Tiled 编辑器导出验收；TMX 地图仍不支持。当时缓存版本 12。
   不重复旧字体、已有截图或性能长测。
 - **外部 Tiled TSX 已加入离线链路：** JSON 正交地图可引用 TSX 图集或稀疏图片集合；
-  动画、图块碰撞、文件属性和模板 GID 继续走现有块格式 3，工具缓存现为版本 12。
+  动画、图块碰撞、文件属性和模板 GID 继续走现有块格式 3，当时工具缓存为版本 12。
   四项定向资源测试、独立示例的内容检查及 30 帧无窗口运行通过；隐藏静音原生图
   已查看。发行闭包现携带图集/图块/图层 file 属性，运行时文件移位后两帧通过。
   见 tiled-tsx.md、examples/tsx_import 与 `build/tsx-import-reviewed/`。
@@ -32,7 +40,7 @@
   中文字体问题已解决；用户最新反馈针对续接行为，不是再次提出字体修复。
   不因压缩摘要或历史截图重做字体、截图或回归验证。
 - **Aseprite 导入链路已接入：** tools/aseprite.py 校验 PNG＋JSON、恢复裁剪画布、
-  生成规则图集及直接供 shiny.animation 使用的 Lua 片段；资源缓存现为版本 12。
+  生成规则图集及直接供 shiny.animation 使用的 Lua 片段；当时资源缓存为版本 12。
   examples/animation_import 使用原有 Workshop 素材与手写格式夹具，未运行编辑器。
   三项资源定向测试、内容检查、依赖闭包和 dev.46 SDK 审计通过；60 帧无窗口与
   隐藏静音原生观察数据一致，imported-clips.png 已查看。见 aseprite.md 与

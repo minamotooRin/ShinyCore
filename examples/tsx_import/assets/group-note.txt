@@ -1,0 +1,1 @@
+The gallery group has a packaged file property for its guide data.

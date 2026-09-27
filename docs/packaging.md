@@ -40,7 +40,7 @@ python tools/package.py build/shiny.exe build/packages/Game --project my-game --
   数据复制，不扫描其中的 Lua 注解。动态路径、原始 Tiled 外部文件、着色器及其他
   非流式数据依赖也须在这里列全；不根据观察到的一次游玩推断哪些资源永远不用。
 - `stream_maps` 接受工具生成的 format 3、32×32 块索引。收集全部索引块及地图图像，
-  校验块字节数，并收集块对象、图集、图块及图层中生效的 `file` 属性依赖；
+  校验块字节数，并收集地图、组、图层、图集、图块及块对象中生效的 `file` 属性依赖；
   离线源地图、TSX 图集和构建缓存无需随运行包携带。
 - 计算名称、别名调用或转义字面量 `require` 需在 `dynamic_modules` 按所属脚本列出
   全部候选模块。无法静态判断的 require 且没有声明时失败。其他间接查表方式也须

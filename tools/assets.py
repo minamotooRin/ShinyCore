@@ -19,7 +19,7 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 12
+VERSION = 13
 CHUNK = 32
 
 
@@ -274,7 +274,7 @@ def tiled(root, source, read):
         resolved=resolved_properties(defaults)
         if resolved or "properties" in obj: obj["properties"]=resolved
         return obj
-    blocks={}; layers=[]; identities=set()
+    blocks={}; layers=[]; groups=[]; identities=set()
     def block_at(x,y):
         return blocks.setdefault((x,y),{"layers":{},"objects":[]})
     def walk(items,parent):
@@ -305,10 +305,18 @@ def tiled(root, source, read):
                 if abs(inherited[field])>limit: raise ValueError(f"{context}: inherited {field} outside supported range")
             kind=layer["type"]
             if kind=="group":
-                walk(layer.get("layers",[]),{**inherited,"name":name+"/","_tint":tint}); continue
+                try: group_properties=resolved_properties(properties(layer.get("properties",[]),path))
+                except (ValueError,KeyError,TypeError) as error: raise ValueError(f"{context}: {error}") from error
+                group={"name":name,"properties":group_properties}
+                if "id" in layer: group["id"]=layer["id"]
+                if parent.get("_group"): group["parent_group"]=parent["_group"]
+                groups.append(group)
+                walk(layer.get("layers",[]),{**inherited,"name":name+"/","_tint":tint,"_group":len(groups)})
+                continue
             index=len(layers)
             layers.append({**inherited,"type":kind,"order":index,
                            "tintcolor":"#"+"".join(f"{math.floor(channel*255+.5):02X}" for channel in tint)})
+            if parent.get("_group"): layers[-1]["group"]=parent["_group"]
             try: layers[-1]["properties"]=resolved_properties(properties(layer.get("properties",[]),path))
             except (ValueError,KeyError,TypeError) as error: raise ValueError(f"{context}: {error}") from error
             if kind=="tilelayer":
@@ -368,7 +376,10 @@ def tiled(root, source, read):
                 raise ValueError(f"{source}:{name}: unsupported layer type {kind}")
     walk(data.get("layers",[]),{})
     if len(layers)>1000 or len(blocks)>65536: raise ValueError(f"{source}: stream layer or chunk capacity exceeded")
-    metadata={"format":3,"chunk_size":CHUNK,"tilewidth":tw,"tileheight":th,"tilesets":sets,"layers":layers,"chunks":[]}
+    try: map_properties=resolved_properties(properties(data.get("properties",[]),path))
+    except (ValueError,KeyError,TypeError) as error: raise ValueError(f"{source}: map properties: {error}") from error
+    metadata={"format":3,"chunk_size":CHUNK,"tilewidth":tw,"tileheight":th,"tilesets":sets,
+              "layers":layers,"groups":groups,"properties":map_properties,"chunks":[]}
     for field in ("parallaxoriginx","parallaxoriginy"):
         value=data.get(field,0)
         if type(value) not in (int,float) or not math.isfinite(value) or abs(value)>1000000:

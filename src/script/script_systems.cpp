@@ -101,7 +101,7 @@ int stream_metadata(lua_State* L) {
     s->scratch=ScValue{ScValue::Object{}};
     {
         auto& out=std::get<ScValue::Object>(s->scratch.data);
-        for(const char* name:{"format","chunk_size","tilewidth","tileheight","layers","tilesets","parallaxoriginx","parallaxoriginy"})
+        for(const char* name:{"format","chunk_size","tilewidth","tileheight","layers","groups","properties","tilesets","parallaxoriginx","parallaxoriginy"})
             if(const auto* value=s->stream->metadata().get(name)) out.emplace(name,*value);
     }
     sc_lua_push(L,s->scratch); return 1;
@@ -205,7 +205,7 @@ const ScLuaApi stream_api[]={
     {"get",sc_lua_guard<stream_chunk<1>>,"get(x,y) -> chunk|nil","Read committed chunk data without waiting; nil until its planned boundary. Absent sparse chunks are empty. Load/init/update only.",&stream_get_contract},
     {"release",sc_lua_guard<stream_chunk<2>>,"release(x,y)","Release one chunk reference; zero references cancel visibility. Pending cancellation drains at its planned boundary.",&stream_release_contract},
     {"stats",sc_lua_guard<stream_stats>,"stats() -> counters","Read reserved cache bytes, visible/pinned chunks and scheduled request counts; worker completion timing is not exposed.",&stream_stats_contract},
-    {"metadata",sc_lua_guard<stream_metadata>,"metadata() -> table","Copy format, chunk_size, tilewidth, tileheight, layers, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.",&stream_metadata_contract},
+    {"metadata",sc_lua_guard<stream_metadata>,"metadata() -> table","Copy format, chunk_size, tilewidth/height, layers, groups, map properties, tilesets and parallaxoriginx/y without chunk directory or object payloads. Load/init/update only.",&stream_metadata_contract},
     {"terrain",sc_lua_guard<stream_terrain>,"terrain(shapes,navigation?,entities?) -> true,ids?","Atomically replace imported terrain with {x=0,y=0,w,h,one_way=false,vertices?} shapes in world pixels. Optional vertices are 3..8 local convex x,y pairs. Retain previous terrain on failure; remove finite room borders and camera clamping on success. Empty array clears imported terrain. Optional navigation {x,y,rows,cell_size=8} replaces the local grid in the same transaction and discards previous flow fields. Optional entering entity batch commits with terrain; returns IDs as second result. Invalid entities or capacity failure retain prior terrain/navigation. Load/init/update only.",&stream_terrain_contract},
     {nullptr,nullptr,nullptr,nullptr}
 };

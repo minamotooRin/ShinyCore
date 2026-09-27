@@ -159,17 +159,26 @@ class Assets(unittest.TestCase):
     def test_group_layer_inheritance(self):
         with tempfile.TemporaryDirectory(prefix='shiny-layers-') as temp:
             root=Path(temp)
+            (root/'map-note.txt').write_text('map',encoding='utf-8')
+            (root/'group-note.txt').write_text('group',encoding='utf-8')
             child={'type':'tilelayer','name':'ground','width':1,'height':1,'data':[0],
                    'tintcolor':'#8080FF80','opacity':.5,'offsetx':2,'parallaxx':.5}
             group={'type':'group','name':'world','tintcolor':'#80FF8040','opacity':.5,
-                   'offsetx':-8,'parallaxx':.5,'visible':False,'layers':[child]}
-            data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,'layers':[group]}
+                   'offsetx':-8,'parallaxx':.5,'visible':False,
+                   'properties':[{'name':'guide','type':'file','value':'group-note.txt'}],
+                   'layers':[child,{'type':'group','name':'room','layers':[
+                       {'type':'objectgroup','name':'actors','objects':[]}]}]}
+            data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,'layers':[group],
+                  'properties':[{'name':'intro','type':'file','value':'map-note.txt'}]}
             def compile():
                 (root/'map.json').write_text(json.dumps(data))
-                return assets.tiled(root,'map.json',lambda p:p.read_bytes())[0]['layers'][0]
-            layer=compile()
+                return assets.tiled(root,'map.json',lambda p:p.read_bytes())[0]
+            metadata=compile();layer=metadata['layers'][0]
             self.assertEqual(layer['tintcolor'],'#40808020')
             self.assertEqual((layer['opacity'],layer['offsetx'],layer['parallaxx'],layer['visible']),(.25,-6,.25,False))
+            self.assertEqual((layer['group'],metadata['layers'][1]['group'],metadata['groups'][1]['parent_group']),(1,2,1))
+            self.assertEqual(metadata['properties'][0]['value'],'map-note.txt')
+            self.assertEqual(metadata['groups'][0]['properties'][0]['value'],'group-note.txt')
             self.assertNotIn('_tint',layer)
             for field,bad in [('tintcolor','#GGFFFF'),('opacity',True),('opacity',1.01),
                               ('visible','false'),('offsetx',float('inf')),('parallaxx',float('nan')),

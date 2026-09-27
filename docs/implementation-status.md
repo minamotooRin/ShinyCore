@@ -10,6 +10,16 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Map and nested group custom properties now survive the offline Tiled JSON build in
+the readable chunk index and are exposed by `sc.stream.metadata()` with one-based
+group ancestry. The package closure follows their `file` references. Focused asset
+and package tests, full/lightweight builds, 30 headless ASan/UBSan frames, content
+checking, all twelve SDK audits and an inspected hidden native sample capture pass.
+The shared builder cache is version 13; eleven projects with LuaLS annotations are
+pinned at dev.48, while the separate Snapshot SDK remains dev.1. See the
+[map/group property contract](tiled-map-properties.md). Inputs are hand-authored
+fixtures; editor-export, platform and complete-game acceptance remain open.
+
 Named input bindings now validate every source and native device name before
 publication; malformed keyboard/mouse/pad entries and mixed source fields fail
 without replacing the active binding. New/bind/save copy their data, so caller
@@ -31,7 +41,7 @@ maps. Atlas and sparse collection images, animation, collision shapes and file
 properties flow into the existing format-3 chunk output. The package closure now
 includes effective tileset/tile/layer file properties. Four focused asset tests,
 two package checks, a relocated example, headless runtime and inspected native capture provide
-evidence; see [TSX contract](tiled-tsx.md). Cache format is now 12. TMX maps remain unsupported.
+evidence; see [TSX contract](tiled-tsx.md). Cache format was 12 at that checkpoint. TMX maps remain unsupported.
 
 Barrage now has five distinct four-frame enemy sprites at native gameplay sizes.
 The offline source script reproduces their PNG bytes. Content, short replay,
@@ -44,7 +54,8 @@ and generate native sprite grids plus plain Lua animation catalogs. Focused asse
 tests and the runnable animation_import sample passed content/SDK checks; headless
 and hidden native observations agreed, and its PNG was inspected. Source metadata
 is an authored format fixture, not an editor-export acceptance claim. See the
-[import contract and evidence](aseprite.md). The shared builder cache is now format 12; SDK remains dev.46.
+[import contract and evidence](aseprite.md). The shared builder cache was format 12
+at that checkpoint; the sample SDK was dev.46.
 
 The advanced_render aggregate capability now follows its build switch and agrees
 with materials/postprocessing/geometry_shadows/normal_maps. A real full-build project
