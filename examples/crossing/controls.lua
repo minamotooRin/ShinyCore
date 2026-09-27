@@ -3,8 +3,8 @@ local Input=require('shiny.input')
 local Controls={}
 function Controls.new()
     return Input.new({
-        left={{key='a'},{key='left'},{button='dpad_left'}},
-        right={{key='d'},{key='right'},{button='dpad_right'}},
+        left={{key='a'},{key='left'},{button='dpad_left'},{axis='left_x',direction=-1}},
+        right={{key='d'},{key='right'},{button='dpad_right'},{axis='left_x'}},
         jump={{key='space'},{button='south'}},
         use={{key='e'},{button='west'}},
         rescue={{key='r'},{button='north'}},
@@ -22,7 +22,18 @@ function Controls.hint(actions,name,pad)
 end
 function Controls.legend(actions,pad)
     local function key(name) return Controls.hint(actions,name,pad) end
-    return key('left')..'/'..key('right')..' MOVE  '..key('jump')..' JUMP  '..key('use')..
+    local stick={}
+    if pad then
+        for _,side in ipairs({'left','right'}) do
+            for _,source in ipairs(actions.bindings[side] or {}) do
+                if source.axis=='left_x' and (source.direction or 1)==(side=='left' and -1 or 1) then
+                    stick[side]=true;break
+                end
+            end
+        end
+    end
+    return key('left')..'/'..key('right')..(stick.left and stick.right and '+STICK' or '')..
+        ' MOVE  '..key('jump')..' JUMP  '..key('use')..
         ' USE  '..key('menu')..' MENU  '..key('rescue')..' RESCUE'
 end
 return Controls

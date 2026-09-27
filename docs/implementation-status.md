@@ -10,6 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Crossing now accepts horizontal left-stick displacement through its named actions,
+while D-pad remains full speed. Its walk animation scales with speed, and the
+controller HUD names the stick. The shipped 100-frame analog replay and focused
+test verify half-speed travel, neutral release, reversal, disconnect and reconnect;
+content checking and an inspected hidden native frame pass. This is simulated
+controller input, not physical controller acceptance. See
+[Crossing controls](verification-crossing-controls.md).
+
 Streamed Tiled tile objects now inherit tileset collision shapes or solid/one-way
 properties unless the object explicitly sets `collision=empty`. Offline baking
 uses the same GID flips, alignment, tile offset, scale and rotation as drawing;

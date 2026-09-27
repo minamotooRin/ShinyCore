@@ -1,0 +1,7 @@
+{"version":3}
+{"frame":0,"keys":[],"gamepad":{"connected":true,"buttons":["south"],"axes":{"left_x":0}}}
+{"frame":1,"keys":[],"gamepad":{"connected":true,"buttons":[],"axes":{"left_x":0.6}}}
+{"frame":61,"keys":[],"gamepad":{"connected":true,"buttons":[],"axes":{"left_x":0}}}
+{"frame":65,"keys":[],"gamepad":{"connected":true,"buttons":[],"axes":{"left_x":-0.6}}}
+{"frame":80,"keys":[],"gamepad":{"connected":false}}
+{"frame":90,"keys":[],"gamepad":{"connected":true,"buttons":[],"axes":{"left_x":0}}}

@@ -2,6 +2,11 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **Crossing 已加入左摇杆连续移动：** 命名动作保留方向键并支持水平模拟轴，
+  走路动画随速度变化，手柄 HUD 显示 STICK。`analog.jsonl` 短回放及
+  `tests/crossing_analog.py` 验证半推、反向、归零和断开；内容检查与隐藏静音
+  原生截图目视通过。见 verification-crossing-controls.md。实体手柄仍未验收，
+  不重复旧中文字体问题。
 - **Tiled 图块对象静态碰撞已补齐：** 离线工具将 tileset 碰撞对象组或
   collision 属性按 GID 翻转、缩放、旋转、对齐和 tileoffset 烘焙成对象层地形；
   对象属性 `collision=empty` 可关闭继承。one_way 的复杂变换显式拒绝。

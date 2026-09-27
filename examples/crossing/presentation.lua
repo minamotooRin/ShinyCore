@@ -17,6 +17,7 @@ function View.animate(player,pose,direction,dt,jumping)
     local name=jumping and "rise" or not pose.grounded and (pose.vy<0 and "rise" or "fall") or
         direction~=0 and "walk" or "idle"
     Animation.play(player.clock,name)
+    player.clock.speed=name=="walk" and math.max(.35,math.abs(direction)) or 1
     local frame=Animation.update(player.clock,dt)
     return frame,player.left
 end

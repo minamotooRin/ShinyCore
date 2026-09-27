@@ -13,6 +13,7 @@
     "smoke.jsonl",
     "walkthrough.jsonl",
     "gamepad.jsonl",
+    "analog.jsonl",
     "checkpoint.jsonl",
     "assets/chime.wav",
     "assets/keeper.png",

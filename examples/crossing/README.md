@@ -2,7 +2,7 @@
 
 Run `shiny examples/crossing`. Enter starts; A/D moves, Space jumps, E uses a switch,
 R returns to camp, F6 saves and F9 loads. Escape opens the pause/settings menu.
-Arrow keys also move. With a controller, D-pad moves, south jumps/confirms, west
+Arrow keys also move. With a controller, D-pad or the left stick moves, south jumps/confirms, west
 uses a switch, north returns to camp and Start opens/resumes the pause menu.
 Button names describe their physical position, independent of printed A/B/X/Y symbols.
 Use D-pad or shoulder buttons to navigate menus; east returns from settings.
@@ -13,7 +13,9 @@ profile. `Input.bind` and `Input.save` can persist a customized profile independ
 of campaign saves. SETTINGS → CONTROLS also edits these bindings with draft/apply,
 cancel, defaults and conflict checks; see ../../docs/rebinding.md. Prompts use the bound
 keys/buttons and show controller bindings while the selected controller is connected.
-Movement uses digital D-pad bindings; analog-stick movement is not implemented here.
+Left-stick displacement scales movement speed after the native deadzone; D-pad remains
+full speed. The walk animation follows movement speed. Rebinding can replace either
+source in the named action profile.
 Menu transitions consume gameplay input, including held actions until their release.
 
 The HUD shows the room, five collected-light markers and mechanism power. The bottom
@@ -52,6 +54,7 @@ Fresh launches start playback anew; audible device continuity still needs accept
 .\build\full\shiny.exe examples/crossing --headless --frames 162 --replay examples/crossing/checkpoint.jsonl --save-dir build/crossing-saves
 .\build\full\shiny.exe examples/crossing --headless --frames 2876 --replay examples/crossing/walkthrough.jsonl --save-dir build/crossing-walkthrough-saves
 .\build\full\shiny.exe examples/crossing --headless --frames 2876 --replay examples/crossing/gamepad.jsonl
+python tests/crossing_analog.py build/full/shiny.exe
 python tests/crossing_integration.py build/full/shiny.exe
 ```
 
@@ -64,6 +67,7 @@ the focused test compares its final campaign state with the keyboard result and 
 controller rescue after a disconnect/reconnect. This does not replace physical device
 or hot-plug acceptance. The controller HUD and normal controller LOAD flow were inspected
 in a short hidden native run; see ../../docs/verification-crossing-controls.md.
+`analog.jsonl` demonstrates partial left-stick travel, reversal and disconnect.
 
 The focused test checks actual support contacts on the ferry/ramp, plate occupancy,
 all-room completion without deaths, fresh-process checkpoint/ending recovery and
