@@ -23,6 +23,7 @@ local function copy(value, active)
     return result
 end
 local function resolution(entry)
+    if entry.moved then return {status="moved"} end
     local current=sc.identity.resolve(entry.object.persistent_id)
     assert(current.status=="deleted" or (current.status=="active" and current.id==entry.id),
         "stream object was unloaded or replaced outside its owner")
@@ -37,27 +38,34 @@ local function prepare_owner(chunk,saved,prepare)
     local authored=plain(chunk.objects,"chunk.objects must be an array")
     if saved~=nil then
         plain(saved,"invalid object snapshot")
-        assert(saved.format==1,"unsupported object snapshot format")
+        assert(saved.format==2,"unsupported object snapshot format")
         plain(saved.objects,"snapshot.objects must be a table")
+        plain(saved.imports,"snapshot.imports must be a table")
     end
     local owner={entries={},unloaded=false}
     local drafts,parents,live,names={},{},{},{}
-    for i,source in ipairs(authored) do
+    local function append(source,record,imported)
         local object=copy(source)
         local name=object.persistent_id
         assert(type(name)=="string" and not names[name],"missing or duplicate object persistent_id")
         names[name]=true
         local status=sc.identity.resolve(name).status
-        assert(status~="active","stream object already belongs to an active owner")
-        local record=saved and saved.objects[name]
         if record~=nil then
             plain(record,"invalid saved object")
-            assert((record.deleted==true and record.data==nil)
-                or (record.deleted==nil and type(record.data)=="table"),"invalid saved object state")
+            for field in pairs(record) do
+                assert(field=="data" or field=="deleted" or (field=="moved" and not imported)
+                    or (field=="object" and imported),"unknown saved object field")
+            end
+            assert((record.moved==true and not imported and record.deleted==nil and record.data==nil)
+                or (record.deleted==true and record.moved==nil and record.data==nil)
+                or (record.deleted==nil and record.moved==nil and type(record.data)=="table"),"invalid saved object state")
         end
-        local entry={object=object,deleted=status=="deleted" or (record and record.deleted==true) or false}
-        owner.entries[i]=entry
-        if not entry.deleted then
+        local moved=record and record.moved==true or false
+        assert(moved or status~="active","stream object already belongs to an active owner")
+        local entry={object=object,imported=imported,moved=moved,
+            deleted=not moved and (status=="deleted" or (record and record.deleted==true)) or false}
+        owner.entries[#owner.entries+1]=entry
+        if not entry.deleted and not entry.moved then
             local spec,data=prepare(copy(object),record and copy(record.data))
             spec=copy(plain(spec,"prepare must return an entity specification or prefab"))
             local nested=spec.entity~=nil or spec.children~=nil or spec.components~=nil
@@ -83,11 +91,27 @@ local function prepare_owner(chunk,saved,prepare)
             entry.ids=plan.instance.ids;entry.children=plan.instance.children
         end
     end
+    for _,source in ipairs(authored) do
+        append(source,saved and saved.objects[source.persistent_id],false)
+    end
     for key in pairs(authored) do
         assert(type(key)=="number" and key%1==0 and key>=1 and key<=#owner.entries,"chunk.objects must be dense")
     end
     if saved then
         for name in pairs(saved.objects) do assert(names[name],"snapshot refers to an unknown authored object") end
+        local imports={}
+        for name,record in pairs(saved.imports) do
+            assert(type(name)=="string" and not names[name],"duplicate imported object persistent_id")
+            plain(record,"invalid imported object")
+            assert(type(record.object)=="table" and record.object.persistent_id==name,
+                "imported object requires its original definition")
+            imports[#imports+1]=name
+        end
+        table.sort(imports)
+        for _,name in ipairs(imports) do
+            local record=saved.imports[name]
+            append(record.object,record,true)
+        end
     end
     return owner,drafts,parents,live
 end
@@ -115,8 +139,10 @@ local function prepare_load(items,prepare,publication)
         owners[i]=owner
         for _,entry in ipairs(owner.entries) do
             local name=entry.object.persistent_id
-            assert(not names[name],"duplicate object ownership in load batch")
-            names[name]=true
+            if not entry.moved then
+                assert(not names[name],"duplicate object ownership in load batch")
+                names[name]=true
+            end
         end
         local offset=#drafts
         for n,spec in ipairs(specs) do
@@ -129,11 +155,14 @@ local function prepare_load(items,prepare,publication)
     -- Reserve identity capacity for saved deletion markers as well as live objects.
     for _,owner in ipairs(owners) do
         for _,entry in ipairs(owner.entries) do
-            assert(sc.identity.resolve(entry.object.persistent_id).status~="active","prepare changed object ownership")
+            assert(entry.moved or sc.identity.resolve(entry.object.persistent_id).status~="active",
+                "prepare changed object ownership")
         end
     end
     for _,owner in ipairs(owners) do
-        for _,entry in ipairs(owner.entries) do sc.identity.declare(entry.object.persistent_id) end
+        for _,entry in ipairs(owner.entries) do
+            if not entry.moved then sc.identity.declare(entry.object.persistent_id) end
+        end
     end
     return owners,drafts,parents,live
 end
@@ -219,29 +248,40 @@ end
 local function validate_snapshot(owner,snapshot)
     assert(not owner.unloaded,"object owner is unloaded")
     for _,entry in ipairs(owner.entries) do
-        local deleted=resolution(entry).status=="deleted"
-        assert(deleted==(snapshot.objects[entry.object.persistent_id].deleted==true),"export changed object lifecycle")
-        if deleted then
-            for _,id in ipairs(entry.ids or {}) do assert(not pcall(sc.get,id),"deleted streamed object has a live child") end
-        else sc.get_many(entry.ids) end
+        local record=entry.imported and snapshot.imports[entry.object.persistent_id]
+            or snapshot.objects[entry.object.persistent_id]
+        assert(record,"snapshot lost an owned object")
+        if entry.moved then
+            assert(record.moved==true,"export changed object ownership")
+        else
+            local deleted=resolution(entry).status=="deleted"
+            assert(deleted==(record.deleted==true),"export changed object lifecycle")
+            if deleted then
+                for _,id in ipairs(entry.ids or {}) do assert(not pcall(sc.get,id),"deleted streamed object has a live child") end
+            else sc.get_many(entry.ids) end
+        end
     end
 end
 
 function Objects.snapshot(owner,export)
     assert(not owner.unloaded,"object owner is unloaded")
     assert(type(export)=="function","object export callback required")
-    local result={format=1,objects={}}
+    local result={format=2,objects={},imports={}}
     for _,entry in ipairs(owner.entries) do
         local name=entry.object.persistent_id
-        local deleted=resolution(entry).status=="deleted"
-        if deleted then
+        local target=entry.imported and result.imports or result.objects
+        local deleted=not entry.moved and resolution(entry).status=="deleted"
+        if entry.moved then
+            target[name]={moved=true}
+        elseif deleted then
             for _,id in ipairs(entry.ids or {}) do assert(not pcall(sc.get,id),"deleted streamed object has a live child") end
-            result.objects[name]={deleted=true}
+            target[name]={deleted=true}
         else
             sc.get_many(entry.ids)
             local data=export(sc.get(entry.id),entry.data,copy(entry.object),entry)
-            result.objects[name]={data=copy(plain(data,"export must return explicit state data"))}
+            target[name]={data=copy(plain(data,"export must return explicit state data"))}
         end
+        if entry.imported then target[name].object=copy(entry.object) end
     end
     -- Catch callbacks that violated ownership before any disk commit or release.
     validate_snapshot(owner,result)
@@ -263,8 +303,10 @@ local function prepare_unload(items,export)
         batch[i]={owner=owner,key=item.key,extra=item.extra~=nil and copy(plain(item.extra,"chunk extra state must be plain data")) or nil}
         for _,entry in ipairs(owner.entries) do
             local name=entry.object.persistent_id
-            assert(not names[name],"duplicate object ownership in unload batch")
-            names[name]=true
+            if not entry.moved then
+                assert(not names[name],"duplicate object ownership in unload batch")
+                names[name]=true
+            end
         end
     end
     for key in pairs(items) do
@@ -282,7 +324,7 @@ end
 local function release_owners(batch)
     for _,item in ipairs(batch) do
         for _,entry in ipairs(item.owner.entries) do
-            if sc.identity.resolve(entry.object.persistent_id).status=="active" then
+            if not entry.moved and sc.identity.resolve(entry.object.persistent_id).status=="active" then
                 for i=#entry.ids,2,-1 do sc.destroy(entry.ids[i]) end
                 sc.identity.unload(entry.id)
             end
@@ -309,6 +351,61 @@ end
 function Objects.changes(items,export)
     local _,changes=prepare_unload(items,export)
     return changes
+end
+-- Save both chunk records before changing a live object's owner. No native handle changes.
+function Objects.prepare_transfer(source,target,name,source_key,target_key,export,source_extra,target_extra)
+    assert(type(source)=="table" and type(target)=="table" and source~=target
+        and not source.unloaded and not target.unloaded,"transfer requires two active owners")
+    assert(type(name)=="string" and #name>0,"transfer requires an object persistent ID")
+    assert(type(source_key)=="string" and type(target_key)=="string" and source_key~=target_key,
+        "transfer requires distinct chunk keys")
+    local entry,destination
+    for _,candidate in ipairs(source.entries) do
+        if candidate.object.persistent_id==name then entry=candidate; break end
+    end
+    assert(entry and not entry.moved and resolution(entry).status=="active","transfer source is not active")
+    for _,candidate in ipairs(target.entries) do
+        if candidate.object.persistent_id==name then destination=candidate; break end
+    end
+    assert(not destination or (not destination.imported and destination.moved),
+        "transfer target already owns this object")
+    local before_source=Objects.snapshot(source,export)
+    local before_target=Objects.snapshot(target,export)
+    validate_snapshot(source,before_source)
+    validate_snapshot(target,before_target)
+    local changes={[source_key]=copy(before_source),[target_key]=copy(before_target)}
+    local old=entry.imported and changes[source_key].imports or changes[source_key].objects
+    local state=old[name].data
+    if entry.imported then old[name]=nil else old[name]={moved=true} end
+    if destination then changes[target_key].objects[name]={data=state}
+    else changes[target_key].imports[name]={object=copy(entry.object),data=state} end
+    changes[source_key].extra=source_extra and copy(plain(source_extra,"invalid source chunk state")) or nil
+    changes[target_key].extra=target_extra and copy(plain(target_extra,"invalid target chunk state")) or nil
+    return {source=source,target=target,entry=entry,destination=destination,name=name,
+        before_source=before_source,before_target=before_target,changes=changes}
+end
+function Objects.commit_transfer(draft)
+    assert(not draft.committed,"object transfer already committed")
+    validate_snapshot(draft.source,draft.before_source)
+    validate_snapshot(draft.target,draft.before_target)
+    local entry,target=draft.entry,draft.destination
+    assert(resolution(entry).status=="active","transfer source changed before commit")
+    if not target then
+        target={object=copy(entry.object),imported=true,moved=false,deleted=false}
+        draft.target.entries[#draft.target.entries+1]=target
+    end
+    target.moved=false; target.deleted=false
+    target.id, target.ids, target.children=entry.id,entry.ids,entry.children
+    target.data, target.components=entry.data,entry.components
+    if entry.imported then
+        for i,candidate in ipairs(draft.source.entries) do
+            if candidate==entry then table.remove(draft.source.entries,i); break end
+        end
+    end
+    entry.moved=true;entry.id=nil;entry.ids=nil;entry.children=nil;entry.data=nil;entry.components=nil
+    active[draft.name]=target
+    draft.committed=true
+    return target
 end
 function Objects.unload_many(items,slot,export)
     local batch,changes=prepare_unload(items,export)

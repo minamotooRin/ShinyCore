@@ -64,14 +64,14 @@ owner 表以 `x:y` 为键。
 
 update 返回 changed,error,event：true 表示区域已发布，false 表示空闲/等待或
 主动保存/取消完成；nil,error 表示事务读取、准备、写入预检或联合发布失败。
-完成事件为 published、saved、patched、reloaded 或 cancelled，首次加载也返回 published。
+完成事件为 published、saved、transferred、patched、reloaded 或 cancelled，首次加载也返回 published。
 准备/发布异常转为可重试的 failed 状态；配置和非法 API 调用仍可抛出 Lua 错误。
 不要在模块外修改 owner、region
 或其边界。事务期间不推进地图动画，draw 始终提交当前已发布的绘制列表。
 
 ## 等待与错误恢复
 
-`World.status(world)` 空闲时返回 nil，否则返回独立状态表：kind 为 save/transition/patch/reload，
+`World.status(world)` 空闲时返回 nil，否则返回独立状态表：kind 为 save/transfer/transition/patch/reload，
 phase 为 read/prepare/images/write/publish，status 为 pending/complete/failed，另有 cancelling
 和可选 error/request/operation。complete 表示当前阶段可继续，并非世界已发布；
 仍须调用 update 完成后续阶段及清理。事务期间禁止 request、patch
@@ -86,14 +86,17 @@ phase 为 read/prepare/images/write/publish，status 为 pending/complete/failed
 成功图片不重复解码。取消释放候选图片，保留活动世界引用。首次图片提交前
 World.draw 不提交地图图片层，避免绘制尚未驻留的背景。
 
-cancel 放弃世界发布，不撤销已接受的磁盘写入。待处理读写仍须结束；若取消后 IO
+cancel 放弃世界发布，不撤销已接受的磁盘写入。对象转移的双块写入一旦提交请求就
+必须完成或 retry，不能 cancel，否则磁盘和活动对象可能指向不同归属。其他待读写
+仍须结束；若取消后 IO
 失败，ui_update 释放失败结果，使 update 能完成取消。成功的磁盘快照可能已改变，
 取消不会恢复旧存档。cancel 返回 false 表示还需 update 收尾；没有事务时直接取消
 区域请求并返回 true（此分支仅能在 update 调用）。重试、取消不会部分卸载旧对象。
 
 新槽及其备份均不存在时，进入块按无持久记录恢复；已存在的损坏存档仍报错。
 存档读写共用应用存档线程，原始块文件读取使用流式工作线程。单次进入状态合计
-受 1 MiB 编码结果预算限制，最多 1024 个键，超限不部分发布。地图索引打开仍同步。
+受 1 MiB 编码结果预算限制，最多 1024 个键，超限不部分发布。声明在
+`project.stream_indexes` 的地图索引由内容线程预读；未声明的索引仍同步打开。
 开启 residency 时图片按上述集合动态驻留，释放后可留在有界 LRU 缓存。
 图片依赖集合的容量包含切换期间新旧集合的并集。绘制命令、延迟实体
 身体创建与进程崩溃不属于完整事务保证。原生像素效果仍需单独验收。
@@ -101,6 +104,16 @@ cancel 放弃世界发布，不撤销已接受的磁盘写入。待处理读写�
 2026-09-26：单项无窗口宿主场景验证首次加载、加载边界、跨块对象释放、磁盘
 保存、重返状态恢复、绘制列表同步替换和清空区域；同时检查缺槽与损坏槽语义。
 同项 ASan/UBSan 通过。未启动图形窗口、性能测试或全套回归。
+
+## 跨块对象转移
+
+活动的流式对象进入另一已加载块后，在 update 中按对象持久 ID 调用
+`World.transfer(world, persistent_id)`。模块根据实体当前位置求目标块，同时保存
+原块迁出标记与目标块的原始定义/显式状态；`World.update` 返回 `transferred` 后
+归属正式切换。实体句柄不重建，存档和后续卸载由新 owner 管理。目标块未加载时
+返回 `nil,error`，对象保持原归属；仍在原块时返回 `false`。应用应把目标块加入
+关注区域，等待发布后再转移，并在事务期间停止玩法修改。模块不逐帧扫描实体位置；
+移动规则决定何时调用此接口。
 
 ## 地图修改与主动存档
 

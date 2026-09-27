@@ -105,6 +105,7 @@ end
 -- Cancels publication, never an accepted disk write. Actual region release stays in update.
 function World.cancel(world)
     local transaction=world.transaction
+    if transaction and transaction.kind=="transfer" then return nil,"object transfer must finish or retry" end
     if not transaction then Regions.cancel(world.region); return true end
     transaction.cancelled=true
     if transaction.image_request then sc.images.cancel(transaction.image_request); transaction.image_request=nil end
@@ -135,7 +136,7 @@ local function image_names(world,prepared,owners,drafts)
     for _,name in ipairs(world.retain_images) do add(name) end
     for _,owner in pairs(owners) do for _,entry in ipairs(owner.entries) do
         local current=sc.identity.resolve(entry.object.persistent_id)
-        if current.status=="active" then
+        if not entry.moved and current.status=="active" then
             for _,id in ipairs(entry.ids) do add(sc.get(id).sprite) end
         end
     end end
@@ -235,7 +236,10 @@ local function finish_transaction(world)
             if not request then transaction.error=err; return nil,err end
             return false
         end
-        if transaction.draft then
+        if transaction.transfer then
+            local ok,entry=pcall(Objects.commit_transfer,transaction.transfer)
+            if not ok then transaction.error=tostring(entry); return nil,transaction.error end
+        elseif transaction.draft then
             local ok,incoming=pcall(Objects.commit_transition,transaction.draft)
             if not ok then transaction.error=tostring(incoming); return nil,transaction.error end
             if world.residency then
@@ -262,6 +266,7 @@ local function finish_transaction(world)
     sc.app.pause(transaction.paused)
     return not transaction.cancelled and transaction.kind=="transition",nil,
         transaction.cancelled and "cancelled" or transaction.kind=="save" and "saved"
+        or transaction.kind=="transfer" and "transferred"
         or transaction.kind=="patch" and "patched" or transaction.kind=="reload" and "reloaded" or "published"
 end
 function World.reload_images(world)
@@ -282,7 +287,39 @@ function World.save(world)
     begin(world,transaction)
     return request
 end
--- Returns changed,error,event. Events: published/saved/patched/reloaded/cancelled.
+-- Explicitly migrate a live object after it crosses into another published chunk.
+-- The two chunk records commit together; the root handle and persistent ID stay live.
+function World.transfer(world,name)
+    if world.transaction or world.region.pending then return nil,"finish the current world transition first" end
+    assert(type(name)=="string" and #name>0,"object persistent ID required")
+    local source_name,entry
+    for chunk_name,owner in pairs(world.owners) do
+        for _,candidate in ipairs(owner.entries) do
+            if candidate.object.persistent_id==name and not candidate.moved then
+                assert(not entry,"duplicate streamed object owner")
+                source_name,entry=chunk_name,candidate
+            end
+        end
+    end
+    if not entry or not entry.id then return nil,"streamed object is not active" end
+    local entity=sc.get(entry.id)
+    local target_name=key(math.floor(entity.x/(32*world.view.width)),math.floor(entity.y/(32*world.view.height)))
+    if target_name==source_name then return false end
+    local target=world.owners[target_name]
+    if not target then return nil,"target chunk is not loaded" end
+    local source=world.owners[source_name]
+    local function extra(chunk_name)
+        return world.edits[chunk_name] and {format=1,tiles=world.edits[chunk_name]} or nil
+    end
+    local draft=Objects.prepare_transfer(source,target,name,world.name..":"..source_name,
+        world.name..":"..target_name,world.export,extra(source_name),extra(target_name))
+    local transaction={kind="transfer",phase="write",changes=draft.changes,transfer=draft}
+    local request,err=submit_io(world,transaction)
+    if not request then return nil,err end
+    begin(world,transaction)
+    return request
+end
+-- Returns changed,error,event. Events: published/saved/transferred/patched/reloaded/cancelled.
 function World.update(world,dt)
     if world.transaction then return finish_transaction(world) end
     Tiles.update(world.view,dt)

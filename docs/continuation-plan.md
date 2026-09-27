@@ -2,6 +2,12 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **流式玩法对象已具备显式跨块迁移：** `World.transfer(world,对象持久 ID)` 在目标块
+  已发布后异步原子写入原块迁出标记与目标块导入状态，成功才改变 Lua owner；根句柄
+  不重建。往返迁移、原块卸载和新进程恢复有定向无窗口验证。流式记录格式升至 2，
+  旧对象记录拒绝加载；Wayfarer 本地 SDK 更新为 dev.64，见
+  verification-stream-transfer.md。当前仍由游戏选择迁移时机，
+  不自动逐帧扫描所有对象，也未完成多对象批量迁移、弱盘/长时性能与跨平台验收。
 - **Wayfarer 地图索引改为声明式后台预读：** `project.stream_indexes` 在场景表加载后、
   `init` 前经应用内容线程读取解析；`sc.stream.open` 消费同一路径元数据，候选失败保留
   活动房间，最多两个索引任务。Wayfarer 已接入，本地 SDK dev.62。Full/lightweight

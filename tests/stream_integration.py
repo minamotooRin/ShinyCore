@@ -680,7 +680,7 @@ end}''')
 local Objects=require("shiny.stream_objects")
 local region=Regions.new{tilewidth=8,tileheight=8,margin=0,boundary=true}
 local chunk={objects={{persistent_id="actors:1",x=-16},{persistent_id="actors:2",x=-8},{persistent_id="actors:3",x=-4}}}
-local saved={format=1,objects={["actors:2"]={data={opened=true}},["actors:3"]={deleted=true}}}
+local saved={format=2,objects={["actors:2"]={data={opened=true}},["actors:3"]={deleted=true}},imports={}}
 local function prepare(object,state) return {x=object.x,y=-32,tag="actor"},state or {} end
 return {init=function()
     sc.stream.open("index.json")
@@ -800,6 +800,79 @@ end,update=function(dt)
 end}''')
         self.run_game('world-coordinator',save=True,frames=10)
 
+    def test_stream_world_object_transfer_roundtrip(self):
+        shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        self.index['tilesets']=[{'firstgid':1,'tilecount':3,'columns':3,'tilewidth':8,'tileheight':8,'image':'terrain.png'}]
+        chunk=self.root/'0.json'
+        data=json.loads(chunk.read_text(encoding='utf-8'))
+        data['objects']=[{'persistent_id':'traveller:1','layer':1,'x':8,'y':-8}]
+        encoded=json.dumps(data,separators=(',',':'))
+        chunk.write_text(encoded,encoding='utf-8')
+        self.index['chunks'][0]['bytes']=len(encoded.encode())
+        self.write_index()
+        common='''local World=require("shiny.stream_world")
+local world,root,reference,phase=nil,nil,nil,0
+local function make()
+    return World.new{index="index.json",name="forest",slot="slot",margin=0,
+        prepare=function(object,saved) return {x=saved and saved.x or object.x,y=-8,body=false},{} end,
+        export=function(entity) return {x=entity.x} end}
+end
+'''
+        self.scene(common+'''return {init=function()
+    world=make(); World.request(world,{{x=8,y=-8},{x=264,y=-8}},0)
+end,update=function(dt)
+    local _,err,event=World.update(world,dt); assert(not err,err)
+    if phase==0 and event=="published" then
+        root=world.owners["0:-1"].entries[1].id
+        reference=require("shiny.stream_objects").reference(world.owners["0:-1"].entries[1])
+        assert(World.transfer(world,"traveller:1")==false)
+        sc.set(root,{x=264})
+        assert(World.transfer(world,"traveller:1")); phase=1
+    elseif phase==1 and event=="transferred" then
+        assert(sc.identity.resolve("traveller:1").id==root)
+        assert(require("shiny.stream_objects").resolve(reference).id==root)
+        assert(world.owners["0:-1"].entries[1].moved)
+        assert(world.owners["1:-1"].entries[1].id==root)
+        World.request(world,{{x=264,y=-8}},sc.tick()+1); phase=2
+    elseif phase==2 and event=="published" then
+        assert(world.owners["0:-1"]==nil and sc.get(root).x==264)
+        local saved=assert(sc.save.read_chunk("slot","forest:0:-1"))
+        assert(saved.objects["traveller:1"].moved)
+        sc.set(root,{x=520})
+        local request,why=World.transfer(world,"traveller:1")
+        assert(request==nil and why:find("not loaded") and sc.get(root).x==520)
+        sc.set(root,{x=264})
+        World.request(world,{{x=8,y=-8},{x=264,y=-8}},sc.tick()+1); phase=3
+    elseif phase==3 and event=="published" then
+        assert(world.owners["0:-1"].entries[1].moved and sc.identity.resolve("traveller:1").id==root)
+        assert(require("shiny.stream_objects").resolve(reference).id==root)
+        sc.set(root,{x=8}); assert(World.transfer(world,"traveller:1")); phase=4
+    elseif phase==4 and event=="transferred" then
+        assert(world.owners["0:-1"].entries[1].id==root)
+        assert(#world.owners["1:-1"].entries==0 and sc.identity.resolve("traveller:1").id==root)
+        World.request(world,{{x=8,y=-8}},sc.tick()+1); phase=5
+    elseif phase==5 and event=="published" then
+        assert(world.owners["1:-1"]==nil and sc.get(root).x==8)
+        phase=6
+    end
+    sc.debug.watch("transfer_phase",phase)
+end}''')
+        result=self.run_game('transfer-out-back',save=True,frames=18)
+        self.assertEqual(result['watches']['transfer_phase'],6)
+        self.scene(common+'''return {init=function()
+    world=make(); World.request(world,{{x=8,y=-8},{x=264,y=-8}},0)
+end,update=function(dt)
+    local _,err,event=World.update(world,dt); assert(not err,err)
+    if event=="published" then
+        assert(world.owners["0:-1"].entries[1].id)
+        assert(sc.get(world.owners["0:-1"].entries[1].id).x==8)
+        assert(#world.owners["1:-1"].entries==0)
+        sc.debug.watch("restored_transfer",true)
+    end
+end}''')
+        restored=self.run_game('transfer-fresh-process',save=True,frames=6)
+        self.assertTrue(restored['watches']['restored_transfer'])
+
     def test_stream_world_map_edits(self):
         shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
         self.index['tilesets']=[{'firstgid':1,'tilecount':1,'columns':1,'tilewidth':8,'tileheight':8,'image':'terrain.png',
@@ -909,7 +982,7 @@ return {gravity=0,init=function()
     World.request(world,{{x=8,y=-8}},0)
 end,update=function(dt)
     local tick=sc.tick()
-    if tick==0 then assert(sc.save.write_chunks('slot',{['forest:1:-1']={format=1,objects={['actor:1']={data={x=300}}}}})) end
+    if tick==0 then assert(sc.save.write_chunks('slot',{['forest:1:-1']={format=2,objects={['actor:1']={data={x=300}}},imports={}}})) end
     local changed,err,event=World.update(world,dt)
     if tick==0 then
         assert(not changed and World.status(world).phase=='read' and sc.app.paused())

@@ -27,11 +27,10 @@ if ok then sc.stream.release(0, 0) end
 
 `prepare(object, saved_data)` 返回实体规格与房间内玩法数据；模块负责填入
 `persistent_id`，不允许改名。`owner.entries` 保持地图对象顺序，包含 `object`、
-活动对象的 `id/ids/children/components/data`；已删除对象没有实体。对象跨越块边界移动仍归原块所有；
-静态导入几何的锚点保留由 [stream_world](stream-object-coverage.md) 协调，
-任意移动超出导入几何时游戏仍须显式保留该锚点。
-一个地图对象也可对应多层 prefab，整组实体归同一个根对象持久 ID；动态对象
-跨块归属迁移仍由游戏处理。
+活动对象的 `id/ids/children/components/data`；已删除对象没有实体。一个地图对象
+也可对应多层 prefab，整组实体归同一个根对象持久 ID。静态导入几何的锚点保留由
+[stream_world](stream-object-coverage.md) 协调；移动玩法对象可在目标块加载后调用
+`World.transfer` 迁移归属。
 
 prepare 可返回 `{entity=..., children=..., components=...}` 作为第一值，子对象
 写法与 [prefab](prefab.md) 相同。根实体的 `persistent_id` 由模块填入；子对象
@@ -60,7 +59,9 @@ if result.status == "active" then sc.set(result.id, {color="#FFC98C"}) end
 `Objects.resolve` 解析带 `children` 的引用，原生 `sc.identity.resolve` 只识别根引用。
 
 `Objects.snapshot(owner, export)` 生成独立记录，不写盘、不卸载。记录格式为
-`{format=1, objects={ [persistent_id]={data=...} 或 {deleted=true} }}`。
+`{format=2, objects={...}, imports={...}}`。`objects` 保存本块原始对象的
+`{data=...}`、`{deleted=true}` 或 `{moved=true}`；`imports` 保存迁入对象的
+`{object=原始定义,data=...}` 或带原始定义的删除记录。旧格式拒绝加载。
 `export` 返回显式普通数据表，不能直接返回完整实体快照；只选择需要恢复的
 玩法字段。模块复制数据并拒绝环、元表、函数及非有限数，原生存档继续校验
 序列化大小、深度和键类型。记录版本不符、引用未知地图对象时拒绝加载。
@@ -70,7 +71,8 @@ if result.status == "active" then sc.set(result.id, {color="#FFC98C"}) end
 游戏已销毁的对象保留 `deleted`。读取记录后重建会恢复删除标记，不复活该对象。
 同一个 owner 只能成功卸载一次。单实体对象可 `sc.destroy`，复合对象使用
 `Objects.destroy` 删除；不得在 owner
-之外卸载、重建或转移它。准备与导出回调不得修改世界、切房间或执行应用 IO。
+之外卸载或重建它。跨块转移须使用下面的显式事务。准备与导出回调不得修改世界、
+切房间或执行应用 IO。
 
 加载先完成全部规格准备，再登记对象为 unloaded，最后原子批量创建活动实体。
 容量不足可能留下已发现的 unloaded ID，但不会留下半批活动实体；原有世界
@@ -182,6 +184,15 @@ end
 它再次验证离开对象生命周期，联合发布成功后才释放旧实体，同一 draft 只能成功提交一次。
 发布失败可修正外部容量等条件后重试；不得改动 draft 或待离开对象。
 这些接口不管理原生请求及模拟暂停；通常直接使用 [stream_world](stream-world.md)。
+
+## 活动对象跨块转移
+
+`Objects.prepare_transfer(source,target,persistent_id,source_key,target_key,export,
+source_extra?,target_extra?)` 导出两个 owner，生成一次写入两个块的 `draft.changes`。
+写入成功后调用 `Objects.commit_transfer(draft)`；失败时不得调用 commit。原块对象
+记录改为迁出标记，目标块保存原始对象定义与显式状态，活动实体和对象持久 ID 不变。
+迁回原始块时复用其对象定义，迁出块的导入记录移除。提交前后 owner 必须保持不变；
+同一 draft 不能提交两次。通常直接使用 `World.transfer`，由其后台写入并暂停模拟。
 
 2026-09-27：复合对象已接入普通加载、联合地形/边界发布和异步 World 切换。
 定向真实宿主测试覆盖多层子对象重访与删除、原子失败、流式世界卸载恢复和

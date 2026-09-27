@@ -68,6 +68,35 @@ return {init=function() owner=Objects.load(chunk,nil,prepare) end,update=functio
     for _,entry in ipairs(owner.entries) do assert(sc.get(entry.id)) end
 end}''')
 
+    def test_transfer_save_failure_preserves_both_owners(self):
+        blocked=self.root/'saves/objects/blocked.json'
+        blocked.mkdir(parents=True)
+        self.run_game('''local source,target,id
+return {init=function()
+    source=Objects.load({objects={chunk.objects[1]}},nil,prepare)
+    target=Objects.load({objects={}},nil,prepare)
+    id=source.entries[1].id; sc.set(id,{x=45})
+end,update=function()
+    if sc.tick()~=0 then return end
+    local draft=Objects.prepare_transfer(source,target,"actors:1","area:0","area:1",export)
+    local ok,err=sc.save.write_chunks("blocked",draft.changes)
+    assert(ok==nil and err and source.entries[1].id==id and #target.entries==0)
+    assert(sc.identity.resolve("actors:1").id==id and sc.get(id).x==45)
+    assert(sc.save.write_chunks("slot",draft.changes))
+    local entry=Objects.commit_transfer(draft)
+    assert(entry.id==id and source.entries[1].moved and target.entries[1]==entry)
+    assert(not pcall(Objects.commit_transfer,draft))
+end}''')
+        self.run_game('''return {init=function()
+    local source=Objects.load({objects={chunk.objects[1]}},
+        assert(sc.save.read_chunk("slot","area:0")),prepare)
+    local target=Objects.load({objects={}},assert(sc.save.read_chunk("slot","area:1")),prepare)
+    assert(source.entries[1].moved and source.entries[1].id==nil)
+    assert(#target.entries==1 and target.entries[1].imported)
+    assert(sc.get(target.entries[1].id).x==45)
+    assert(sc.identity.resolve("actors:1").id==target.entries[1].id)
+end}''')
+
     def test_preparation_and_export_failures(self):
         self.run_game('''return {init=function()
     assert(not pcall(Objects.load,chunk,nil,function(object)
@@ -82,8 +111,9 @@ end}''')
     local owner=Objects.load(chunk,nil,prepare)
     assert(not pcall(Objects.snapshot,owner,function() error("bad export") end))
     assert(not pcall(Objects.snapshot,owner,function() local t={}; t.loop=t; return t end))
+    assert(not pcall(Objects.load,chunk,{format=1,objects={}},prepare))
     assert(not pcall(Objects.load,chunk,{format=2,objects={}},prepare))
-    assert(not pcall(Objects.load,chunk,{format=1,objects={unknown={deleted=true}}},prepare))
+    assert(not pcall(Objects.load,chunk,{format=2,objects={unknown={deleted=true}},imports={}},prepare))
     for _,entry in ipairs(owner.entries) do assert(sc.get(entry.id)) end
     local snap=Objects.snapshot(owner,export)
     snap.objects["actors:1"].data.opened=true
