@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "scripts": ["main.lua"],
+  "stream_maps": ["content/map-court/index.json"],
+  "files": ["README.md", "AGENTS.md", ".luarc.json", "docs/api.lua",
+            "smoke.jsonl", "assets/ground.png", "assets/flower.png"]
+}

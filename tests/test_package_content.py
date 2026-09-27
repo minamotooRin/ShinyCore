@@ -75,18 +75,28 @@ return {update=function() require('game.later') end}
     def test_stream_object_files_and_collection_tiles(self):
         self.manifest(stream_maps=['maps/index.json'])
         self.file('dialogue/npc.txt','hello');self.file('sprites/npc.png','image fixture')
+        self.file('dialogue/tileset.txt','tileset');self.file('dialogue/tile.txt','tile')
+        self.file('dialogue/layer.txt','layer')
         content={'objects':[{'id':7,'properties':[{'name':'dialogue','type':'file','value':'dialogue/npc.txt'},
                                                 {'name':'optional','type':'file','value':''}]}]}
         def chunk():
             written=self.file('maps/0_0.json',json.dumps(content))
             self.file('maps/index.json',json.dumps({'format':3,'chunk_size':32,
                 'chunks':[{'path':'0_0.json','bytes':written.stat().st_size}],
-                'tilesets':[{'tiles':[{'id':5,'image':'sprites/npc.png'}]}],'layers':[]}))
+                'tilesets':[{'name':'icons','properties':[{'name':'guide','type':'file','value':'dialogue/tileset.txt'}],
+                             'tiles':[{'id':5,'image':'sprites/npc.png',
+                                       'properties':[{'name':'note','type':'file','value':'dialogue/tile.txt'}]}]}],
+                'layers':[{'name':'ground','properties':[{'name':'hint','type':'file','value':'dialogue/layer.txt'}]}]}))
         chunk()
         files={item['path'] for item in closure(self.root)['files']}
-        self.assertTrue({'dialogue/npc.txt','sprites/npc.png'}<=files)
+        self.assertTrue({'dialogue/npc.txt','dialogue/tileset.txt','dialogue/tile.txt','dialogue/layer.txt','sprites/npc.png'}<=files)
         content['objects'][0]['properties'][0]['value']='../outside.txt';chunk()
         with self.assertRaisesRegex(OSError,'object 7 property dialogue'):closure(self.root)
+        content['objects'][0]['properties'][0]['value']='dialogue/npc.txt';chunk()
+        index=json.loads((self.root/'maps/index.json').read_text(encoding='utf-8'))
+        index['tilesets'][0]['tiles'][0]['properties'][0]['value']='../outside.txt'
+        self.file('maps/index.json',json.dumps(index))
+        with self.assertRaisesRegex(OSError,'tile 5 property note'):closure(self.root)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

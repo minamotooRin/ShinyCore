@@ -16,6 +16,83 @@ spec.loader.exec_module(assets)
 
 
 class Assets(unittest.TestCase):
+    def test_external_tsx_atlas_collection_and_cache(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory(prefix='shiny-tsx-') as temp:
+            root=Path(temp);(root/'tiles').mkdir();(root/'images').mkdir()
+            (root/'map-note.txt').write_text('map',encoding='utf-8')
+            Image.new('RGBA',(16,8),(255,0,0,255)).save(root/'images/atlas.png')
+            Image.new('RGBA',(6,10),(0,255,0,255)).save(root/'images/leaf.png')
+            (root/'tiles/note.txt').write_text('item',encoding='utf-8')
+            atlas='''<?xml version="1.0" encoding="UTF-8"?>
+<tileset name="ground" tilewidth="8" tileheight="8" tilecount="2" columns="2">
+ <properties><property name="level" type="int" value="2147483647"/>
+  <property name="target" type="object" value="4294967295"/></properties>
+ <tileoffset x="2" y="-1"/><image source="../images/atlas.png" width="16" height="8"/>
+ <tile id="0"><properties><property name="collision" value="solid"/></properties>
+  <objectgroup><object id="3" x="1" y="1"><polygon points="0,0 6,0 6,3 3,3 3,6 0,6"/></object></objectgroup>
+  <animation><frame tileid="0" duration="100"/><frame tileid="1" duration="150"/></animation>
+ </tile>
+</tileset>'''
+            collection='''<tileset name="leaves" tilewidth="6" tileheight="10" tilecount="1" columns="0">
+ <tile id="3"><image source="../images/leaf.png"/>
+  <properties><property name="source_note" type="file" value="note.txt"/></properties>
+ </tile>
+</tileset>'''
+            (root/'tiles/ground.tsx').write_text(atlas,encoding='utf-8')
+            (root/'tiles/leaves.tsx').write_text(collection,encoding='utf-8')
+            (root/'icon.json').write_text(json.dumps({'type':'template',
+                'tileset':{'firstgid':1,'source':'tiles/leaves.tsx'},
+                'object':{'gid':4,'width':6,'height':10}}),encoding='utf-8')
+            map_data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,
+                      'tilesets':[{'firstgid':1,'source':'tiles/ground.tsx'},
+                                  {'firstgid':3,'source':'tiles/leaves.tsx'}],
+                      'layers':[{'type':'tilelayer','name':'floor','width':2,'height':1,'data':[1,6],
+                                 'properties':[{'name':'hint','type':'file','value':'map-note.txt'}]},
+                                {'type':'objectgroup','name':'markers','objects':[
+                                    {'id':5,'template':'icon.json','x':8,'y':8}]}]}
+            (root/'map.json').write_text(json.dumps(map_data),encoding='utf-8')
+            manifest=root/'assets.json';manifest.write_text('{"maps":{"world":"map.json"}}',encoding='utf-8')
+            first=assets.build(manifest,root/'cache');index=json.loads((first/'map-world/index.json').read_text(encoding='utf-8'))
+            ground,leaves=index['tilesets']
+            self.assertEqual([p['value'] for p in ground['properties']],[2147483647,4294967295])
+            self.assertEqual(index['layers'][0]['properties'][0]['value'],'map-note.txt')
+            self.assertEqual((ground['image'],ground['tileoffset']),('images/atlas.png',{'x':2.0,'y':-1.0}))
+            self.assertEqual([frame['duration'] for frame in ground['tiles'][0]['animation']],[100,150])
+            self.assertEqual(len(ground['tiles'][0]['collision_shapes']),4)
+            self.assertEqual((leaves['tiles'][0]['id'],leaves['tiles'][0]['image'],leaves['tiles'][0]['imagewidth']),
+                             (3,'images/leaf.png',6))
+            self.assertEqual(leaves['tiles'][0]['properties'][0]['value'],'tiles/note.txt')
+            self.assertEqual(json.loads((first/'map-world/0_0.json').read_text(encoding='utf-8'))['layers']['0'][:2],[1,6])
+            self.assertEqual(json.loads((first/'map-world/0_0.json').read_text(encoding='utf-8'))['objects'][0]['gid'],6)
+            self.assertTrue({'tiles/ground.tsx','tiles/leaves.tsx','images/atlas.png','images/leaf.png','tiles/note.txt','map-note.txt'}
+                            <=json.loads((first/'index.json').read_text(encoding='utf-8'))['inputs'].keys())
+            self.assertEqual((first/'map-world/index.json').read_bytes(),
+                             (assets.build(manifest,root/'clean')/'map-world/index.json').read_bytes())
+            (root/'tiles/ground.tsx').write_text(atlas.replace('duration="150"','duration="200"'),encoding='utf-8')
+            self.assertNotEqual(first.name,assets.build(manifest,root/'cache').name)
+
+    def test_external_tsx_rejects_unsupported_or_missing_data(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory(prefix='shiny-tsx-invalid-') as temp:
+            root=Path(temp);Image.new('RGBA',(8,8)).save(root/'image.png')
+            map_data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,
+                      'tilesets':[{'firstgid':1,'source':'set.tsx'}],
+                      'layers':[{'type':'tilelayer','name':'floor','width':1,'height':1,'data':[1]}]}
+            (root/'map.json').write_text(json.dumps(map_data),encoding='utf-8')
+            manifest=root/'assets.json';manifest.write_text('{"maps":{"world":"map.json"}}',encoding='utf-8')
+            base='<tileset name="set" tilewidth="8" tileheight="8" tilecount="1" columns="1"><image source="image.png"/></tileset>'
+            for content,field in [(base.replace('image.png','missing.png'),'missing.png'),
+                                  (base.replace('source="image.png"','source="image.png" width="7"'),'image size'),
+                                  (base.replace('<image','<image trans="FF00FF"'),'tileset.image'),
+                                  (base.replace('tilewidth="8"','tilewidth="0"'),'tileset.tilewidth'),
+                                  (base.replace('</tileset>','<tile id="0"/><tile id="0"/></tileset>'),'duplicate tile ID'),
+                                  ('<!DOCTYPE tileset [<!ENTITY bomb "x">]>'+base,'xml')]:
+                (root/'set.tsx').write_text(content,encoding='utf-8')
+                with self.subTest(field=field),self.assertRaisesRegex(ValueError,field):
+                    assets.build(manifest,root/'cache')
+                self.assertFalse((root/'cache').exists())
+
     def test_group_layer_inheritance(self):
         with tempfile.TemporaryDirectory(prefix='shiny-layers-') as temp:
             root=Path(temp)

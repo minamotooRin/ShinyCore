@@ -19,7 +19,7 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 10
+VERSION = 11
 CHUNK = 32
 
 
@@ -157,19 +157,47 @@ def tiled(root, source, read):
     def load_set(item,owner):
         item=dict(item); directory=owner.parent; external=None
         if "source" in item:
-            external=relative(owner,item["source"])
-            item={**json.loads(read(external)),"firstgid":item["firstgid"]}; directory=external.parent
+            try: external=relative(owner,item["source"])
+            except ValueError as error:
+                raise ValueError(f"{owner.relative_to(root)}: tileset.source: {error}") from error
+            content=read(external)
+            if external.suffix.lower()==".tsx":
+                import sys
+                sys.path.insert(0,str(Path(__file__).resolve().parent))
+                try: import tiled_tsx
+                finally: sys.path.pop(0)
+                definition=tiled_tsx.load(content,external.relative_to(root))
+            else:
+                definition=json.loads(content)
+            item={**definition,"firstgid":item["firstgid"]}; directory=external.parent
+        context=(external or owner).relative_to(root).as_posix()
+        def resource(reference,field):
+            if not isinstance(reference,str): raise ValueError(f"{context}:{field}: path must be text")
+            try: return project_path(root,str(directory/reference))
+            except ValueError as error: raise ValueError(f"{context}:{field}: {error}") from error
+        def files(properties):
+            for prop in properties:
+                if prop.get("type")=="file" and prop.get("value"):
+                    dependency=resource(prop["value"],f"property {prop.get('name','?')}")
+                    read(dependency); prop["value"]=dependency.relative_to(root).as_posix()
+        files(item.get("properties",[]))
         if "image" in item:
-            image=project_path(root,str((directory/item["image"]).relative_to(root)))
-            read(image); item["image"]=image.relative_to(root).as_posix()
+            image=resource(item["image"],"image")
+            width,height=png_size(read(image),f"{context}: tileset {item.get('name','?')}")
+            if ("imagewidth" in item and item["imagewidth"]!=width) or ("imageheight" in item and item["imageheight"]!=height):
+                raise ValueError(f"{context}: tileset {item.get('name','?')}: image size disagrees with PNG")
+            item.update(image=image.relative_to(root).as_posix(),imagewidth=width,imageheight=height)
         for tile in item.get("tiles",[]):
+            files(tile.get("properties",[]))
             if "objectgroup" in tile:
                 try: tile["collision_shapes"]=tile_collision(tile["objectgroup"])
                 except ValueError as error:
-                    raise ValueError(f"{source}: tileset {item.get('name','?')} tile {tile.get('id','?')}: {error}") from error
+                    raise ValueError(f"{context}: tileset {item.get('name','?')} tile {tile.get('id','?')}: {error}") from error
             if "image" in tile:
-                image=project_path(root,str((directory/tile["image"]).relative_to(root)))
-                width,height=png_size(read(image),f"{source}: tileset {item.get('name','?')} tile {tile.get('id','?')}",4096)
+                image=resource(tile["image"],f"tile {tile.get('id','?')}.image")
+                width,height=png_size(read(image),f"{context}: tileset {item.get('name','?')} tile {tile.get('id','?')}",4096)
+                if ("imagewidth" in tile and tile["imagewidth"]!=width) or ("imageheight" in tile and tile["imageheight"]!=height):
+                    raise ValueError(f"{context}: tile {tile.get('id','?')}: image size disagrees with PNG")
                 tile.update(image=image.relative_to(root).as_posix(),imagewidth=width,imageheight=height)
         sets.append(item)
         if external:
@@ -214,6 +242,17 @@ def tiled(root, source, read):
             if name in result: raise ValueError(f"duplicate property {name}")
             result[name]=(prop,owner)
         return result
+    def resolved_properties(values):
+        resolved=[]
+        for name,(prop,owner) in sorted(values.items()):
+            if prop.get("type")=="file":
+                reference=prop.get("value")
+                if not isinstance(reference,str): raise ValueError(f"property {name}: file value must be a string")
+                if reference:
+                    dependency=relative(owner,reference);read(dependency)
+                    prop["value"]=dependency.relative_to(root).as_posix()
+            resolved.append(prop)
+        return resolved
     def object_data(instance):
         base={};defaults={}
         if "template" in instance:
@@ -229,15 +268,7 @@ def tiled(root, source, read):
         defaults.update(properties(instance.get("properties",[]),path))
         obj={**base,**instance,"id":instance.get("id")}
         obj.pop("template",None)
-        resolved=[]
-        for name,(prop,owner) in sorted(defaults.items()):
-            if prop.get("type")=="file":
-                reference=prop.get("value")
-                if not isinstance(reference,str): raise ValueError(f"property {name}: file value must be a string")
-                if reference:
-                    dependency=relative(owner,reference);read(dependency)
-                    prop["value"]=dependency.relative_to(root).as_posix()
-            resolved.append(prop)
+        resolved=resolved_properties(defaults)
         if resolved or "properties" in obj: obj["properties"]=resolved
         return obj
     blocks={}; layers=[]; identities=set()
@@ -275,6 +306,8 @@ def tiled(root, source, read):
             index=len(layers)
             layers.append({**inherited,"type":kind,"order":index,
                            "tintcolor":"#"+"".join(f"{math.floor(channel*255+.5):02X}" for channel in tint)})
+            try: layers[-1]["properties"]=resolved_properties(properties(layer.get("properties",[]),path))
+            except (ValueError,KeyError,TypeError) as error: raise ValueError(f"{context}: {error}") from error
             if kind=="tilelayer":
                 pieces=layer.get("chunks") or [{"x":0,"y":0,"width":layer["width"],"height":layer["height"],"data":layer["data"]}]
                 for piece in pieces:

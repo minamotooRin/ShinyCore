@@ -87,6 +87,10 @@ def closure(project: Path):
     for path in strings(spec.get('files',[]),'package.json.files'):add(path,'file root')
     for path in strings(spec.get('stream_maps',[]),'package.json.stream_maps'):
         index=add(path,'stream root')
+        def file_properties(properties,owner):
+            for prop in properties:
+                if prop.get('type')=='file' and prop.get('value')!='':
+                    add(prop.get('value'),f"{owner} property {prop.get('name','?')}")
         try:
             data=json.loads(index.read_text(encoding='utf-8'))
             if data.get('format')!=3 or data.get('chunk_size')!=32:raise ValueError('expected built stream format 3 / 32 tiles')
@@ -98,13 +102,13 @@ def closure(project: Path):
                     raise ValueError(f'{name}: byte size does not match index')
                 content=json.loads(chunk_file.read_text(encoding='utf-8'))
                 for obj in content.get('objects',[]):
-                    for prop in obj.get('properties',[]):
-                        if prop.get('type')=='file' and prop.get('value')!='':
-                            add(prop.get('value'),f"{chunk_file.name}: object {obj.get('id','?')} property {prop.get('name','?')}")
+                    file_properties(obj.get('properties',[]),f"{chunk_file.name}: object {obj.get('id','?')}")
             for source in [*data['tilesets'],*data['layers']]:
                 if 'image' in source:add(source['image'],path)
+                file_properties(source.get('properties',[]),f"{path}: {source.get('name','layer')}")
                 for tile in source.get('tiles',[]):
                     if 'image' in tile:add(tile['image'],path)
+                    file_properties(tile.get('properties',[]),f"{path}: tile {tile.get('id','?')}")
         except (ValueError,KeyError,TypeError,AttributeError) as error:raise OSError(f'{path}: invalid stream index: {error}') from error
     while pending:
         path=pending.pop()
