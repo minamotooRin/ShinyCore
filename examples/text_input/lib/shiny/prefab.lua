@@ -28,23 +28,41 @@ end
 function Prefab.spawn(definition,overrides)
     local data=Prefab.merge(definition,overrides)
     assert(type(data.entity)=="table","prefab requires entity defaults")
-    local names={}
-    for name in pairs(data.children or {}) do
-        assert(type(name)=="string" and name~="","child names must be nonempty strings")
-        names[#names+1]=name
-    end
-    table.sort(names)
     local specs,parents={data.entity},{0}
     local instance={data=data.components or {},children={},destroyed=false}
-    for _,name in ipairs(names) do
-        local child=data.children[name]
-        assert(type(child)=="table","child requires entity fields")
-        specs[#specs+1]=child;parents[#parents+1]=1
+    local slots={}
+    local function append(children,parent,into,depth)
+        assert(type(children)=="table","children must be a named table")
+        assert(depth<=32,"prefab attachment depth exceeds 32")
+        local names={}
+        for name in pairs(children) do
+            assert(type(name)=="string" and name~="","child names must be nonempty strings")
+            names[#names+1]=name
+        end
+        table.sort(names)
+        for _,name in ipairs(names) do
+            local child=children[name]
+            assert(type(child)=="table","child requires entity fields")
+            local nested=child.entity~=nil or child.children~=nil or child.components~=nil
+            if nested then
+                for key in pairs(child) do
+                    assert(key=="entity" or key=="children" or key=="components","unknown child wrapper field")
+                end
+                assert(type(child.entity)=="table","nested child requires entity fields")
+                assert(child.components==nil or type(child.components)=="table","child components must be a table")
+            end
+            local index=#specs+1
+            specs[index]=nested and child.entity or child;parents[index]=parent
+            local node={data=nested and (child.components or {}) or {},children={}}
+            into[name]=node;slots[index]=node
+            if nested and child.children~=nil then append(child.children,index,node.children,depth+1) end
+        end
     end
+    append(data.children or {},1,instance.children,1)
     -- Native preflight covers creation and all relationships in one transaction.
     local ids=sc.spawn_many(specs,parents)
     instance.id=ids[1];instance.ids=ids
-    for i,name in ipairs(names) do instance.children[name]={id=ids[i+1]} end
+    for i=2,#specs do slots[i].id=ids[i] end
     return instance
 end
 function Prefab.destroy(instance)

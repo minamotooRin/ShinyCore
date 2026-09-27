@@ -49,13 +49,26 @@ return {width=384,height=216,gravity=0,ambient=1,map={rows={'.'},background='#11
  sc.destroy(instance.children.a.id);sc.destroy(instance.id)
  local live=P.spawn{entity={body=false},children={a={x=10}}}
  assert(P.destroy(live) and not P.destroy(live))
+ assert(not pcall(P.spawn,{entity={persistent_id='nested-failed'},children={beam={
+   entity={body=false},children={spark={entity={dynamic=true}}}}}}))
+ assert(sc.identity.resolve('nested-failed').status=='absent')
+ local nested=P.spawn{entity={persistent_id='nested',x=10,y=20,w=10,h=10,body=false,solid=false},
+   children={beam={entity={x=8,w=4,h=4,body=false,solid=false},components={glow=2},
+     children={spark={entity={x=3,w=2,h=2,body=false,solid=false}}}}}}
+ local beam=nested.children.beam;local spark=beam.children.spark
+ assert(beam.data.glow==2 and sc.presentation.attachment(spark.id).parent==beam.id)
+ close(sc.get(beam.id).x,18);close(sc.get(spark.id).x,21)
+ sc.set(nested.id,{x=15})
+ close(sc.get(beam.id).x,23);close(sc.get(spark.id).x,26)
+ assert(P.destroy(nested) and not pcall(sc.get,spark.id))
  -- A single bad capacity batch must not reserve root or child identities.
  local children={};for i=1,12 do children['c'..i]={} end
  assert(not pcall(P.spawn,{entity={persistent_id='full'},children=children}))
  assert(sc.identity.resolve('full').status=='absent')
  for i,angle in ipairs({0,math.pi/2,math.pi}) do
    P.spawn{entity={x=38+(i-1)*128,y=96,w=40,h=16,angle=angle,body=false,solid=false,color='#5276B8'},
-     children={lamp={x=44,y=4,w=12,h=8,angle=math.pi/4,color='#FFC98C',solid=false},
+     children={lamp={entity={x=44,y=4,w=12,h=8,angle=math.pi/4,color='#FFC98C',solid=false},
+               children={spark={entity={x=3,y=-4,w=3,h=3,color='#E6EDF7',solid=false}}}},
                marker={x=18,y=-12,w=4,h=4,color='#66D9B0',solid=false}}}
  end
  sc.camera.set{x=0,y=0,bounds=false}
@@ -78,4 +91,4 @@ end}''',encoding='utf-8')
         (output/'manifest.json').write_text(json.dumps({'command':command,'engine_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
             'reproduce':'python tests/prefab_integration.py build/full/shiny.exe --capture build/prefab-reviewed',
             'visual_review':'pending'},indent=2)+'\n',encoding='utf-8')
-print('Prefab: atomic native hierarchy, local angle/center, stale handles and rollback passed')
+print('Prefab: nested atomic hierarchy, local transforms, stale handles and rollback passed')

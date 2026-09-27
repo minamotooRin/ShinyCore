@@ -2,6 +2,10 @@
 
 ## 恢复上下文时先读（2026-09-27）
 
+- **Lua prefab 已支持多层命名子对象：** 叶子仍可直接写实体字段，包装节点
+  可包含 entity/children/components；全树以一次原子 spawn_many 创建，逆序
+  销毁。定向宿主检查和隐藏静音原生图已检查；五个本地模块 SDK 为 dev.56。
+  见 prefab.md。流式块中的复合对象归属仍未整合，不重做旧字体问题。
 - **材质 API 字段契约已补全：** create 的 shader/uniforms/postprocess、uniform
   的类型和值、info/capacity/pipeline 返回字段已进入原生 `--api`，生成 LuaLS
   与参考文档；材质函数不再忽略多余实参。全/轻量构建、定向无窗口材质测试、

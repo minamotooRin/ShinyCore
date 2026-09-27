@@ -10,6 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Lua prefab composition now accepts nested named children with per-node component
+data. It preserves direct leaf specs and sends the sorted tree through one atomic
+native spawn batch; destruction releases descendants before ancestors. A focused
+host test covers transforms, rollback and stale handles, and an inspected hidden
+native capture shows nested visual attachments. Five project SDKs are pinned to
+dev.56. Compound ownership in streamed object chunks remains open; see
+[prefab](prefab.md).
+
 Material create/uniform definitions and the info, capacity and pipeline results
 now have structured native field metadata, generated LuaLS classes and reference
 documentation. Material functions reject extra arguments instead of ignoring

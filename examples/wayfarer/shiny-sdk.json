@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "1.0.0-dev.55",
+  "version": "1.0.0-dev.56",
   "engine_version": "1.0.0-dev",
   "contract_version": 1,
   "hash": "sha256-text-lf",
@@ -9,7 +9,7 @@
     "lib/shiny/animation.lua": "267c1d579456b506086ac7bc241aacf6dcd7f1d24ca0e1cef481e5e7ca00a2ab",
     "lib/shiny/input.lua": "8affccf2805e7b67e239cde6440502d2048bd22ba962babd64e6b8e0d2e25fab",
     "lib/shiny/LICENSE.txt": "5090cd7120174d2034a276d7deb4783760cec86e9642b9a3f34c3ca3aed5058c",
-    "lib/shiny/prefab.lua": "ee9a83ef8a323e19be28e72285afbf1200c58ea66562f1ffc483e7f2994b0d77",
+    "lib/shiny/prefab.lua": "13f507212106b2866ec61b3eb622842b9d9dadab178d4a2bd643e5d88459f69c",
     "lib/shiny/rebind.lua": "d0a211887e11a31a7da49a6903941e7496edbbb0fcab3109cd1fec692c1d01f2",
     "lib/shiny/settings.lua": "cec19b42c8394d94ffc628ca1a02c697c949e762f38acf95c706a5e65a601eec",
     "lib/shiny/shell.lua": "3556b910a9db4f857ed6b27536f9da1f93e2bfb3c8d2fde616e368d739758645",

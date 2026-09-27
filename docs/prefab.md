@@ -1,7 +1,7 @@
 # 对象模板
 
 `shiny.prefab` 用普通 Lua 表组合实体默认值、命名子对象和游戏组件数据。
-项目携带模块副本，当前分发为 SDK `1.0.0-dev.41`。
+项目携带模块副本；使用本模块的项目当前分发为 SDK `1.0.0-dev.56`。
 
 ```lua
 local Prefab = require("shiny.prefab")
@@ -32,13 +32,30 @@ spawn 按名称排序，将根和命名子对象通过 `sc.spawn_many(specs, par
 对象持久 ID、刚体/速度限制和最终世界姿态。失败不创建实体、不改变生成号，
 也不留下失败创建的 ID 记录。实例提供 id、ids、children[name].id、data。
 
+叶子仍可直接写实体字段；多层对象用 `{entity=..., children=..., components=...}`
+包装一个子对象。每层按名称排序，深度优先装入同一原生批次；`children`、
+`components` 可省略，包装对象只接受这三个字段。例如：
+
+```lua
+local item = Prefab.spawn{entity={x=100,y=80,body=false},children={
+    lamp={entity={x=20,w=8,h=8,solid=false},components={lit=true},children={
+        glint={x=3,y=-2,w=2,h=2,solid=false},
+    }},
+}}
+local glint = item.children.lamp.children.glint.id
+assert(item.children.lamp.data.lit)
+```
+
+实例的 `ids` 按根、已排序子树的前序排列；销毁按逆序释放。最多 32 条父边；
+无效子对象或容量不足使整批失败。子对象组件只存于实例，不自动执行规则。
+
 子对象使用[原生视觉附着](attachments.md)：刚体根完成物理步进后自动跟随，
 支持层级显示插值。模块不再保留自己的坐标计算或 update 函数。修改根用 sc.set，
 修改局部姿态用 sc.presentation.attach；读取用 sc.get 或 presentation.pose。
 每个对象可显式填写不同 persistent_id；模块不派生 ID。
 
-模板 children 仍是单层命名映射；原生批量接口支持任意排序的嵌套树，至多 32 条
-父边。尺寸、翻转、图层和 solid 不继承。纯视觉子对象建议 solid=false，不能
+模板 children 支持上述多层命名树；原生批量接口至多 32 条父边。
+尺寸、翻转、图层和 solid 不继承。纯视觉子对象建议 solid=false，不能
 持有刚体或非零速度。原生销毁父对象会保留直接子对象；Prefab.destroy 则明确
 销毁整个实例：先验证所有句柄，再按创建逆序销毁，首次成功返回 true，重复调用
 返回 false。如果游戏提前销毁成员，destroy 报错并保留其余成员，由游戏清理。
@@ -57,3 +74,9 @@ spawn 按名称排序，将根和命名子对象通过 `sc.spawn_many(specs, par
 保存的关系/姿态与恢复结果相同、句柄重新生成。隐藏原生图
 `build/attachment-save-reviewed/restored.png` 已实际查看，原生/无窗口固定字段一致。
 Crossing 使用此模块的短冒烟检查见同目录记录；未运行全套测试或性能负载。
+
+2026-09-27：新增嵌套命名子对象及逐节点组件数据，仍由一次 `spawn_many`
+原子创建。定向宿主检查覆盖两级附着、祖先移动、深层失败回滚和逆序销毁；
+隐藏静音原生图 `build/prefab-nested-reviewed/attachments.png` 已实际查看，
+三个旋转示例的小亮点均跟随灯体。使用该模块的五个项目 SDK 更新为 dev.56；
+流式对象的复合 prefab 归属仍待单独整合。
