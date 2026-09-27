@@ -31,7 +31,8 @@ function Game.room(index)
     local level=levels[index]
     local c,stage,shell,player,gate,platform,crate,lights,controls,notice,respawn
     local notice_time=0
-    local actions,animation,plate,airborne,ground_seen,dust,ending_save_failed,finish_pending
+    local actions,animation,plate,airborne,ground_seen,dust,ending_save_failed,finish_ready,load_ready
+    local request,request_kind,pending_error,pending_error_kind
     local function notify(text)
         if #text>120 then
             local last=0
@@ -54,7 +55,8 @@ function Game.room(index)
     end
     local function publish()
         sc.debug.watch("crossing",{room=index,name=level.name,collected=Campaign.count(stage),open=stage.open,
-            sequence=stage.sequence,deaths=stage.deaths,complete=c.complete,save_error=ending_save_failed,
+            sequence=stage.sequence,deaths=stage.deaths,complete=c.complete,
+            save_pending=request~=nil,save_error=ending_save_failed,
             mode=shell.mode,player=sc.get(player).x,
             objective=objective().text})
     end
@@ -64,21 +66,51 @@ function Game.room(index)
         if crate then local b=sc.get(crate); stage.crate={x=b.x,y=b.y} end
         sc.state.set("campaign",c)
     end
-    local function checkpoint()
-        snapshot()
-        local ok,err=sc.save.write("checkpoint")
-        shell.notice=ok and "Crossing saved" or err
-        notify(shell.notice)
-        return ok
+    local function finish_saved()
+        finish_ready=false; ending_save_failed=false; c.complete=true
+        sc.state.set("campaign",c); finish()
     end
-    local function complete_checkpoint()
-        c.complete=true
-        if checkpoint() then ending_save_failed=false; return true end
+    local function busy(value)
+        UI.set(shell.ui,"save",{disabled=value})
+        UI.set(shell.ui,"load",{disabled=value})
+    end
+    local function save_failure(ending,err)
+        shell.notice=err
+        if not ending then notify(err); return end
         c.complete=false; snapshot(); ending_save_failed=true
-        local save_hint=Controls.hint(actions,"save",sc.input.gamepad_connected())
-        if save_hint=="-" then save_hint=Controls.hint(actions,"save",false) end
-        notify("Ending not saved. Press "..save_hint.." or use SAVE in the menu to retry.")
-        return false
+        if shell.mode=="game" then sc.app.pause(false) end
+        local hint=Controls.hint(actions,"save",sc.input.gamepad_connected())
+        if hint=="-" then hint=Controls.hint(actions,"save",false) end
+        notify("Ending not saved. Press "..hint.." or use SAVE in the menu to retry.")
+    end
+    local function checkpoint(ending)
+        if ending then c.complete=true end
+        snapshot()
+        local id,err=sc.save.write_async("checkpoint")
+        if not id and err and err:find("disk save directory",1,true) then
+            local ok,reason=sc.save.write("checkpoint")
+            if not ok then save_failure(ending,reason); return end
+            shell.notice="Crossing saved"; notify(shell.notice)
+            if ending then finish_ready=true end
+            return
+        end
+        if not id then save_failure(ending,err); return end
+        -- The worker owns the completed snapshot; the active room is unfinished until it commits.
+        if ending then c.complete=false; sc.state.set("campaign",c); sc.app.pause(true) end
+        request,request_kind=id,ending and "ending" or "save"
+        busy(true); shell.notice="Saving checkpoint..."; notify(shell.notice)
+    end
+    local function load_checkpoint()
+        local id,err=sc.save.read_chunks_async("checkpoint",{})
+        if not id and err and err:find("disk save directory",1,true) then
+            local ok,reason=sc.save.load("checkpoint")
+            if not ok then shell.notice=reason; notify(reason) end
+            return ok
+        end
+        if not id then shell.notice=err; notify(err); return false end
+        request,request_kind=id,"load"
+        busy(true); shell.notice="Reading checkpoint..."; notify(shell.notice)
+        return true
     end
     local function reset_player()
         stage.deaths=stage.deaths+1
@@ -93,7 +125,7 @@ function Game.room(index)
         title="ShinyCore / Crossing / "..level.name,width=384,height=216,gravity=550,ambient=1,map=terrain(level),
         init=function()
             actions=Controls.new(); animation=View.player(); airborne=false; ground_seen=false
-            ending_save_failed=false; finish_pending=false
+            ending_save_failed=false; finish_ready=false; load_ready=false
             dust=sc.particles.define{speed_min=12,speed_max=34,life_min=.24,life_max=.42,
                 angle_min=-math.pi,angle_max=0,gravity=.6,
                 curve={{time=0,size=3,color=0xE5DFC6D8},{time=1,size=0,color=0xE5DFC600}}}
@@ -133,8 +165,9 @@ function Game.room(index)
             shell=Shell.new("CROSSING / "..index,level.name,function() c.started=true end)
             if c.started then shell.mode="game" end
             shell.ui.nodes.save.on_click=function()
-                if ending_save_failed then finish_pending=complete_checkpoint() else checkpoint() end
+                checkpoint(ending_save_failed)
             end
+            shell.ui.nodes.load.on_click=load_checkpoint
             local play=shell.ui.nodes.play.on_click
             shell.ui.nodes.play.on_click=function(...)
                 if c.complete then sc.state.set("campaign",Campaign.new()); sc.scene("main.lua")
@@ -147,8 +180,18 @@ function Game.room(index)
         end,
         update=function(dt)
             Input.update(actions,"ui")
+            if pending_error then
+                save_failure(pending_error_kind=="ending",pending_error)
+                pending_error,pending_error_kind=nil,nil
+            end
             local playing=Shell.update(shell,dt,actions)
-            if finish_pending then finish_pending=false; finish(); publish(); return end
+            if finish_ready then finish_saved(); publish(); return end
+            if load_ready then
+                load_ready=false
+                local ok,err=sc.save.load("checkpoint")
+                if not ok then shell.notice=err; notify(err) end
+                publish(); return
+            end
             Input.update(actions)
             if not playing then publish(); return end
             if c.complete then finish(); publish(); return end
@@ -206,22 +249,45 @@ function Game.room(index)
             if plate then sc.set(plate,{color=stage.open and "#66D9B0FF" or "#FFCB77FF"}) end
             if stage.open and gate then sc.destroy(gate); gate=nil; sc.audio.play("chime",{volume=.4,pitch=.7}) end
             if Input.pressed(actions,"save") then
-                if ending_save_failed then
-                    if complete_checkpoint() then finish(); publish(); return end
-                else checkpoint() end
+                checkpoint(ending_save_failed)
+                if request or finish_ready then
+                    if finish_ready then finish_saved() end
+                    publish(); return
+                end
             end
             if Input.pressed(actions,"load") then
-                local ok,err=sc.save.load("checkpoint")
-                if ok then publish(); return else notify(err) end
+                if load_checkpoint() then publish(); return end
             end
             if p.x>1200 then
                 if Campaign.ready(stage) then
                     if index==3 then
-                        if not ending_save_failed and complete_checkpoint() then finish() end
+                        if not ending_save_failed then
+                            checkpoint(true)
+                            if finish_ready then finish_saved() end
+                        end
                     else snapshot(); sc.scene(Campaign.paths[index+1]) end
                 else notify("The exit needs five lights and a powered gate.") end
             end
             publish()
+        end,
+        ui_update=function(dt)
+            if not request then return end
+            local status=sc.save.status(request)
+            if status.status=="pending" then
+                Input.update(actions,"ui"); Shell.update(shell,dt,actions)
+                return
+            end
+            local kind=request_kind
+            local record=kind=="load" and status.status=="complete" and sc.save.result(request).record
+            sc.save.release(request)
+            request,request_kind=nil,nil; busy(false)
+            if status.status=="failed" then
+                pending_error,pending_error_kind=status.error,kind
+            elseif kind=="load" then
+                if record then load_ready=true
+                else pending_error,pending_error_kind="Save slot does not exist.","load" end
+            elseif kind=="ending" then finish_ready=true
+            else shell.notice="Crossing saved"; notify(shell.notice) end
         end,
         draw=function()
             local pad=sc.input.gamepad_connected()

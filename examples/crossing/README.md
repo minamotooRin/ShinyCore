@@ -47,6 +47,11 @@ retries the ending; the completion screen appears only after the write succeeds.
 The checkpoint reconstructs the current room from explicit campaign data: collected
 object persistent IDs, gates/switch sequence, player/crate positions, motion phase and
 death counts. Native handles are never persisted. Save data version is 2.
+With a disk save directory, SAVE, LOAD and the ending checkpoint run on the
+application save worker. The room simulation waits at a fixed boundary while the
+menu, input and rendering remain responsive. The ending stays unfinished until the
+worker confirms the write; loading uses the selected checkpoint without a second
+disk read. Headless runs without `--save-dir` retain bounded in-memory saves.
 The Workshop keeper/chime and an original 16-second theme are bundled locally; see
 assets/README.md. Rebuild the theme with `python tools/build_sample_music.py crossing`.
 The theme is acquired with `sc.audio.music` and keeps one application-owned voice
@@ -86,6 +91,8 @@ restart. It also checks a blocked final checkpoint cannot falsely complete the g
 that retrying after one injected failure reaches the ending, and that falling into
 water retains collected lights. No gameplay
 state or entity positions are injected into the walkthrough.
+The disk-backed replay additionally checks that the pending ending is still
+unfinished and that a new process restores exactly the committed campaign data.
 
 All declared rooms passed content checks. The optimized replay takes 2,876 fixed
 frames (about 48 simulated seconds); this does not establish the target 5–10 minute

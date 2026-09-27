@@ -33,6 +33,13 @@ with tempfile.TemporaryDirectory(prefix='shiny-crossing-') as directory:
     restored=run(project,'--frames','10','--replay',load,'--save-dir',directory)
     assert restored['state']['campaign']==campaign
     assert restored['watches']['crossing']['mode']=='game' and restored['watches']['crossing']['collected']==1
+    invalid_root=temp/'invalid-read'
+    invalid_slot=invalid_root/'shiny.crossing/checkpoint.json'
+    invalid_slot.parent.mkdir(parents=True)
+    invalid_slot.write_text('{broken',encoding='utf-8')
+    invalid=run(project,'--frames','10','--replay',load,'--save-dir',str(invalid_root))
+    assert invalid['scene']=='main.lua' and invalid['watches']['crossing']['mode']=='title'
+    assert invalid_slot.read_text(encoding='utf-8')=='{broken'
     player=next(e for e in restored['entities'] if e['tag']=='player')
     assert abs(player['x']-campaign['stages'][0]['position']['x'])<.01
     assert not any(e['persistent_id']=='light.1' for e in restored['entities'])
@@ -76,9 +83,12 @@ end}''',encoding='utf-8')
     assert final['complete'] and final['room']==3 and final['stages'][2]['sequence']==3
     assert all(stage['open'] and len(stage['lights'])==5 and stage['deaths']==0 for stage in final['stages'])
     assert completed['watches']['crossing']['mode']=='end'
-    visited=set(); music_ids=set(); ferry=plate=ramp=False
+    visited=set(); music_ids=set(); ferry=plate=ramp=save_pending=False
     for line in trace.read_text(encoding='utf-8').splitlines():
         frame=json.loads(line); visited.add(frame['scene'])
+        if frame['watches']['crossing']['save_pending']:
+            save_pending=True
+            assert not frame['watches']['crossing']['complete'],'ending is not complete before disk commit'
         music=[voice for voice in frame['audio'] if voice['path']=='assets/theme.ogg']
         assert len(music)==1
         music_ids.add(music[0]['id'])
@@ -93,21 +103,25 @@ end}''',encoding='utf-8')
             ramp |= player['grounded'] and player['support']==slope['id']
     assert visited=={'main.lua','rooms/mill.lua','rooms/beacon.lua'}
     assert len(music_ids)==1,'music must retain one voice across all three rooms'
-    assert ferry and plate and ramp,(ferry,plate,ramp)
+    assert ferry and plate and ramp and save_pending,(ferry,plate,ramp,save_pending)
     fault_root=temp/'ending-fault'
     blocked=fault_root/'shiny.crossing/checkpoint.json'
     blocked.mkdir(parents=True)
     (blocked/'keep').write_text('fixture',encoding='utf-8')
-    failed=run(project,'--frames','2876','--replay',str(project/'walkthrough.jsonl'),
+    fault_replay=temp/'ending-fault.jsonl'
+    fault_replay.write_text((project/'walkthrough.jsonl').read_text(encoding='utf-8')+
+        json.dumps({'frame':2876,'keys':['a'],'gamepad':{'connected':False}})+'\n',encoding='utf-8')
+    failed=run(project,'--frames','2890','--replay',str(fault_replay),
                '--save-dir',str(fault_root))
     assert failed['scene']=='rooms/beacon.lua' and not failed['state']['campaign']['complete']
     assert failed['watches']['crossing']['mode']=='game' and failed['watches']['crossing']['save_error']
+    assert failed['watches']['crossing']['player']<1190,'gameplay remains unpaused after save failure'
     assert (blocked/'keep').read_text(encoding='utf-8')=='fixture'
     retry_game=temp/'retry-game'
     shutil.copytree(project,retry_game)
-    (retry_game/'rooms/beacon.lua').write_text('''local write=sc.save.write
+    (retry_game/'rooms/beacon.lua').write_text('''local write=sc.save.write_async
 local fail=true
-sc.save.write=function(slot)
+sc.save.write_async=function(slot)
     if fail then fail=false; return nil,'injected once' end
     return write(slot)
 end
@@ -118,8 +132,11 @@ return require('game').room(3)
         '\n'.join(json.dumps(row) for row in [
             {'frame':2876,'keys':['f6'],'gamepad':{'connected':False}},
             {'frame':2877,'keys':[],'gamepad':{'connected':False}}])+'\n',encoding='utf-8')
+    retry_trace=temp/'ending-retry-trace.jsonl'
     retried=run(retry_game,'--frames','2880','--replay',str(retry_replay),
-                '--save-dir',str(temp/'retry-saves'))
+                '--save-dir',str(temp/'retry-saves'),'--trace',str(retry_trace))
+    assert any(json.loads(line)['watches']['crossing']['save_error']
+               for line in retry_trace.read_text(encoding='utf-8').splitlines())
     assert retried['state']['campaign']['complete'] and retried['watches']['crossing']['mode']=='end'
     assert (temp/'retry-saves/shiny.crossing/checkpoint.json').is_file()
     controller=run(project,'--frames','2876','--replay',str(project/'gamepad.jsonl'))
@@ -138,7 +155,7 @@ return require('game').room(3)
     assert recovered['watches']['crossing']['deaths']==1
     assert abs(recovered['watches']['crossing']['player']-24)<.01
     end_state=run(project,'--frames','10','--replay',load,'--save-dir',directory)
-    assert end_state['state']['campaign']==final
+    assert end_state['state']['campaign']==final,'restored ending differs from the committed checkpoint'
     assert end_state['watches']['crossing']['complete'] and end_state['watches']['crossing']['mode']=='end'
     restart=replay(temp/'restart.jsonl',[['tab'],[],['tab'],[],['tab'],[],['enter'],[],['escape'],[],['enter'],[]])
     restarted=run(project,'--frames','12','--replay',restart,'--save-dir',directory)
