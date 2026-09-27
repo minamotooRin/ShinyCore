@@ -14,11 +14,11 @@ local shell,run,player,enemies,choice,offers,spark,bullet
 local spawn_clock,fire_clock,invulnerable,dash,cooldown,boss_spawned
 local aim_x,aim_y=1,0
 local kinds={
-    scout={health=2,speed=23,size=8,color="#FF899AFF",points=10},
-    runner={health=2,speed=40,size=7,color="#FFCB77FF",points=15},
-    gunner={health=4,speed=13,size=10,color="#B49AF8FF",points=25,period=2.7},
-    brute={health=12,speed=16,size=15,color="#E78963FF",points=40},
-    guardian={health=90,speed=12,size=24,color="#FFC98CFF",points=300,period=1.3},
+    scout={health=2,speed=23,size=8,points=10},
+    runner={health=2,speed=40,size=7,points=15},
+    gunner={health=4,speed=13,size=10,points=25,period=2.7},
+    brute={health=12,speed=16,size=15,points=40},
+    guardian={health=90,speed=12,size=24,points=300,period=1.3},
 }
 local function publish()
     local names={}; for _,v in ipairs(offers or {}) do names[#names+1]=v.id end
@@ -34,7 +34,7 @@ local function spawn_enemy(name,p)
     if edge==1 then x=4 elseif edge==2 then x=376-spec.size elseif edge==3 then y=30 else y=198-spec.size end
     if (p.x-x)^2+(p.y-y)^2<70^2 then x=374-spec.size-x; y=224-spec.size-y end
     local id=sc.spawn{tag=name,persistent_id="enemy."..(run.spawned+1),x=x,y=y,w=spec.size,h=spec.size,
-        sprite="wisp",frame_w=8,frame_h=10,color=spec.color,body=false,solid=true}
+        sprite=name,frame_w=spec.size,frame_h=spec.size,color="#FFFFFFFF",body=false,solid=true}
     enemies[#enemies+1]={id=id,kind=name,health=spec.health,fire=spec.period or 0,animation=View.enemy_animation(name)}
     run.spawned=run.spawned+1
 end

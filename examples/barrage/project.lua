@@ -1,6 +1,9 @@
 return {id="shiny.barrage",data_version=3,entry="main.lua",
     limits={sound_voices=12,entities=128,identities=2048,projectiles=4096,particles=4096,draws=1024},resources={
         keeper={type="image",path="assets/keeper.png"},wisp={type="image",path="assets/wisp.png"},
+        scout={type="image",path="assets/scout-v1.png"},runner={type="image",path="assets/runner-v1.png"},
+        gunner={type="image",path="assets/gunner-v1.png"},brute={type="image",path="assets/brute-v1.png"},
+        guardian={type="image",path="assets/guardian-v1.png"},
         arena={type="image",path="assets/arena-v1.png"},
         ["shot"]={type="sound",path="assets/audio/shot.wav"},
         ["hit"]={type="sound",path="assets/audio/hit.wav"},

@@ -13,6 +13,14 @@ scaled to the 384×216 scene with one background-layer command.
 The floor and seal are decorative; they introduce no colliders or gameplay rules.
 The generated source and prompt are bundled locally with the original assets.
 
+`scout-v1.png`, `runner-v1.png`, `gunner-v1.png`, `brute-v1.png` and
+`guardian-v1.png` are original four-frame pixel sprites authored for this game.
+`tools/build_barrage_sprites.py` regenerates them with Pillow at their native
+7–24 pixel sizes. Their silhouettes and color accents distinguish enemy behavior;
+the original wisp atlas remains for keeper projectiles. The sprite builder never
+reads challenge state or random numbers. These files are covered by the repository
+MIT license.
+
 `audio/*.wav` are original synthesized cues authored for this sample: shot, hit,
 break, dash, hurt, heal, wave, win and lose. Rebuild from the repository root with
 `python tools/build_barrage_audio.py examples/barrage/assets/audio`. The standalone

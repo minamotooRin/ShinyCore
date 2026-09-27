@@ -50,6 +50,13 @@ title restores the victory/defeat score screen, including time and challenge see
 NEW CHALLENGE always resets gameplay. This is a result record, not a mid-challenge
 resume; no enemy, projectile or runtime handle is persisted. Settings are separate.
 Sprite/audio assets are bundled locally with provenance in assets/README.md.
+Five enemy kinds now have distinct four-frame pixel sprites at their native sizes;
+the guardian's broad crown and core stand apart from the small fliers. The original
+wisp atlas remains in use for projectiles. `tools/build_barrage_sprites.py` rebuilds
+the enemy images offline; gameplay rules and the fixed challenge seed do not depend
+on sprite animation.
+The focused native review and its limits are recorded in
+../../docs/verification-barrage-sprites.md.
 The arena uses a dark stone-court background with a recessed beacon seal; its
 low-contrast floor stays below characters, projectiles and attack warnings.
 The seal is passable decoration, not a separate damageable objective.

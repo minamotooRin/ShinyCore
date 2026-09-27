@@ -10,6 +10,12 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Barrage now has five distinct four-frame enemy sprites at native gameplay sizes.
+The offline source script reproduces their PNG bytes. Content, short replay,
+dependency closure and SDK checks pass; a five-kind native preview and one live
+combat frame were inspected. See [sprite review](verification-barrage-sprites.md).
+The full challenge and release acceptance remain open.
+
 Aseprite PNG/JSON imports now restore trimmed frames, validate tags and durations,
 and generate native sprite grids plus plain Lua animation catalogs. Focused asset
 tests and the runnable animation_import sample passed content/SDK checks; headless
