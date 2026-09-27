@@ -237,7 +237,8 @@ return {
         if Input.pressed(actions,"save") then checkpoint() end
         local gx,gy=Guide.route_goal(stage,bag,sc.state.get("route_cleared")==true)
         route_hint=gx and Route.route(graph,p.x+4,p.y+6,gx,gy,256) or nil
-        if route_hint and route_hint.status=="ok" then
+        if route_hint and (route_hint.status=="ok" or route_hint.status=="unverified")
+            and route_hint.points[2] then
             local next_point=route_hint.points[2]
             route_hint.local_status=World.path(world,p.x+4,p.y+6,
                 next_point.x,next_point.y,2048).status

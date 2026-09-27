@@ -3,7 +3,7 @@ local Route={}
 ---@class ShinyStreamRouteResult
 ---@field status 'ok'|'unreachable'|'unloaded'|'unverified'|'budget_exhausted'
 ---@field visited integer
----@field points ScNavigationPoint[] World-pixel start, paired portals, and goal on success.
+---@field points ScNavigationPoint[] Start, paired portals, then goal on success or the verified-side frontier on unverified.
 ---@field revision integer Connectivity snapshot revision; changes after invalidation or verification.
 ---@field pending? table Chunk x/y coordinates awaiting saved-map verification.
 local function integer(value,low,high,name)
@@ -294,10 +294,30 @@ function Route.route(route,sx,sy,gx,gy,budget)
     local start,reason,pending=locate(route,sx,sy)
     if not start then return empty(reason,route.revision,pending) end
     local goal,goal_reason,goal_pending=locate(route,gx,gy)
-    if not goal then return empty(goal_reason,route.revision,goal_pending) end
+    if not goal and goal_reason~="unverified" then return empty(goal_reason,route.revision,goal_pending) end
     if start==goal then return {status="ok",visited=0,points={{x=sx,y=sy},{x=gx,y=gy}},revision=route.revision} end
     local queue,previous,through={start},{[start]=0},{}
     local head,visited,unverified=1,0,nil
+    local preferred=goal_pending and key(goal_pending.x,goal_pending.y)
+    local cell=route.data.cell_size
+    local function points_to(node,final)
+        local legs={}
+        while node~=start do
+            local edge=through[node]
+            local source=previous[node]
+            legs[#legs+1]={edge=edge,forward=edge.a==source}
+            node=source
+        end
+        local points={{x=sx,y=sy}}
+        local function point(x,y) points[#points+1]={x=(x+.5)*cell,y=(y+.5)*cell} end
+        for i=#legs,1,-1 do
+            local leg=legs[i]; local edge=leg.edge
+            if leg.forward then point(edge.ax,edge.ay); point(edge.bx,edge.by)
+            else point(edge.bx,edge.by); point(edge.ax,edge.ay) end
+        end
+        points[#points+1]=final
+        return points
+    end
     while head<=#queue and visited<budget do
         local node=queue[head]; head=head+1; visited=visited+1
         for _,step in ipairs(route.adjacent[node] or {}) do
@@ -305,37 +325,31 @@ function Route.route(route,sx,sy,gx,gy,budget)
             local edge=step.edge
             local cell_x,cell_y=other==edge.a and edge.ax or edge.bx,other==edge.a and edge.ay or edge.by
             local chunk_x,chunk_y=cell_x//route.data.cells_x,cell_y//route.data.cells_y
-            if route.unknown[key(chunk_x,chunk_y)] then
-                unverified=unverified or {x=chunk_x,y=chunk_y}
+            local unknown_name=key(chunk_x,chunk_y)
+            if route.unknown[unknown_name] then
+                if not unverified or (preferred==unknown_name and not unverified.preferred) then
+                    local near_x,near_y=node==edge.a and edge.ax or edge.bx,
+                        node==edge.a and edge.ay or edge.by
+                    unverified={x=chunk_x,y=chunk_y,from=node,
+                        frontier={x=(near_x+.5)*cell,y=(near_y+.5)*cell},preferred=preferred==unknown_name}
+                end
             elseif previous[other]==nil then
                 previous[other]=node; through[other]=step.edge
                 if other==goal then
-                    local legs={}
-                    while other~=start do
-                        local edge=through[other]
-                        local source=previous[other]
-                        legs[#legs+1]={edge=edge,forward=edge.a==source}
-                        other=source
-                    end
-                    local points={{x=sx,y=sy}}
-                    local cell=route.data.cell_size
-                    local function point(x,y)
-                        points[#points+1]={x=(x+.5)*cell,y=(y+.5)*cell}
-                    end
-                    for i=#legs,1,-1 do
-                        local leg=legs[i]; local edge=leg.edge
-                        if leg.forward then point(edge.ax,edge.ay); point(edge.bx,edge.by)
-                        else point(edge.bx,edge.by); point(edge.ax,edge.ay) end
-                    end
-                    points[#points+1]={x=gx,y=gy}
-                    return {status="ok",visited=visited,points=points,revision=route.revision}
+                    return {status="ok",visited=visited,
+                        points=points_to(other,{x=gx,y=gy}),revision=route.revision}
                 end
                 queue[#queue+1]=other
             end
         end
     end
-    return {status=head<=#queue and "budget_exhausted" or unverified and "unverified" or "unreachable",
-        visited=visited,points={},revision=route.revision,pending=unverified}
+    if head<=#queue then return {status="budget_exhausted",visited=visited,points={},revision=route.revision} end
+    if unverified then return {status="unverified",visited=visited,
+        points=points_to(unverified.from,unverified.frontier),revision=route.revision,
+        pending={x=unverified.x,y=unverified.y}} end
+    if goal_reason=="unverified" then return {status="unverified",visited=visited,
+        points={},revision=route.revision,pending=goal_pending} end
+    return {status="unreachable",visited=visited,points={},revision=route.revision}
 end
 
 return Route

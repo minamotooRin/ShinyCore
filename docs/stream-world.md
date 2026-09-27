@@ -69,9 +69,11 @@ cell_size 可配置导航单元大小；矩形导航总单元数仍不得超过 
 事件后或同步 patch 成功后，使用已发布原生掩码刷新当前块的连通分量与入口；
 返回变化块数。事务或区域请求尚未完成时拒绝刷新。`Route.route` 结果带 `revision`，
 可用于废弃旧路线。启用 `route_index` 后，尚未读入的存档修改块返回 `unverified`
-及 `pending` 块坐标；不启用时仍按静态基线寻路。局部碰撞和加载边界始终为准。
+及 `pending` 块坐标；若存在已确认前段，`points` 以未知块近侧的边界格结束，
+不包含未知地形内的移动许可。不启用时仍按静态基线寻路。局部碰撞和加载边界始终为准。
 `World.prefetch_route(world, result)` 在无切换事务时，从路线中选第一个尚未发布的
-入口块；`unverified` 时选待核实块，并向 `sc.stream.prefetch` 发出缓存提示。
+入口块；`unverified` 时先选已确认前段的首个未发布块，否则选待核实块，
+并向 `sc.stream.prefetch` 发出缓存提示。
 它返回所选 `{x,y}` 供诊断；提示不读取存档覆盖、不发布物理或对象，后续区域
 `World.request` 仍须按确定帧提交，并经 `World.refresh_route` 核实修改。
 

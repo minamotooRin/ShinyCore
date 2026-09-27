@@ -38,8 +38,11 @@ local result = Route.route(graph, player_x, player_y, goal_x, goal_y, 16384)
 
 `Route.route` 查询世界像素坐标，返回 `status, visited, points, revision` 字段；状态为
 `ok`、`unreachable`、`unloaded`、`unverified` 或 `budget_exhausted`。`unverified`
-还带 `pending={x,y}` 块坐标，表示路径需要先加载存档修改尚未核实的块。它遍历块分量图，
-适合按目标建立一条长程路线，不应为 2000 个单位每帧各跑一次。游戏需要按下一入口
+还带 `pending={x,y}` 块坐标，表示路径需要先加载存档修改尚未核实的块；若图上存在
+已确认的前段，`points` 保留起点、已确认入口和未知块近侧的边界格中心，不包含
+未知块内的路线。静态图没有到该块的入口时，`points` 为空，仍返回 `unverified`。
+它遍历块分量图，适合按目标建立一条长程路线，不应为 2000 个单位每帧各跑一次。
+游戏需要按下一入口
 预取块，再用 `World.path` 或共享流场验证和执行当前已加载路段；未准备块仍受加载边界
 保护。图的 `radius` 应与局部寻路半径一致，`cell_size` 应与 World 设置一致。
 

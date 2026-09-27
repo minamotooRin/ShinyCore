@@ -93,6 +93,7 @@ return {init=function()
   assert(Route.invalidate(linear,{{x=1,y=0}}) and linear.revision==1)
   local unknown=Route.route(linear,4,4,68,4)
   assert(unknown.status=='unverified' and unknown.pending.x==1 and unknown.pending.y==0)
+  assert(#unknown.points==2 and unknown.points[1].x==4 and unknown.points[2].x==28)
   assert(not pcall(Route.invalidate,linear,{{x=2,y=0},{x=2,y=0}}) and linear.revision==1)
   sc.navigation.region(0,0,{'............','............','............','............'},8)
   assert(Route.refresh(linear,sc.navigation.mask(),{{x=1,y=0}})==0 and linear.revision==2)
@@ -100,6 +101,25 @@ return {init=function()
   assert(Route.invalidate(linear,{{x=1,y=0}}) and linear.revision==3)
   assert(Route.route(linear,4,4,68,4).status=='unverified')
   assert(Route.refresh(linear,sc.navigation.mask(),{{x=1,y=0}})==0 and linear.revision==4)
+  assert(Route.invalidate(linear,{{x=2,y=0}}) and linear.revision==5)
+  local distant=Route.route(linear,4,4,68,4)
+  assert(distant.status=='unverified' and distant.pending.x==2 and distant.pending.y==0)
+  assert(#distant.points==4 and distant.points[2].x==28 and distant.points[3].x==36
+      and distant.points[4].x==60)
+  local prefetch,hints=sc.stream.prefetch,{}
+  sc.stream.prefetch=function(x,y) hints[#hints+1]={x=x,y=y} end
+  local fake={region={width=32,height=32,active={['0:0']=true}}}
+  assert(World.prefetch_route(fake,distant).x==1 and hints[1].x==1)
+  fake.region.active['1:0']=true
+  assert(World.prefetch_route(fake,distant).x==2 and hints[2].x==2)
+  sc.stream.prefetch=prefetch
+  assert(Route.refresh(linear,sc.navigation.mask(),{{x=2,y=0}})==0 and linear.revision==6)
+  local no_portal=Route.new{format=1,cell_size=8,chunk_width=32,chunk_height=32,
+      cells_x=4,cells_y=4,radius=0,bounds={0,0,1,0},node_count=2,
+      chunks={['0:0']={full=true,component=1},['1:0']={full=true,component=2}},edges={}}
+  assert(Route.invalidate(no_portal,{{x=1,y=0}}))
+  local missing=Route.route(no_portal,4,4,36,4)
+  assert(missing.status=='unverified' and missing.pending.x==1 and #missing.points==0)
   local middle=Route.new{format=1,cell_size=8,chunk_width=32,chunk_height=32,
       cells_x=4,cells_y=4,radius=0,bounds={0,0,1,0},node_count=2,
       chunks={['0:0']={full=true,component=1},['1:0']={full=true,component=2}},

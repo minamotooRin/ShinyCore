@@ -573,14 +573,15 @@ function World.prefetch_route(world,result)
         world.route_prefetch_key=nil
         return nil
     end
-    local target=result.status=="unverified" and result.pending
-    if result.status=="ok" then
+    local target
+    if result.status=="ok" or result.status=="unverified" then
         for i=2,#result.points do
             local point=result.points[i]
             local x,y=math.floor(point.x/world.region.width),math.floor(point.y/world.region.height)
             if not world.region.active[key(x,y)] then target={x=x,y=y}; break end
         end
     end
+    if not target and result.status=="unverified" then target=result.pending end
     if not target or world.region.active[key(target.x,target.y)] then
         world.route_prefetch_key=nil
         return nil

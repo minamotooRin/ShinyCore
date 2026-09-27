@@ -46,7 +46,11 @@ and road, its arrow follows the next baked cross-chunk portal and the locator ma
 that waypoint. Distant saved map edits remain marked as unchecked until loaded.
 The visible leg to a waypoint is checked against the currently published native
 navigation grid before the arrow is drawn; an unavailable leg shows a status.
-The next out-of-region portal chunk (or unchecked saved chunk) receives a bounded
+When the distant route is unverified, the arrow may guide along its confirmed prefix
+up to the near side of the unknown chunk, while the footer continues to say the path
+ahead must load. It never points through unverified terrain.
+The next out-of-region confirmed portal chunk (or unchecked saved chunk once the
+prefix is published) receives a bounded
 background cache hint; entering its region still controls publication and restoration.
 When no loaded herb remains, explore another district; the guide does not reveal
 unloaded objects.

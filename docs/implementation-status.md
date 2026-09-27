@@ -18,6 +18,16 @@ tests cover promotion and scheduled-request budget recovery. This hint does not
 restore saved chunk state or permit movement before ordinary publication; see
 [streaming](streaming.md).
 
+Coarse routes now retain the confirmed prefix when a distant saved-edit chunk is
+unverified. The prefix ends on the near side of that chunk; an unknown goal with no
+baseline portal still reports `unverified` and a pending coordinate without invented
+waypoints. Wayfarer checks the first leg with `World.path` before drawing its arrow
+and keeps the loading notice visible. Native Lua route checks, the complete sample
+replay and a hidden native unknown-chunk capture are recorded in the
+[route guide verification](verification-wayfarer-route-guide.md).
+The cache hint follows the first unpublished confirmed prefix chunk before hinting
+the unverified block.
+
 A Wayfarer route guide now uses its baked 16-block graph and the opt-in saved-edit
 index for healer and road objectives. Its minimap marks the next portal or an
 unverified saved chunk. Before drawing an arrow, it validates the loaded leg
