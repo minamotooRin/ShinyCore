@@ -14,6 +14,7 @@ public:
     ScStream(const ScStream&)=delete;
     ScStream& operator=(const ScStream&)=delete;
     std::uint64_t request(int x,int y,std::uint64_t frame);
+    void prefetch(int x,int y); // Best-effort cache hint; never schedules publication or holds a pin.
     ScResult<bool> advance(std::uint64_t frame); // false: due batch pending; error: retain previous visible set.
     ScResult<std::optional<ScValue>> get(int x,int y);
     void release(int x,int y);
@@ -42,4 +43,5 @@ private:
     std::map<Key,Entry> entries_;
     std::optional<Key> failed_;
     std::deque<Key> pending_;
+    std::deque<Key> prefetching_; // At most 16 unscheduled reads, polled without gating advance().
 };

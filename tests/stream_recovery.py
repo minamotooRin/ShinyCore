@@ -18,6 +18,8 @@ api=json.loads(subprocess.check_output([str(binary),'--api'],encoding='utf-8'))
 contracts={f['name']:f.get('contract') for f in api['functions']}
 assert contracts['sc.stream.failure']['phases']==['load','init','update','draw','ui_update']
 assert contracts['sc.stream.retry']['phases']==['load','init','update','ui_update']
+assert contracts['sc.stream.prefetch']['phases']==['load','init','update']
+assert contracts['sc.stream.prefetch']['returns']==[]
 assert {f['name'] for f in api['types']['ScStreamFailure']['fields']}=={'sequence','frame','x','y','message'}
 output=args.output.resolve() if args.output else None
 if output: output.mkdir(parents=True,exist_ok=False)

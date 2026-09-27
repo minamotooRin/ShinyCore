@@ -567,6 +567,31 @@ function World.refresh_route(world,route)
     end
     return route.refresh(route,mask,chunks)
 end
+-- Hint one route chunk beyond the published region; the ordinary request still owns its commit frame.
+function World.prefetch_route(world,result)
+    if world.transaction or world.region.pending or not result then
+        world.route_prefetch_key=nil
+        return nil
+    end
+    local target=result.status=="unverified" and result.pending
+    if result.status=="ok" then
+        for i=2,#result.points do
+            local point=result.points[i]
+            local x,y=math.floor(point.x/world.region.width),math.floor(point.y/world.region.height)
+            if not world.region.active[key(x,y)] then target={x=x,y=y}; break end
+        end
+    end
+    if not target or world.region.active[key(target.x,target.y)] then
+        world.route_prefetch_key=nil
+        return nil
+    end
+    local name=key(target.x,target.y)
+    if world.route_prefetch_key~=name or world.route_prefetch_revision~=result.revision then
+        sc.stream.prefetch(target.x,target.y)
+        world.route_prefetch_key,world.route_prefetch_revision=name,result.revision
+    end
+    return target
+end
 function World.draw(world,camera)
     if not world.residency or world.resident_names then Tiles.draw(world.view,world.prepared,camera) end
 end

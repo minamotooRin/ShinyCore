@@ -13,7 +13,7 @@ local Controls=require("controls")
 local actions
 local courier
 local theme=require("theme")
-local shell,player,bag,inventory,completed,world,graph,route_hint,focus_x,focus_y,dialogue,healer,stage,equipment,save_error,route_pending,ending_pending
+local shell,player,bag,inventory,completed,world,graph,route_hint,route_prefetch,focus_x,focus_y,dialogue,healer,stage,equipment,save_error,route_pending,ending_pending
 local function clear_route()
     route_pending=false
     sc.state.set("route_cleared",true)
@@ -31,7 +31,7 @@ local function publish()
     sc.debug.watch("stream",{chunks=sc.stream.stats().pinned,images=sc.images.stats().pinned,
         route_cleared=sc.state.get("route_cleared")==true,
         route_revision=graph.revision,route_status=route_hint and route_hint.status or "idle",
-        route_local_status=route_hint and route_hint.local_status or "idle"})
+        route_local_status=route_hint and route_hint.local_status or "idle",prefetch=route_prefetch})
     local saving=World.status(world)
     sc.debug.watch("save",saving or {status="idle"})
     sc.debug.watch("quest",{collected=bag,remaining=math.max(0,24-bag),complete=completed,stage=stage,equipment=equipment,
@@ -56,7 +56,7 @@ return {
     map={tile_size=8,rows={"."},background="#142D27FF"},
     init=function()
         actions=Controls.new()
-        graph=Route.new(require("maps.world.route")); route_hint=nil
+        graph=Route.new(require("maps.world.route")); route_hint=nil; route_prefetch=nil
         route_pending=false; ending_pending=false
         traveler_view,courier_view,feedback=View.actor(),View.actor(),View.feedback()
         local position=sc.state.get("position") or {x=160,y=100}
@@ -242,6 +242,7 @@ return {
             route_hint.local_status=World.path(world,p.x+4,p.y+6,
                 next_point.x,next_point.y,2048).status
         end
+        route_prefetch=World.prefetch_route(world,route_hint)
         publish()
     end,
     ui_update=function(dt)

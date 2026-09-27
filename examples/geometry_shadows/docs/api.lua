@@ -1831,6 +1831,12 @@ function sc.stream.metadata() end
 ---Capacity: 128 MiB cache; 16 MiB index; 65536 chunks.
 ---@param index_path string
 function sc.stream.open(index_path) end
+---Best-effort background cache hint without a publication frame or reference. It never gates simulation; a later request pins the chunk and determines visibility. No completion status is exposed to gameplay.
+---Phases: load, init, update.
+---Capacity: Best-effort cache hint; 16 unscheduled reads; no pin or scheduled gate.
+---@param x integer
+---@param y integer
+function sc.stream.prefetch(x, y) end
 ---Release one chunk reference; zero references cancel visibility. Pending cancellation drains at its planned boundary.
 ---Phases: load, init, update.
 ---@param x integer

@@ -1093,6 +1093,7 @@ also use the descriptions and [authoring annotations](api.lua).
 | sc.stream.get | x: integer, y: integer | table\|nil | load, init, update |
 | sc.stream.metadata |  | ScStreamMetadata | load, init, update |
 | sc.stream.open | index_path: string | none | load, init |
+| sc.stream.prefetch | x: integer, y: integer | none | load, init, update |
 | sc.stream.release | x: integer, y: integer | none | load, init, update |
 | sc.stream.request | x: integer, y: integer, commit_frame: integer | integer | load, init, update |
 | sc.stream.retry | sequence: integer | boolean | load, init, update, ui_update |

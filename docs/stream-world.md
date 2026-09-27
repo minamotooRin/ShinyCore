@@ -70,6 +70,10 @@ cell_size 可配置导航单元大小；矩形导航总单元数仍不得超过 
 返回变化块数。事务或区域请求尚未完成时拒绝刷新。`Route.route` 结果带 `revision`，
 可用于废弃旧路线。启用 `route_index` 后，尚未读入的存档修改块返回 `unverified`
 及 `pending` 块坐标；不启用时仍按静态基线寻路。局部碰撞和加载边界始终为准。
+`World.prefetch_route(world, result)` 在无切换事务时，从路线中选第一个尚未发布的
+入口块；`unverified` 时选待核实块，并向 `sc.stream.prefetch` 发出缓存提示。
+它返回所选 `{x,y}` 供诊断；提示不读取存档覆盖、不发布物理或对象，后续区域
+`World.request` 仍须按确定帧提交，并经 `World.refresh_route` 核实修改。
 
 request 接收像素区域数组与计划帧，只有一个 pending 请求。正常返回计划；若将卸载
 位置已跨到别块但尚未迁移的对象，则返回 nil,error，计划已取消，当前世界保留。

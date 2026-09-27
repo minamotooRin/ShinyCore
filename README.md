@@ -32,7 +32,7 @@ Workshop 展示中文 UI、Tiled 图层、箱子、斜坡、移动平台、Lua �
 `shiny.animation` 提供[精灵序列、速度与入帧事件](docs/animation.md)，Barrage 的
 角色和敌人已接入；动画数据为普通 Lua 表，推进发生在固定更新中。
 
-完整构建的 182 个注册函数现均带结构化调用契约，见[核心 API 语义](docs/core-api.md)。
+完整构建的注册函数均带结构化调用契约，见[核心 API 语义](docs/core-api.md)。
 复杂资源格式与开放数据字典仍需结合各模块文档；这不是完整版验收声明。
 
 [应用与共享状态契约](docs/application-state.md)说明暂停、设置补丁、跨房间状态、

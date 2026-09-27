@@ -1,11 +1,11 @@
 {
   "format": 1,
-  "version": "1.0.0-dev.81",
+  "version": "1.0.0-dev.84",
   "engine_version": "1.0.0-dev",
   "contract_version": 1,
   "hash": "sha256-text-lf",
   "files": {
-    "docs/api.lua": "7cb7eddaf6557c2653a62f9b30cdf524e8d6a98d58722c0b26cdc5ffa3854c7a",
+    "docs/api.lua": "cec580e7ce4cd3d40e56e85d1a2e6917b8afda785b48d4a226d3159a36692ca2",
     "lib/shiny/animation.lua": "267c1d579456b506086ac7bc241aacf6dcd7f1d24ca0e1cef481e5e7ca00a2ab",
     "lib/shiny/input.lua": "8affccf2805e7b67e239cde6440502d2048bd22ba962babd64e6b8e0d2e25fab",
     "lib/shiny/LICENSE.txt": "5090cd7120174d2034a276d7deb4783760cec86e9642b9a3f34c3ca3aed5058c",
@@ -17,7 +17,7 @@
     "lib/shiny/stream_regions.lua": "1ef859cdc87da6b063edc0b0223d56a499be3530b757e3a1471248367e26b054",
     "lib/shiny/stream_route.lua": "ab1fb596f9f87115d1401d205ba2b5818a7d18383e1380325b2bc3665c3ba663",
     "lib/shiny/stream_tiles.lua": "025536f67791bac7047ed48e7761e930e6b37af4464f9ea5eaf2cc6eacd8f823",
-    "lib/shiny/stream_world.lua": "95362563503869010066f8b4e66417c70fb648a2ce64ebba4b67e37c1c9ac0c0",
+    "lib/shiny/stream_world.lua": "c2e6295da50a3333e093ddd5bcb8bd7c03d7943e7c301cf61e7ad6c31a4fedec",
     "lib/shiny/textedit.lua": "701c6294e33109a048d3cd96a2f7959ae4d9e5877343ae0dd065d2cc1be899df",
     "lib/shiny/tween.lua": "bd8afe8c3f739c16bd7678f713232ddaeba823af4d8e2d991f32c641e97cc012",
     "lib/shiny/ui.lua": "4c950338bd5b4d7dd527628925c49b33d2d7370de1b3820789bd101f1d4b9e75"

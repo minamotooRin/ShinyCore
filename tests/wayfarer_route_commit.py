@@ -49,4 +49,5 @@ if __name__ == "__main__":
         assert result.returncode == 0, result.stderr
         route = json.loads(result.stdout)["watches"]["stream"]
         assert route["route_status"] == route["route_local_status"] == "ok"
-    print("Wayfarer road: async commit, cancellation and locally verified route passed")
+        assert route["prefetch"] == {"x": 0, "y": 0}
+    print("Wayfarer road: async commit, cancellation, local route and ahead cache hint passed")

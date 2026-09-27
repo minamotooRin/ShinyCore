@@ -12,17 +12,23 @@ Wayfarer 将原生导航掩码烘焙为 16 块、24 入口的项目内 Lua 图�
 粗粒度连通路线，不保证最短距离。定向测试检查 Wayfarer 横向入口位于
 第 16 行、动态重建取相同中位规则，并覆盖图范围外余量块。
 
-Windows 全功能构建上已通过 `tests/nav_route.py`、
+Windows 全功能构建上已通过 `test_stream`（慢读取、请求复用、预算回收和提示失败）、
+`tests/stream_recovery.py`、`tests/nav_route.py`、
 `tests/wayfarer_route_commit.py`（含已加载路段确认）、`tests/wayfarer_integration.py`、
-`tests/test_sdk.py`、`tests/test_package_content.py` 和项目 `--check-all`。
+`tests/test_sdk.py`、全功能/轻量 `tests/test_contracts.py`、
+`tests/test_package_content.py` 和项目 `--check-all`。
 后者的完整任务回放覆盖 16 块状态、结局恢复、道路提交及新旅程隔离。
+LLVM-MinGW ASan/UBSan 下的 `test_stream` 与 300 帧无窗口 Wayfarer 预取回放通过。
 打包后从仓库外工作目录执行 300 帧 `travel.jsonl`，粗路线与局部路线状态均为 `ok`，
 图修订号为 2。隐藏、静音原生截图
-`build/wayfarer-route-local-reviewed/wayfarer-route.png` 已目视检查：远处
+`build/wayfarer-prefetch-final-reviewed/wayfarer-route.png` 已目视检查：远处
 药师目标的入口标记落在道路附近，场景和中文 UI 未出现遮挡或异常。
 
-该指引不自动预取远处待核实块，也不控制角色沿局部路径移动。
-现有 `sc.stream.request` 绑定提交帧，直接用于机会式预取会在慢盘时阻塞
-固定更新，并可能与后续同块区域请求的帧号冲突；预取需要独立的非阻塞缓存提示。
+该指引会向路线中第一个未发布入口块或待核实修改块发送 `sc.stream.prefetch`
+缓存提示。提示无引用与提交帧，慢读取不单独阻塞固定更新；正式区域请求可复用
+读取，但仍由确定帧控制发布。提示失败不直接暴露；正式请求在计划帧报告错误，
+可按请求序号重试。
+第 300 帧远处药师回放选中 `(0,0)` 预取，发行包从仓库外运行同一段回放也通过。
+预取不读取该块的存档覆盖，也不控制角色沿局部路径移动。
 实际通行仍由已加载区域的 `World.path` 和加载边界决定；硬件交互及
 最终轻量发行包未在本次验证。

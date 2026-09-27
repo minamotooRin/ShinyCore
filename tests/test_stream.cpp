@@ -127,6 +127,56 @@ void order_and_nonblocking() {
     check(stream.statistics().get("last_sequence")->number()==3,"request sequence independent of IO completion");
     check(!stream.advance(9),"backwards frame rejected");
 }
+void cache_hint_never_gates() {
+    Fixture fixture; Gate gate; std::atomic<int> reads{};
+    ScStream stream(fixture.index(),fixture.charge*2,[&](const std::string& path,std::size_t bytes) {
+        ++reads;
+        if(std::filesystem::path(path).filename()=="1.json") gate.wait();
+        return sc_json_file(path,bytes,20);
+    });
+    Release cleanup{gate};
+    stream.prefetch(1,0); gate.await_entry();
+    const auto begin=std::chrono::steady_clock::now();
+    for(std::uint64_t frame=0;frame<100;++frame) check(bool(stream.advance(frame)),"hint cannot gate a frame");
+    check(std::chrono::steady_clock::now()-begin<std::chrono::milliseconds(500),"slow hint never waits on disk");
+    check(stream.statistics().get("queued")->number()==0&&
+        stream.statistics().get("pinned")->number()==0&&
+        stream.statistics().get("last_sequence")->number()==0,"hint has no scheduled request or pin");
+    check(stream.request(1,0,100)==1,"scheduled request promotes the existing read");
+    auto pending=stream.advance(100); check(pending&&!*pending,"promoted read gates only at requested frame");
+    gate.release(); check(bool(await(stream,100))&&stream.get(1,0)->has_value(),"promoted read publishes");
+    check(reads==1,"promotion does not duplicate disk IO");
+    stream.release(1,0);
+    stream.prefetch(0,0);
+    check(stream.request(0,0,101)==2,"second hint promotes normally");
+    check(bool(await(stream,101))&&stream.get(0,0)->has_value()&&reads==2,"second read executes once");
+}
+void scheduled_request_reclaims_hint_budget() {
+    Fixture fixture; Gate gate;
+    ScStream stream(fixture.index(),fixture.charge,[&](const std::string& path,std::size_t bytes) {
+        if(std::filesystem::path(path).filename()=="0.json") gate.wait();
+        return sc_json_file(path,bytes,20);
+    });
+    Release cleanup{gate};
+    stream.prefetch(0,0); gate.await_entry();
+    check(stream.request(1,0,1)==1,"scheduled read may replace an unpinned hint");
+    check(stream.statistics().get("resident_bytes")->number()==static_cast<double>(fixture.charge),
+        "hint eviction preserves the memory budget");
+    gate.release(); check(bool(await(stream,1))&&stream.get(1,0)->has_value(),"requested chunk publishes");
+}
+void failed_hint_is_not_published() {
+    Fixture fixture; std::filesystem::remove(fixture.root/"1.json");
+    ScStream stream(fixture.index());
+    stream.prefetch(1,0);
+    for(std::uint64_t frame=0;frame<10;++frame)
+        check(bool(stream.advance(frame)),"failed hint cannot gate simulation");
+    check(!stream.failure().get("sequence")&&stream.statistics().get("last_sequence")->number()==0,
+        "hint failure is not a scheduled failure");
+    check(stream.statistics().get("resident_bytes")->number()==static_cast<double>(fixture.charge),
+        "hint completion timing does not change public cache accounting");
+    check(stream.request(1,0,10)==1,"ordinary request takes ownership of a failed hint");
+    check(!await(stream,10),"ordinary request reports the disk failure at its boundary");
+}
 void capacity_and_cancellation() {
     Fixture fixture; Gate gate;
     ScStream stream(fixture.index(),512*1024,[&](const std::string& path,std::size_t bytes) {
@@ -279,7 +329,9 @@ int main(int argc,char** argv) {
         check(argc==1||retry_only||lifetime_only||queue_only,"expected optional --retry, --lifetime or --queue");
         if(argc==1||lifetime_only) application_loader_lifetime();
         if(argc==1||retry_only) retry_failed_batch();
-        if(argc==1) { order_and_nonblocking(); capacity_and_cancellation(); queue_rejection_keeps_cache(); failure_and_schedule(); object_validation(); }
+        if(argc==1) { order_and_nonblocking(); cache_hint_never_gates(); scheduled_request_reclaims_hint_budget();
+            failed_hint_is_not_published();
+            capacity_and_cancellation(); queue_rejection_keeps_cache(); failure_and_schedule(); object_validation(); }
         if(queue_only) queue_rejection_keeps_cache();
         std::cout<<"stream: planned publication, controlled slow IO, cancellation and bounded cache passed\n";
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

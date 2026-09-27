@@ -10,6 +10,14 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+`sc.stream.prefetch(x,y)` now queues a best-effort, unscheduled read without
+pinning or gating simulation; a later scheduled request reuses the same job or
+cached result. The room helper selects one ahead chunk from a coarse route and
+Wayfarer uses it for healer/road guidance. Controlled slow-IO and cache-budget
+tests cover promotion and scheduled-request budget recovery. This hint does not
+restore saved chunk state or permit movement before ordinary publication; see
+[streaming](streaming.md).
+
 A Wayfarer route guide now uses its baked 16-block graph and the opt-in saved-edit
 index for healer and road objectives. Its minimap marks the next portal or an
 unverified saved chunk. Before drawing an arrow, it validates the loaded leg
@@ -17,7 +25,7 @@ with native `World.path` and reports unavailable legs. Offline and dynamic porta
 candidate so an open boundary does not send players toward its top edge. The
 full quest replay, targeted route/road checks, package content audit and hidden
 native route capture pass; see [Wayfarer route guide](verification-wayfarer-route-guide.md).
-The guide does not yet prefetch a distant pending chunk or execute local legs.
+The guide does not yet execute local legs automatically.
 
 An opt-in streamed-route index now commits modified block names with chunk saves.
 A fresh room reads it asynchronously and marks distant edited blocks `unverified`
@@ -297,7 +305,7 @@ see [Crossing presentation evidence](verification-crossing-presentation.md). Ori
 artwork is retained; bespoke jump frames, foreground art and final visual acceptance
 remain incomplete. No native/standard-module change or SDK revision was needed.
 
-All 182 registered functions in the full build now expose structured call contracts;
+All registered functions in the full build now expose structured call contracts;
 no missing entries remain in the lightweight build either. The final 27 core APIs
 include strict optional-argument semantics, conditional map writes, named measure
 returns and text options. Objects now rejects surplus arguments; emit/tone accept

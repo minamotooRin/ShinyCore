@@ -82,6 +82,16 @@ template<int Operation> int stream_chunk(lua_State* L) {
         if(ready) sc_lua_push(L,s->scratch); else lua_pushnil(L); return 1;
     } else { s->stream->release(static_cast<int>(x),static_cast<int>(y)); return 0; }
 }
+int stream_prefetch(lua_State* L) {
+    mutable_phase(L); auto* s=script(L);
+    if(lua_gettop(L)!=2||lua_type(L,1)!=LUA_TNUMBER||lua_type(L,2)!=LUA_TNUMBER)
+        return luaL_error(L,"stream.prefetch expects chunk x and y integers");
+    const auto x=luaL_checkinteger(L,1),y=luaL_checkinteger(L,2);
+    if(x<-31250||x>31250||y<-31250||y>31250) return luaL_error(L,"chunk coordinates outside range");
+    if(!s->stream) return luaL_error(L,"stream is not open");
+    s->stream->prefetch(static_cast<int>(x),static_cast<int>(y));
+    return 0;
+}
 int stream_stats(lua_State* L) {
     if(lua_gettop(L)!=0) return luaL_error(L,"stream.stats expects no arguments");
     auto* s=script(L); if(!s->stream) return luaL_error(L,"stream is not open");
@@ -212,6 +222,8 @@ constexpr ScLuaParameter stream_path[]={{"index_path","string"}},stream_coordina
 constexpr ScLuaParameter stream_request_parameters[]={{"x","integer"},{"y","integer"},{"commit_frame","integer"}};
 constexpr ScLuaContract stream_open_contract{stream_path,nullptr,ScLuaPhases::initialize,"128 MiB cache; 16 MiB index; 65536 chunks",nullptr,"streaming"};
 constexpr ScLuaContract stream_request_contract{stream_request_parameters,"integer",ScLuaPhases::mutate,"1024 pending requests; coordinates -31250..31250",nullptr,"streaming"};
+constexpr ScLuaContract stream_prefetch_contract{stream_coordinates,nullptr,ScLuaPhases::mutate,
+    "Best-effort cache hint; 16 unscheduled reads; no pin or scheduled gate",nullptr,"streaming"};
 constexpr ScLuaContract stream_get_contract{stream_coordinates,"table|nil",ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
 constexpr ScLuaContract stream_release_contract{stream_coordinates,nullptr,ScLuaPhases::mutate,nullptr,nullptr,"streaming"};
 constexpr ScLuaContract stream_stats_contract{{},"table",ScLuaPhases::read,nullptr,nullptr,"streaming"};
@@ -228,6 +240,7 @@ const ScLuaApi stream_api[]={
     {"retry",sc_lua_guard<stream_retry>,"retry(sequence) -> true","Queue the current failed read again without waiting. Retains request sequence, deadline, references, cache reservation and old visible world. Clears failure until the next boundary attempt. Allowed in ui_update; draw forbidden.",&stream_retry_contract},
     {"open",sc_lua_guard<stream_open>,"open(index_path)","Open a built map index with a 128 MiB bounded cache. project.stream_indexes preloads it on the worker before init; undeclared indexes parse synchronously.",&stream_open_contract},
     {"request",sc_lua_guard<stream_chunk<0>>,"request(x,y,commit_frame) -> sequence","Pin and prefetch a 32x32 chunk for a planned simulation tick. Deadlines follow request order; sparse empty regions return sequence 0.",&stream_request_contract},
+    {"prefetch",sc_lua_guard<stream_prefetch>,"prefetch(x,y)","Best-effort background cache hint without a publication frame or reference. It never gates simulation; a later request pins the chunk and determines visibility. No completion status is exposed to gameplay.",&stream_prefetch_contract},
     {"get",sc_lua_guard<stream_chunk<1>>,"get(x,y) -> chunk|nil","Read committed chunk data without waiting; nil until its planned boundary. Absent sparse chunks are empty. Load/init/update only.",&stream_get_contract},
     {"release",sc_lua_guard<stream_chunk<2>>,"release(x,y)","Release one chunk reference; zero references cancel visibility. Pending cancellation drains at its planned boundary.",&stream_release_contract},
     {"stats",sc_lua_guard<stream_stats>,"stats() -> counters","Read reserved cache bytes, visible/pinned chunks and scheduled request counts; worker completion timing is not exposed.",&stream_stats_contract},

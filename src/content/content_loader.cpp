@@ -187,6 +187,9 @@ ScContentLoader::~ScContentLoader() {
 std::uint64_t ScContentLoader::submit(const std::string& path,std::size_t bytes,int x,int y,const Layout& layout) {
     return state_->submit(std::make_unique<State::Job>(State::Job{State::Chunk{path,bytes,x,y,layout},0,false,false,{}}));
 }
+std::uint64_t ScContentLoader::try_submit_chunk(const std::string& path,std::size_t bytes,int x,int y,const Layout& layout) {
+    return state_->submit(std::make_unique<State::Job>(State::Job{State::Chunk{path,bytes,x,y,layout},0,false,false,{}}),true);
+}
 std::uint64_t ScContentLoader::submit_image(ScImageRequest request) {
     const auto bytes=image_bytes(request);
     return state_->submit(std::make_unique<State::Job>(State::Job{std::move(request),bytes,false,false,{}}));

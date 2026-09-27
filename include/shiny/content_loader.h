@@ -37,6 +37,7 @@ private:
     struct State;
     std::unique_ptr<State> state_;
     std::uint64_t submit(const std::string&,std::size_t,int,int,const Layout&);
+    std::uint64_t try_submit_chunk(const std::string&,std::size_t,int,int,const Layout&);
     enum class Kind { chunk,index,image };
     std::optional<ScResult<Payload>> take(std::uint64_t,Kind);
     std::optional<ScResult<ScValue>> take_chunk(std::uint64_t);

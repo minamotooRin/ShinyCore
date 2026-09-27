@@ -64,6 +64,33 @@ ScStream::ScStream(const std::string& path,ScValue index,std::size_t budget,ScCo
 ScStream::~ScStream() {
     for(const auto& [key,entry]:entries_) if(entry.ticket) loader_->cancel(entry.ticket);
 }
+void ScStream::prefetch(int x,int y) {
+    coordinates(x,y);
+    auto found=entries_.find({x,y});
+    if(found==entries_.end()) return;
+    auto& entry=found->second;
+    if(entry.references||entry.pending||entry.ready||entry.ticket||prefetching_.size()>=16) return;
+    const auto charge=entry.charge?0:entry.bytes*64;
+    if(charge>budget_) return;
+    std::size_t available=budget_-resident_;
+    for(const auto& [key,cached]:entries_)
+        if(cached.charge&&!cached.references&&!cached.pending&&!cached.ticket) available+=cached.charge;
+    if(available<charge) return;
+    prefetching_.push_back(found->first);
+    std::uint64_t ticket{};
+    try { ticket=loader_->try_submit_chunk(entry.path,entry.bytes,x,y,layout_); }
+    catch(...) { prefetching_.pop_back(); throw; }
+    if(!ticket) { prefetching_.pop_back(); return; }
+    while(resident_+charge>budget_) {
+        auto victim=entries_.end();
+        for(auto it=entries_.begin();it!=entries_.end();++it)
+            if(it->second.charge&&!it->second.references&&!it->second.pending&&!it->second.ticket&&
+               (victim==entries_.end()||it->second.stamp<victim->second.stamp)) victim=it;
+        auto& old=victim->second; resident_-=old.charge; old.charge=0; old.ready=false;
+        old.value=std::unexpected("evicted");
+    }
+    entry.charge+=charge; resident_+=charge; entry.ticket=ticket;
+}
 std::uint64_t ScStream::request(int x,int y,std::uint64_t frame) {
     coordinates(x,y);
     if(frame<frame_||frame>max_sequence) throw std::runtime_error("stream commit frame outside supported range");
@@ -89,15 +116,25 @@ std::uint64_t ScStream::request(int x,int y,std::uint64_t frame) {
         if(available<charge) throw std::runtime_error("cache budget exhausted by pinned or scheduled chunks");
     }
     pending_.push_back(found->first);
-    try { if(!entry.ready) entry.ticket=loader_->submit(entry.path,entry.bytes,x,y,layout_); }
+    try { if(!entry.ready&&!entry.ticket) entry.ticket=loader_->submit(entry.path,entry.bytes,x,y,layout_); }
     catch(...) { pending_.pop_back(); throw; }
+    if(entry.ticket) {
+        const auto hint=std::find(prefetching_.begin(),prefetching_.end(),found->first);
+        if(hint!=prefetching_.end()) prefetching_.erase(hint);
+    }
     if(charge) {
         while(resident_+charge>budget_) {
             auto victim=entries_.end();
             for(auto it=entries_.begin();it!=entries_.end();++it)
                 if(it->second.charge&&!it->second.references&&!it->second.pending&&
                    (victim==entries_.end()||it->second.stamp<victim->second.stamp)) victim=it;
-            auto& old=victim->second; resident_-=old.charge; old.charge=0; old.ready=false;
+            auto& old=victim->second;
+            if(old.ticket) {
+                loader_->cancel(old.ticket); old.ticket=0;
+                const auto hint=std::find(prefetching_.begin(),prefetching_.end(),victim->first);
+                if(hint!=prefetching_.end()) prefetching_.erase(hint);
+            }
+            resident_-=old.charge; old.charge=0; old.ready=false;
             old.value=std::unexpected("evicted");
         }
         entry.charge=charge; resident_+=charge;
@@ -132,6 +169,14 @@ ScResult<bool> ScStream::advance(std::uint64_t frame) {
         }
     }
     failed_.reset();
+    for(auto it=prefetching_.begin();it!=prefetching_.end();) {
+        auto& entry=entries_.at(*it);
+        auto result=loader_->take_chunk(entry.ticket);
+        if(!result) { ++it; continue; }
+        entry.ticket=0; entry.value=std::move(*result);
+        entry.ready=bool(entry.value); entry.stamp=++clock_;
+        it=prefetching_.erase(it);
+    }
     return true;
 }
 ScResult<std::optional<ScValue>> ScStream::get(int x,int y) {
