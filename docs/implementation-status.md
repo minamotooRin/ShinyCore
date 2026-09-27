@@ -1,14 +1,15 @@
 # Complete edition implementation ledger
 
-This ledger records implementation evidence, not release claims. The approved
-complete-edition specification is the acceptance contract. All work belongs to
-one delivery. Unchecked requirements remain outstanding.
+This ledger records implementation evidence, not release claims. On 2026-09-28
+the user replaced the original complex acceptance gates with simple, necessary
+closeout checks. Those checks and the still-unverified formal targets are recorded
+in [the acceptance audit](acceptance-audit-20260928.md). Historical entries below
+remain as development evidence, not current release claims.
 
-Current priority (2026-09-26, user direction): finish missing functionality before
-further performance optimization, with only necessary change-related tests. Sample
-development now includes native visual review through hidden, unfocused captures;
-interactive device/window tests still need a suitable desktop period. See the updated
-[execution order](continuation-plan.md).
+The 2026-09-26 development priority was missing functionality before performance
+optimization, with only necessary change-related tests. Sample development uses
+hidden native visual review. The current simplified closeout passed; physical
+device and formal performance qualification remain separate.
 
 The UI scroll container now accepts `axis="horizontal"` with clamped width-based
 layout, focus reveal, wheel, thumb dragging and inspector state. The default vertical
