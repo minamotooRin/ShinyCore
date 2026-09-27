@@ -827,6 +827,9 @@ end,update=function(dt)
         reference=require("shiny.stream_objects").reference(world.owners["0:-1"].entries[1])
         assert(World.transfer(world,"traveller:1")==false)
         sc.set(root,{x=264})
+        local plan,why=World.request(world,{{x=264,y=-8}},sc.tick()+1)
+        assert(plan==nil and why:find("traveller:1") and world.region.pending==nil)
+        assert(sc.get(root).x==264 and world.owners["0:-1"].entries[1].id==root)
         assert(World.transfer(world,"traveller:1")); phase=1
     elseif phase==1 and event=="transferred" then
         assert(sc.identity.resolve("traveller:1").id==root)

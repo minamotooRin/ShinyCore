@@ -80,7 +80,27 @@ function World.new(options)
 end
 function World.request(world,areas,frame)
     assert(not world.transaction,"finish or cancel the world transaction first")
-    return Regions.request(world.region,areas,frame)
+    local plan=Regions.request(world.region,areas,frame)
+    local ok,issue=pcall(function()
+        for _,chunk in ipairs(plan.leave) do
+            local source=key(chunk.x,chunk.y)
+            for _,entry in ipairs(assert(world.owners[source]).entries) do
+                if not entry.moved and sc.identity.resolve(entry.object.persistent_id).status=="active" then
+                    local entity=sc.get(entry.id)
+                    local target=key(math.floor(entity.x/world.region.width),math.floor(entity.y/world.region.height))
+                    if target~=source then
+                        return "move "..entry.object.persistent_id.." to its loaded chunk before releasing "..source
+                    end
+                end
+            end
+        end
+    end)
+    if not ok or issue then
+        Regions.cancel(world.region)
+        if not ok then error(issue,0) end
+        return nil,issue
+    end
+    return plan
 end
 function World.status(world)
     local transaction=world.transaction
