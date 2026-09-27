@@ -27,12 +27,14 @@ def persistent_music(trace,scenes):
     assert all(len(voice)==1 and voice[0]['path']=='assets/theme.ogg' for voice in voices)
     assert len({voice[0]['id'] for voice in voices})==1
     positions=[voice[0]['position'] for voice in voices]
-    # The bundled theme loops every 0.3 seconds; a room change must not reset its clock.
-    assert all(math.isclose((b-a) % .3,1/60,abs_tol=1e-4) for a,b in zip(positions,positions[1:])),positions
+    # Room changes cannot restart the 20-second theme during this short trace.
+    assert all(math.isclose(b-a,1/60,abs_tol=1e-4) for a,b in zip(positions,positions[1:])),positions
     return frames
 
 with tempfile.TemporaryDirectory(prefix='shiny-wayfarer-') as folder:
     temp=Path(folder)
+    looped=run(project,'--frames','1201','--save-dir',str(temp/'music-loop'))
+    assert len(looped['audio'])==1 and 0<looped['audio'][0]['position']<.05
     saved=run(project,'--frames','45','--replay',str(project/'journal.jsonl'),'--save-dir',folder)
     assert saved['state']['quest_stage']=='gather' and saved['state']['equipment']=='field'
     assert saved['state']['traveler']=='小林'

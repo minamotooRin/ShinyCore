@@ -11,10 +11,11 @@ interactive device/window tests still need a suitable desktop period. See the up
 [execution order](continuation-plan.md).
 
 Wayfarer's title and forest now acquire the same application-owned theme voice.
-The full quest integration test checks unchanged voice identity and continuous
-0.3-second loop position through ending, title and new journey. Hidden, muted
-native title/world captures were inspected. Audible quality and physical-device
-playback remain unaccepted; see [audio](audio.md).
+The original 0.3-second placeholder has been replaced by a reproducible 20-second
+Ogg melody. The full quest integration test checks unchanged voice identity and
+continuous clock through ending, title and new journey; a 1201-frame title run
+crosses the loop boundary. Hidden, muted native title/world captures were inspected.
+Audible quality and physical-device playback remain unaccepted; see [audio](audio.md).
 
 Crossing now has five small reproducible PCM cues for jump, landing, mechanism
 success/failure and rescue. Focused headless playback states, deterministic cue

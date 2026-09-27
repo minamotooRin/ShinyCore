@@ -10,7 +10,8 @@ Completing the quest saves the ending. Its RETURN TO TITLE button cannot resume 
 completed quest as unfinished gameplay.
 The title and world acquire one application-owned theme voice. Returning to the
 title or beginning a new journey keeps its playback position; sound effects remain
-room-local.
+room-local. The theme is an original 20-second loop built offline from
+`tools/build_wayfarer_music.py`; running or packaging the game does not need ffmpeg.
 
 WASD moves, E talks/gathers or clears the stone at (328,128), I opens the journal,
 F6 saves, and Escape opens pause/settings. A controller uses the left stick or D-pad
@@ -68,7 +69,7 @@ Rebuild with `python tools/assets.py examples/wayfarer/assets.build.json build/w
 then copy the reported map-world output to maps/world. Runtime uses only local
 files. package.json selects runtime scripts/resources and maps/world/index.json;
 the packager includes every indexed chunk and omits the offline map source and unused
-Lua modules. Original sprites/audio and the Source Han Sans SC font are bundled; see
+Lua modules. Original sprites/music/audio and the Source Han Sans SC font are bundled; see
 assets/README.md, FONT.md and OFL.txt. The font is 15.68 MiB and supports on-demand
 name glyphs; it is not linked into the engine.
 
