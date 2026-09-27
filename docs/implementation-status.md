@@ -10,6 +10,13 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+The streamed-world helper now accepts world-pixel path and flow goals against its
+published navigation window. Wayfarer's courier no longer reads internal chunk
+tables or hardcodes their size. Focused negative-chunk/transition checks, the full
+Wayfarer integration run and an inspected hidden native frame pass; see
+[stream-world navigation](verification-stream-world-navigation.md). Routes across
+unloaded sparse chunks remain open.
+
 Wayfarer's checkpoint-gated ending now has a minimal streaming/graphics Release
 package with network, advanced rendering and dev tools disabled. The relocated
 package passed its full 3,245-frame scenario with only system PATH entries; a

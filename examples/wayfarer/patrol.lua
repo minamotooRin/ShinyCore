@@ -27,9 +27,8 @@ function Patrol.update(patrol,world,changed)
         Patrol.stop(patrol); return
     end
     if not patrol.field then
-        local left,top=math.huge,math.huge
-        for _,entry in pairs(world.region.active) do left=math.min(left,entry.x*256); top=math.min(top,entry.y*256) end
-        patrol.field=sc.navigation.flow(math.floor((target.x+4-left)/8),math.floor((target.y+6-top)/8),256,2)
+        patrol.field=World.flow(world,target.x+4,target.y+6,256,2)
+        if not patrol.field then Patrol.stop(patrol); return end
     end
     local status=sc.navigation.refresh(patrol.field,256)
     if status=="ok" then sc.navigation.steer(patrol.field,{patrol.id},38) else Patrol.stop(patrol) end

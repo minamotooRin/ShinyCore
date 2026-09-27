@@ -50,6 +50,17 @@ margin 默认 1，capacity 默认 256；
 cell_size 可配置导航单元大小；矩形导航总单元数仍不得超过 16,384，因此块
 引用容量并不等于导航窗口容量。超限报错，不静默裁剪。
 
+游戏可用 `World.path(world,sx,sy,gx,gy,budget?,radius?)` 查询当前已发布地图：
+输入为世界像素位置，返回 `{status,visited,points}`；成功时点是世界像素单元中心。
+`World.flow(world,gx,gy,budget?,slot?,radius?)` 以世界像素目标建立共享流场，
+成功返回原生 `handle,status,visited`，后续用 `sc.navigation.refresh/steer` 推进与
+批量引导。`sc.navigation.direction` 本身也读取世界像素位置。未加载端点返回
+`path.status="unloaded"` 或 `flow` 的 `nil,"unloaded",0`；禁用导航时对应返回
+`disabled`。路径的其他结果仍为 `ok`、`unreachable` 或 `budget_exhausted`。
+非法坐标、预算、槽位和半径在报告未加载状态前仍会验证。
+地图准备期间查询仍使用旧活动窗口；发布后旧流场句柄按原生生命周期失效。
+此封装不搜索未加载的远程块，长程路线仍需单独的离线连通数据。
+
 request 接收像素区域数组与计划帧，只有一个 pending 请求。正常返回计划；若将卸载
 位置已跨到别块但尚未迁移的对象，则返回 nil,error，计划已取消，当前世界保留。
 update 在原生块已发布

@@ -203,6 +203,7 @@ local function prepare_transition(world,transaction)
     local draft=Objects.prepare_transition(leaving,entering,world.prepare,world.export,
         {terrain=terrain,navigation=navigation,region=region})
     transaction.draft,transaction.changes=draft,draft.changes
+    transaction.navigation=#loaded>0 and navigation or nil
     transaction.chunks,transaction.owners,transaction.edits,transaction.prepared=chunks,owners,edits,prepared
     stage_images(world,transaction,world.residency and image_names(world,prepared,owners,draft.drafts),#leaving>0 and "write" or "publish")
     transaction.saved=nil
@@ -272,6 +273,7 @@ local function finish_transaction(world)
             end
             for i,entry in ipairs(transaction.ready) do transaction.owners[key(entry.x,entry.y)]=incoming[i] end
             world.chunks,world.owners,world.edits,world.prepared=transaction.chunks,transaction.owners,transaction.edits,transaction.prepared
+            world.nav_region=transaction.navigation
         elseif transaction.kind=="patch" then
             local ok,err=pcall(sc.stream.terrain,transaction.terrain)
             if not ok then transaction.error=tostring(err); return nil,transaction.error end
@@ -415,6 +417,43 @@ function World.patch(world,items)
     sc.stream.terrain(terrain)
     world.chunks,world.edits,world.prepared=chunks,edits,prepared
     return count
+end
+local function navigation_cell(world,x,y)
+    assert(type(x)=="number" and type(y)=="number" and x==x and y==y
+        and math.abs(x)<=1e6 and math.abs(y)<=1e6,"navigation requires finite world coordinates")
+    if not world.navigation then return nil,nil,"disabled" end
+    local region=world.nav_region
+    if not region or not Regions.contains(world.region,{x=x,y=y}) then return nil,nil,"unloaded" end
+    local column=math.floor((x-region.x)/region.cell_size)
+    local row=math.floor((y-region.y)/region.cell_size)
+    if column<0 or row<0 or column>=#region.rows[1] or row>=#region.rows then return nil,nil,"unloaded" end
+    return column,row
+end
+-- Use the active published grid; pending chunks do not become navigable early.
+function World.path(world,sx,sy,gx,gy,budget,radius)
+    if budget~=nil then integer(budget,1,1048576,"navigation budget") end
+    assert(radius==nil or type(radius)=="number" and radius==radius and radius>=0 and radius<=4096,
+        "invalid navigation radius")
+    local x,y,reason=navigation_cell(world,sx,sy)
+    local target_x,target_y,target_reason=navigation_cell(world,gx,gy)
+    if not x then return {status=reason,visited=0,points={}} end
+    if not target_x then return {status=target_reason,visited=0,points={}} end
+    local result=sc.navigation.path(x,y,target_x,target_y,budget,radius)
+    local region=world.nav_region
+    for _,point in ipairs(result.points) do
+        point.x=region.x+(point.x+.5)*region.cell_size
+        point.y=region.y+(point.y+.5)*region.cell_size
+    end
+    return result
+end
+function World.flow(world,gx,gy,budget,slot,radius)
+    if budget~=nil then integer(budget,1,1048576,"navigation budget") end
+    if slot~=nil then integer(slot,1,16,"flow slot") end
+    assert(radius==nil or type(radius)=="number" and radius==radius and radius>=0 and radius<=4096,
+        "invalid navigation radius")
+    local x,y,reason=navigation_cell(world,gx,gy)
+    if not x then return nil,reason,0 end
+    return sc.navigation.flow(x,y,budget,slot,radius)
 end
 function World.draw(world,camera)
     if not world.residency or world.resident_names then Tiles.draw(world.view,world.prepared,camera) end

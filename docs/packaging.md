@@ -33,6 +33,10 @@ Wayfarer 结局存档提交修正后的精简运行时包现位于
 包已复制到仓库外执行完整场景，原生对话画面已检查；详见
 [精简发行构建记录](verification-wayfarer-runtime-release.md)。旧 Wayfarer 包不含本次修正。
 
+当前 Wayfarer 包更新为 `build/wayfarer-navigation-release-20260928/` 和同名 ZIP，
+包含世界坐标导航入口及项目本地 dev.74 SDK；复制到仓库外的完整场景通过。
+精简引擎开关与二进制保持上段配置，见[流式导航验证](verification-stream-world-navigation.md)。
+
 ## 内容清单
 
 ```json

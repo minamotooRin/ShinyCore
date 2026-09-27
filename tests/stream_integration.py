@@ -772,6 +772,16 @@ end,update=function(dt)
     local tick=sc.tick()
     if tick==1 then
         assert(changed and World.contains(world,{x=8,y=-8}) and #world.region.walls==4)
+        local path=World.path(world,8,-8,16,-8)
+        assert(path.status=="ok" and path.points[1].x==12 and path.points[#path.points].x==20
+            and path.points[1].y==-4)
+        assert(World.path(world,8,-8,264,-8).status=="unloaded")
+        assert(not pcall(World.path,world,8,-8,264,-8,0))
+        assert(not pcall(World.flow,world,264,-8,0))
+        local field,status=World.flow(world,16,-8,1024,1)
+        assert(field and status=="ok")
+        local dx,dy=sc.navigation.direction(field,12,-4)
+        assert(dx>0 and dy==0)
         local entry=world.owners["0:-1"].entries[1]
         old=entry.id; old_child=entry.children.marker.id; sc.set(old,{x=72})
         assert(sc.get(old_child).x==77)
@@ -780,11 +790,15 @@ end,update=function(dt)
     elseif tick==2 then
         assert(not changed and World.status(world).status=='pending' and sc.app.paused())
         assert(sc.get(old).x==72 and World.contains(world,{x=8,y=-8}))
+        assert(World.path(world,8,-8,16,-8).status=="ok")
+        assert(World.path(world,264,-8,272,-8).status=="unloaded")
         assert(not pcall(World.patch,world,{}))
     elseif tick==4 then
         assert(changed and not pcall(sc.get,old) and not pcall(sc.get,old_child) and world.owners["0:-1"]==nil)
         assert(sc.save.read_chunk("slot","forest:0:-1").objects["actor:0"].data.x==72)
         assert(world.prepared[1][1].id==1 and World.contains(world,{x=264,y=-8}))
+        assert(World.path(world,8,-8,264,-8).status=="unloaded")
+        assert(World.path(world,264,-8,272,-8).status=="ok")
         World.request(world,{{x=8,y=-8}},sc.tick()+1)
     elseif tick==3 or tick==5 or tick==6 or tick==8 then assert(not changed and World.status(world))
     elseif tick==7 then
@@ -795,6 +809,8 @@ end,update=function(dt)
     elseif tick==9 then
         assert(changed and next(world.owners)==nil and #world.prepared[1]==0)
         assert(#world.region.walls==0 and not World.contains(world,{x=8,y=-8}))
+        assert(World.path(world,8,-8,16,-8).status=="unloaded")
+        assert(select(2,World.flow(world,16,-8))=="unloaded")
         assert(sc.identity.resolve("actor:0").status=="unloaded")
     else assert(changed==false) end
 end}''')
