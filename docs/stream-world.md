@@ -49,6 +49,10 @@ margin 默认 1，capacity 默认 256；
 加载边界和局部导航默认开启，可用 boundary=false、navigation=false 关闭。
 cell_size 可配置导航单元大小；矩形导航总单元数仍不得超过 16,384，因此块
 引用容量并不等于导航窗口容量。超限报错，不静默裁剪。
+`route_index=true` 可让此 owner 随地图覆盖原子保存修改块索引，供跨块路线识别
+尚未核实的远处存档地形；首次区域发布时异步读取保留键 `<name>:route-index`。
+已有内容却缺索引的旧存档明确拒绝，项目应提升存档数据版本。未启用时不增加
+索引读写。该索引保守标记曾编辑的块，不取代实际块状态或原生通行掩码。
 
 游戏可用 `World.path(world,sx,sy,gx,gy,budget?,radius?)` 查询当前已发布地图：
 输入为世界像素位置，返回 `{status,visited,points}`；成功时点是世界像素单元中心。
@@ -64,8 +68,8 @@ cell_size 可配置导航单元大小；矩形导航总单元数仍不得超过 
 `World.path` 验证每段。`World.refresh_route(world, graph)` 在 `published`、`patched`
 事件后或同步 patch 成功后，使用已发布原生掩码刷新当前块的连通分量与入口；
 返回变化块数。事务或区域请求尚未完成时拒绝刷新。`Route.route` 结果带 `revision`，
-可用于废弃旧路线。未加载过的远处块仍按静态基线寻路，即使存档内已有地图覆盖；
-局部碰撞和加载边界始终为准。
+可用于废弃旧路线。启用 `route_index` 后，尚未读入的存档修改块返回 `unverified`
+及 `pending` 块坐标；不启用时仍按静态基线寻路。局部碰撞和加载边界始终为准。
 
 request 接收像素区域数组与计划帧，只有一个 pending 请求。正常返回计划；若将卸载
 位置已跨到别块但尚未迁移的对象，则返回 nil,error，计划已取消，当前世界保留。

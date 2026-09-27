@@ -84,6 +84,21 @@ return {init=function()
   assert(World.refresh_route(world,split)==1 and split.revision==3)
   assert(Route.route(split,-28,4,4,4).status=='ok')
   assert(Route.route(split,-28,20,4,20).status=='unreachable')
+  local linear=Route.new{format=1,cell_size=8,chunk_width=32,chunk_height=32,
+      cells_x=4,cells_y=4,radius=0,bounds={0,0,2,0},node_count=3,
+      chunks={['0:0']={full=true,component=1},['1:0']={full=true,component=2},
+          ['2:0']={full=true,component=3}},
+      edges={{a=1,b=2,ax=3,ay=0,bx=4,by=0},{a=2,b=3,ax=7,ay=0,bx=8,by=0}}}
+  assert(Route.invalidate(linear,{{x=1,y=0}}) and linear.revision==1)
+  local unknown=Route.route(linear,4,4,68,4)
+  assert(unknown.status=='unverified' and unknown.pending.x==1 and unknown.pending.y==0)
+  assert(not pcall(Route.invalidate,linear,{{x=2,y=0},{x=2,y=0}}) and linear.revision==1)
+  sc.navigation.region(0,0,{'............','............','............','............'},8)
+  assert(Route.refresh(linear,sc.navigation.mask(),{{x=1,y=0}})==0 and linear.revision==2)
+  assert(Route.route(linear,4,4,68,4).status=='ok')
+  assert(Route.invalidate(linear,{{x=1,y=0}}) and linear.revision==3)
+  assert(Route.route(linear,4,4,68,4).status=='unverified')
+  assert(Route.refresh(linear,sc.navigation.mask(),{{x=1,y=0}})==0 and linear.revision==4)
   local wide_data=require('split'); wide_data.radius=6
   local wide=Route.new(wide_data)
   local wide_mask=sc.navigation.mask(6)

@@ -987,10 +987,12 @@ chunks={['0:-1']={full=true,component=1},['1:-1']={full=true,component=2},
         self.write_index()
         self.scene('''local World=require("shiny.stream_world")
 local Route=require("shiny.stream_route")
-local world,route
+local world,route,unrefreshed,late
 return {init=function()
     route=Route.new(require("route_graph"))
+    unrefreshed=Route.new(require("route_graph"))
     world=World.new{index="index.json",name="forest",slot="slot",margin=0,
+        route_index=true,
         prepare=function() error("no authored objects expected") end,export=function() return {} end}
     World.request(world,{{x=8,y=-8}},0)
 end,update=function(dt)
@@ -999,8 +1001,9 @@ end,update=function(dt)
     if tick==1 then
         assert(changed)
         assert(World.refresh_route(world,route)==0 and route.revision==0)
+        assert(World.refresh_route(world,unrefreshed)==0)
         assert(World.patch(world,{{x=0.0,y=-1.0,layer=0.0,gid=1}})==1)
-        assert(World.refresh_route(world,route)==1 and route.revision==1)
+        assert(World.refresh_route(world,route)==1 and route.revision==2)
         assert(Route.route(route,4,-4,12,-4).status=="unreachable")
         assert(world.chunks["0:-1"].layers["0"][993]==1 and #world.prepared[1]==1)
         local hit=sc.physics.ray(4,-16,0,24); assert(hit and hit.id==0 and math.abs(hit.y+8)<.01)
@@ -1013,27 +1016,72 @@ end,update=function(dt)
         assert(not changed and World.status(world))
     elseif tick==4 then
         assert(changed and world.edits["0:-1"]==nil)
+        assert(World.refresh_route(world,unrefreshed)==0)
+        assert(Route.route(unrefreshed,264,-4,4,-4).status=="unverified")
         local saved=sc.save.read_chunk("slot","forest:0:-1")
         assert(saved.extra.format==1 and saved.extra.tiles["0"]["993"]==1)
         World.request(world,{{x=8,y=-8}},sc.tick()+1)
     elseif tick==7 then
         assert(changed and world.chunks["0:-1"].layers["0"][993]==1)
-        assert(World.refresh_route(world,route)==0 and route.revision==1)
+        assert(World.refresh_route(world,route)==0 and route.revision==2)
         local restored=Route.new(require("route_graph"))
         assert(World.refresh_route(world,restored)==1)
         assert(Route.route(restored,4,-4,12,-4).status=="unreachable")
+        late=restored
         assert(sc.physics.ray(4,-16,0,24).id==0 and sc.navigation.path(0,31,1,31).status=="unreachable")
         World.patch(world,{{x=0,y=-1,layer=0,gid=0}})
-        assert(World.refresh_route(world,route)==1 and route.revision==2)
+        assert(World.refresh_route(world,route)==1 and route.revision==4)
         assert(Route.route(route,4,-4,12,-4).status=="ok")
         assert(sc.physics.ray(4,-16,0,24).id~=0 and sc.navigation.path(0,31,1,31).status=="ok")
         World.request(world,{{x=264,y=-8}},sc.tick()+1)
-    elseif tick==10 then World.request(world,{{x=8,y=-8}},sc.tick()+1)
+    elseif tick==10 then
+        assert(World.refresh_route(world,late)==0)
+        assert(Route.route(late,264,-4,4,-4).status=="unverified")
+        World.request(world,{{x=8,y=-8}},sc.tick()+1)
     elseif tick==13 then
         assert(changed and world.chunks["0:-1"].layers["0"][993]==0 and #world.prepared[1]==0)
     end
 end}''')
         self.run_game('world-map-edits',save=True,frames=14)
+        self.scene('''local World=require("shiny.stream_world")
+local Route=require("shiny.stream_route")
+local world,route,phase
+return {init=function()
+    phase=0; route=Route.new(require("route_graph"))
+    world=World.new{index="index.json",name="forest",slot="slot",margin=0,route_index=true,
+        prepare=function() error("no authored objects expected") end,export=function() return {} end}
+    World.request(world,{{x=520,y=-8}},0)
+end,update=function(dt)
+    local changed,err,event=World.update(world,dt)
+    assert(not err,err)
+    if event=="published" and phase==0 then
+        assert(World.refresh_route(world,route)==0)
+        local pending=Route.route(route,520,-4,4,-4)
+        assert(pending.status=="unverified" and pending.pending.x==0 and pending.pending.y==-1)
+        World.request(world,{{x=8,y=-8}},sc.tick()+1); phase=1
+    elseif event=="published" and phase==1 then
+        assert(World.refresh_route(world,route)==0)
+        assert(Route.route(route,520,-4,4,-4).status=="ok")
+        sc.debug.watch("remote_route_restored",true); sc.app.quit()
+    end
+end}''')
+        self.assertTrue(self.run_game('world-route-index-restore',save=True,frames=8)['watches']['remote_route_restored'])
+        self.scene('''local World=require("shiny.stream_world")
+local world
+return {init=function()
+    world=World.new{index="index.json",name="forest",slot="legacy",margin=0,route_index=true,
+        prepare=function() error("no authored objects expected") end,export=function() return {} end}
+    World.request(world,{{x=8,y=-8}},0)
+end,update=function(dt)
+    if sc.tick()==0 then
+        local ok,err=sc.save.write_chunks("legacy",{["forest:0:-1"]={format=2,objects={},imports={}}})
+        assert(ok,err)
+    end
+    local _,err=World.update(world,dt)
+    assert(not err,err)
+end}''')
+        self.assertIn('saved streamed world lacks route index',
+                      self.run_game('world-route-index-legacy',save=True,frames=6,ok=False))
 
     def test_world_async_cancel_and_publication_failure(self):
         shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')

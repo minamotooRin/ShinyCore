@@ -53,6 +53,8 @@ function World.new(options)
     assert(type(options.slot)=="string" and #options.slot>0,"stream world requires a save slot")
     assert(type(options.prepare)=="function" and type(options.export)=="function","object prepare/export callbacks required")
     assert(options.navigation==nil or type(options.navigation)=="boolean","navigation must be boolean")
+    assert(options.route_index==nil or type(options.route_index)=="boolean","route_index must be boolean")
+    assert(not options.route_index or options.navigation~=false,"route_index requires navigation")
     assert(options.boundary==nil or type(options.boundary)=="boolean","boundary must be boolean")
     assert(options.residency==nil or type(options.residency)=="boolean","residency must be boolean")
     assert(options.retain_images==nil or options.residency==true,"retain_images requires residency")
@@ -73,10 +75,13 @@ function World.new(options)
     local region=Regions.new{tilewidth=metadata.tilewidth,tileheight=metadata.tileheight,
         margin=options.margin,capacity=options.capacity,boundary=options.boundary~=false,
         coverage=metadata.object_coverage}
+    assert(not options.route_index or region.capacity<1024,"route_index requires capacity at most 1023")
     local view=Tiles.new(metadata,options.images)
     return {region=region,view=view,slot=options.slot,name=options.name,prepare=options.prepare,export=options.export,
         residency=options.residency==true,retain_images=retain,resource_names={},
-        navigation=options.navigation~=false,cell_size=options.cell_size,chunks={},owners={},edits={},prepared=Tiles.prepare(view,{})}
+        navigation=options.navigation~=false,cell_size=options.cell_size,chunks={},owners={},edits={},prepared=Tiles.prepare(view,{}),
+        route_index_enabled=options.route_index==true,route_index_dirty=false,route_index_present=false,
+        route_index_revision=0,route_index_applied={}}
 end
 function World.request(world,areas,frame)
     assert(not world.transaction,"finish or cancel the world transaction first")
@@ -144,6 +149,51 @@ function World.ui_update(world)
 end
 function World.contains(world,area) return Regions.contains(world.region,area) end
 local function save_key(world,entry) return world.name..":"..key(entry.x,entry.y) end
+local function route_index_key(world) return world.name..":route-index" end
+local function read_route_index(world,saved,record)
+    if not world.route_index_enabled then return nil,false end
+    local value=saved[route_index_key(world)]
+    if not value then
+        assert(not record,"saved streamed world lacks route index")
+        return {},false
+    end
+    assert(type(value)=="table" and getmetatable(value)==nil and value.format==1 and
+        type(value.modified)=="table" and getmetatable(value.modified)==nil,
+        "invalid saved route index")
+    local result,count={},0
+    for i,name in ipairs(value.modified) do
+        assert(i<=16384 and type(name)=="string" and #name<=24 and not result[name],
+            "invalid saved route chunk")
+        local x,y=name:match("^(%-?%d+):(%-?%d+)$")
+        assert(x and y and tonumber(x)>=-31250 and tonumber(x)<=31250 and
+            tonumber(y)>=-31250 and tonumber(y)<=31250 and key(tonumber(x),tonumber(y))==name,
+            "invalid saved route coordinates")
+        result[name]=true; count=i
+    end
+    for index in pairs(value.modified) do integer(index,1,count,"saved route index") end
+    return result,true
+end
+local function attach_route_index(world,changes)
+    if not world.route_index_enabled or world.route_index_present and not world.route_index_dirty then return false end
+    assert(world.route_index,"route index must load before saving")
+    local names={}
+    for name in pairs(world.route_index) do names[#names+1]=name end
+    table.sort(names)
+    changes[route_index_key(world)]={format=1,modified=names}
+    return true
+end
+local function mark_route_chunks(world,touched)
+    if not world.route_index_enabled then return end
+    assert(world.route_index,"route index must load before patching")
+    local changed=false
+    for name in pairs(touched) do
+        changed=true
+        if not world.route_index[name] then
+            world.route_index[name]=true; world.route_index_dirty=true
+        end
+    end
+    if changed then world.route_index_revision=world.route_index_revision+1 end
+end
 local function save_item(world,entry)
     local name=key(math.tointeger(entry.x),math.tointeger(entry.y))
     return {owner=assert(world.owners[name]),key=world.name..":"..name,
@@ -176,6 +226,9 @@ end
 local function prepare_transition(world,transaction)
     local region,ready=world.region,transaction.ready
     local plan=region.pending
+    if world.route_index_enabled and not world.route_index then
+        transaction.route_index,transaction.route_index_present=read_route_index(world,transaction.saved,transaction.record)
+    end
     local chunks,owners,edits={},{},{}
     for name,entry in pairs(plan.desired) do
         chunks[name]=world.chunks[name]; owners[name]=world.owners[name]; edits[name]=world.edits[name]
@@ -203,6 +256,7 @@ local function prepare_transition(world,transaction)
     local draft=Objects.prepare_transition(leaving,entering,world.prepare,world.export,
         {terrain=terrain,navigation=navigation,region=region})
     transaction.draft,transaction.changes=draft,draft.changes
+    if #leaving>0 then transaction.route_index_written=attach_route_index(world,transaction.changes) end
     transaction.navigation=#loaded>0 and navigation or nil
     transaction.chunks,transaction.owners,transaction.edits,transaction.prepared=chunks,owners,edits,prepared
     stage_images(world,transaction,world.residency and image_names(world,prepared,owners,draft.drafts),#leaving>0 and "write" or "publish")
@@ -227,7 +281,10 @@ local function finish_transaction(world)
         if status.status=="pending" then return false end
         if status.status=="failed" and not transaction.cancelled then return nil,status.error end
         if transaction.phase=="read" and not transaction.cancelled then
-            transaction.saved=sc.save.result(transaction.request).chunks
+            local result=sc.save.result(transaction.request)
+            transaction.saved,transaction.record=result.chunks,result.record
+        elseif transaction.phase=="write" and transaction.route_index_written then
+            world.route_index_dirty=false; world.route_index_present=true
         end
         sc.save.release(transaction.request); transaction.request=nil
         transaction.phase=transaction.phase=="read" and "prepare" or "publish"
@@ -274,10 +331,15 @@ local function finish_transaction(world)
             for i,entry in ipairs(transaction.ready) do transaction.owners[key(entry.x,entry.y)]=incoming[i] end
             world.chunks,world.owners,world.edits,world.prepared=transaction.chunks,transaction.owners,transaction.edits,transaction.prepared
             world.nav_region=transaction.navigation
+            if transaction.route_index then
+                world.route_index=transaction.route_index
+                world.route_index_present=transaction.route_index_present
+            end
         elseif transaction.kind=="patch" then
             local ok,err=pcall(sc.stream.terrain,transaction.terrain)
             if not ok then transaction.error=tostring(err); return nil,transaction.error end
             world.chunks,world.edits,world.prepared=transaction.chunks,transaction.edits,transaction.prepared
+            mark_route_chunks(world,transaction.route_touched)
         end
         if transaction.image_request then
             sc.images.commit(transaction.image_request); transaction.image_request=nil
@@ -301,9 +363,11 @@ function World.reload_images(world)
 end
 function World.save(world)
     if world.transaction or world.region.pending then return nil,"finish the current world transition before saving" end
+    if world.route_index_enabled and not world.route_index then return nil,"route index is not loaded" end
     local items={}
     for i,entry in ipairs(ordered(world.chunks)) do items[i]=save_item(world,entry) end
     local transaction={kind="save",phase="write",changes=Objects.changes(items,world.export)}
+    transaction.route_index_written=attach_route_index(world,transaction.changes)
     local request,err=submit_io(world,transaction)
     if not request then return nil,err end
     begin(world,transaction)
@@ -356,6 +420,7 @@ function World.transfer_many(world,names)
     end
     local draft=Objects.prepare_transfers(moves,owners,world.export)
     local transaction={kind="transfer",phase="write",changes=draft.changes,transfer=draft}
+    transaction.route_index_written=attach_route_index(world,transaction.changes)
     local request,err=submit_io(world,transaction)
     if not request then return nil,err end
     begin(world,transaction)
@@ -375,7 +440,11 @@ function World.update(world,dt)
     if not ready then return false end
     local keys={}
     for i,entry in ipairs(ready) do keys[i]=save_key(world,entry) end
-    begin(world,{kind="transition",phase=#ready>0 and "read" or "prepare",keys=keys,ready=ready,saved={}})
+    if world.route_index_enabled and not world.route_index then
+        assert(#keys<1024,"route index exceeds async read key capacity")
+        keys[#keys+1]=route_index_key(world)
+    end
+    begin(world,{kind="transition",phase=#keys>0 and "read" or "prepare",keys=keys,ready=ready,saved={}})
     return finish_transaction(world)
 end
 -- Edit loaded global tile coordinates; duplicate cells use the final input value.
@@ -407,7 +476,8 @@ function World.patch(world,items)
     local prepared=Tiles.prepare(world.view,loaded)
     local terrain=Tiles.terrain(world.view,prepared,loaded)
     if world.residency then
-        local transaction={kind="patch",chunks=chunks,edits=edits,prepared=prepared,terrain=terrain}
+        local transaction={kind="patch",chunks=chunks,edits=edits,prepared=prepared,terrain=terrain,
+            route_touched=touched}
         stage_images(world,transaction,image_names(world,prepared,world.owners),"publish")
         if transaction.phase=="images" then
             begin(world,transaction)
@@ -416,6 +486,7 @@ function World.patch(world,items)
     end
     sc.stream.terrain(terrain)
     world.chunks,world.edits,world.prepared=chunks,edits,prepared
+    mark_route_chunks(world,touched)
     return count
 end
 local function navigation_cell(world,x,y)
@@ -461,8 +532,28 @@ function World.refresh_route(world,route)
     assert(not world.transaction and not world.region.pending,"finish the current world transition before refreshing routes")
     assert(type(route)=="table" and type(route.refresh)=="function" and type(route.data)=="table",
         "route refresh requires a stream route")
+    assert(not world.route_index_enabled or type(route.invalidate)=="function",
+        "indexed route refresh requires invalidation support")
     assert(route.data.chunk_width==world.region.width and route.data.chunk_height==world.region.height and
         route.data.cell_size==world.nav_region.cell_size,"route scale disagrees with streamed world")
+    if world.route_index_enabled then
+        assert(world.route_index,"route index is not loaded")
+        if world.route_index_applied[route]~=world.route_index_revision then
+            local names,chunks={},{}
+            for name in pairs(world.route_index) do names[#names+1]=name end
+            table.sort(names)
+            for _,name in ipairs(names) do
+                local x,y=name:match("^(%-?%d+):(%-?%d+)$")
+                x,y=tonumber(x),tonumber(y)
+                if x>=route.bounds[1] and x<=route.bounds[3] and
+                    y>=route.bounds[2] and y<=route.bounds[4] then
+                    chunks[#chunks+1]={x=x,y=y}
+                end
+            end
+            route.invalidate(route,chunks)
+            world.route_index_applied[route]=world.route_index_revision
+        end
+    end
     local mask=sc.navigation.mask(route.data.radius)
     local halo=route.data.radius>mask.cell_size/2 and math.ceil(route.data.radius/mask.cell_size) or 0
     local chunks={}

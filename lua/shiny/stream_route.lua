@@ -1,10 +1,11 @@
 -- Coarse routes over a generated stream graph. World.path validates each loaded leg.
 local Route={}
 ---@class ShinyStreamRouteResult
----@field status 'ok'|'unreachable'|'unloaded'|'budget_exhausted'
+---@field status 'ok'|'unreachable'|'unloaded'|'unverified'|'budget_exhausted'
 ---@field visited integer
 ---@field points ScNavigationPoint[] World-pixel start, paired portals, and goal on success.
----@field revision integer Connectivity snapshot revision; changes after a successful refresh.
+---@field revision integer Connectivity snapshot revision; changes after invalidation or verification.
+---@field pending? table Chunk x/y coordinates awaiting saved-map verification.
 local function integer(value,low,high,name)
     assert(type(value)=="number" and value%1==0 and value>=low and value<=high,"invalid "..name)
     return math.tointeger(value)
@@ -14,7 +15,9 @@ local function coordinate(value,name)
     return value
 end
 local function key(x,y) return x..":"..y end
-local function empty(status,revision) return {status=status,visited=0,points={},revision=revision} end
+local function empty(status,revision,pending)
+    return {status=status,visited=0,points={},revision=revision,pending=pending}
+end
 local function node_at(chunk,column,row)
     if not chunk then return 0 end
     if chunk.labels then return chunk.labels[row][column] or 0 end
@@ -60,8 +63,8 @@ function Route.new(data)
         local by=integer(edge.by,-1000000,1000000,"portal y")
         assert(a~=b and math.abs(ax-bx)+math.abs(ay-by)==1,"route portal must join adjacent components")
     end
-    return {data=data,adjacent=adjacency(data.edges),bounds=bounds,overrides={},revision=0,
-        refresh=Route.refresh}
+    return {data=data,adjacent=adjacency(data.edges),bounds=bounds,overrides={},unknown={},revision=0,
+        refresh=Route.refresh,invalidate=Route.invalidate}
 end
 
 local function locate(route,x,y)
@@ -70,6 +73,7 @@ local function locate(route,x,y)
     local bounds=route.bounds
     if cx<bounds[1] or cy<bounds[2] or cx>bounds[3] or cy>bounds[4] then return nil,"unloaded" end
     local name=key(cx,cy)
+    if route.unknown[name] then return nil,"unverified",{x=cx,y=cy} end
     local chunk=route.overrides[name] or data.chunks[name]
     if not chunk then return nil,"unloaded" end
     local column=math.floor((x-cx*data.chunk_width)/data.cell_size)+1
@@ -77,6 +81,30 @@ local function locate(route,x,y)
     local node=node_at(chunk,column,row)
     if node>0 then return node end
     return nil,"unreachable"
+end
+
+-- Mark saved chunks whose tile edits have not been checked in this room.
+function Route.invalidate(route,chunks)
+    assert(type(chunks)=="table" and getmetatable(chunks)==nil and #chunks<=16384,
+        "route invalidation requires a plain chunk array")
+    local unknown,seen,entries={}, {},0
+    for name in pairs(route.unknown) do unknown[name]=true end
+    local changed=false
+    for i,chunk in ipairs(chunks) do
+        entries=i
+        assert(type(chunk)=="table" and getmetatable(chunk)==nil,"invalid route chunk")
+        local x=integer(chunk.x,route.bounds[1],route.bounds[3],"route chunk x")
+        local y=integer(chunk.y,route.bounds[2],route.bounds[4],"route chunk y")
+        local name=key(x,y)
+        assert(not seen[name],"duplicate route chunk"); seen[name]=true
+        if not unknown[name] then unknown[name]=true; changed=true end
+    end
+    for index in pairs(chunks) do integer(index,1,entries,"route chunk index") end
+    if changed then
+        assert(route.revision<4503599627370495,"route revision exhausted")
+        route.unknown,route.revision=unknown,route.revision+1
+    end
+    return changed
 end
 
 local function same_rows(chunk,rows,width,height)
@@ -210,9 +238,10 @@ function Route.refresh(route,mask,chunks)
         local row=mask.rows[i]
         assert(type(row)=="string" and #row==mask_width and not row:find("[^.#]"),"invalid route mask row")
     end
-    local overrides={}
+    local overrides,unknown={},{}
     for name,chunk in pairs(route.overrides) do overrides[name]=chunk end
-    local count,entries,seen=0,0,{}
+    for name in pairs(route.unknown) do unknown[name]=true end
+    local count,entries,seen,verified=0,0,{},false
     for i,chunk in ipairs(chunks) do
         entries=i
         assert(type(chunk)=="table" and getmetatable(chunk)==nil,"invalid route chunk")
@@ -233,12 +262,14 @@ function Route.refresh(route,mask,chunks)
                 and component_chunk(route,x,y,rows) or nil
             count=count+1
         end
+        if unknown[name] then unknown[name]=nil; verified=true end
     end
     for index in pairs(chunks) do integer(index,1,entries,"route chunk index") end
-    if count==0 then return 0 end
+    if count==0 and not verified then return 0 end
     assert(route.revision<4503599627370495,"route revision exhausted")
-    local adjacent=rebuild(route,overrides)
-    route.overrides,route.adjacent,route.revision=overrides,adjacent,route.revision+1
+    local adjacent=count>0 and rebuild(route,overrides) or route.adjacent
+    route.overrides,route.unknown=overrides,unknown
+    route.adjacent,route.revision=adjacent,route.revision+1
     return count
 end
 
@@ -253,18 +284,23 @@ function Route.route(route,sx,sy,gx,gy,budget)
     coordinate(sx,"route start x"); coordinate(sy,"route start y")
     coordinate(gx,"route goal x"); coordinate(gy,"route goal y")
     budget=integer(budget or 16384,1,1048576,"route node budget")
-    local start,reason=locate(route,sx,sy)
-    if not start then return empty(reason,route.revision) end
-    local goal,goal_reason=locate(route,gx,gy)
-    if not goal then return empty(goal_reason,route.revision) end
+    local start,reason,pending=locate(route,sx,sy)
+    if not start then return empty(reason,route.revision,pending) end
+    local goal,goal_reason,goal_pending=locate(route,gx,gy)
+    if not goal then return empty(goal_reason,route.revision,goal_pending) end
     if start==goal then return {status="ok",visited=0,points={{x=sx,y=sy},{x=gx,y=gy}},revision=route.revision} end
     local queue,previous,through={start},{[start]=0},{}
-    local head,visited=1,0
+    local head,visited,unverified=1,0,nil
     while head<=#queue and visited<budget do
         local node=queue[head]; head=head+1; visited=visited+1
         for _,step in ipairs(route.adjacent[node] or {}) do
             local other=step.to
-            if previous[other]==nil then
+            local edge=step.edge
+            local cell_x,cell_y=other==edge.a and edge.ax or edge.bx,other==edge.a and edge.ay or edge.by
+            local chunk_x,chunk_y=cell_x//route.data.cells_x,cell_y//route.data.cells_y
+            if route.unknown[key(chunk_x,chunk_y)] then
+                unverified=unverified or {x=chunk_x,y=chunk_y}
+            elseif previous[other]==nil then
                 previous[other]=node; through[other]=step.edge
                 if other==goal then
                     local legs={}
@@ -291,8 +327,8 @@ function Route.route(route,sx,sy,gx,gy,budget)
             end
         end
     end
-    return {status=head<=#queue and "budget_exhausted" or "unreachable",visited=visited,
-        points={},revision=route.revision}
+    return {status=head<=#queue and "budget_exhausted" or unverified and "unverified" or "unreachable",
+        visited=visited,points={},revision=route.revision,pending=unverified}
 end
 
 return Route

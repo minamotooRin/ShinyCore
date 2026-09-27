@@ -10,12 +10,22 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+An opt-in streamed-route index now commits modified block names with chunk saves.
+A fresh room reads it asynchronously and marks distant edited blocks `unverified`
+until their native masks are published; routing returns the next block to fetch.
+A two-process disk test also covers repeated edits to one block and stale graph
+references across unload. Existing slots without the index fail explicitly when
+the option is enabled. Wayfarer has not adopted the optional route graph/index;
+see [index verification](verification-stream-route-index.md).
+
 Published streamed chunks can now refresh the coarse route graph from the native
 navigation mask. Changed chunks and boundary portals commit together after saved
-tile restoration or a map patch; failed refreshes leave the prior graph intact.
+tile restoration or a map patch; a failed direct refresh leaves prior passability
+intact, while the saved index can conservatively mark chunks unverified.
 Focused native-host checks cover graph changes, rollback, clearance halo, and
-unload/reload of saved edits. Unloaded chunks with unread saved edits still use
-the static graph, so local `World.path` and loading boundaries remain authoritative;
+unload/reload of saved edits. Without the optional index, unloaded chunks with
+unread saved edits still use the static graph. Local `World.path` and loading
+boundaries remain authoritative;
 see [refresh verification](verification-stream-route-refresh.md).
 
 The offline [navigation bake](navigation-bake.md) drives a headless native engine
