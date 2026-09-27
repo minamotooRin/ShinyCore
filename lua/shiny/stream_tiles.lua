@@ -166,7 +166,7 @@ function Tiles.images(view,prepared)
     return result
 end
 -- Explicit CPU geometry preparation; sc.stream.terrain commits the result.
-function Tiles.terrain(view,prepared)
+function Tiles.terrain(view,prepared,chunks)
     local shapes={}
     for _,list in ipairs(prepared) do for _,tile in ipairs(list) do
         local set=tile.set
@@ -200,6 +200,13 @@ function Tiles.terrain(view,prepared)
                 shapes[#shapes+1]={x=tile.x,y=tile.y-image.h,w=image.w,h=image.h,one_way=one_way}
             end
         end
+    end end
+    for _,chunk in ipairs(chunks or {}) do for _,object in ipairs(chunk.objects or {}) do
+        for _,property in ipairs(object.properties or {}) do if property.name=="collision" then
+            assert(property.value=="empty" or (property.value=="solid" or property.value=="one_way")
+                and object.collision_shapes,"object collision requires rebuilt offline shapes")
+        end end
+        for _,shape in ipairs(object.collision_shapes or {}) do shapes[#shapes+1]=shape end
     end end
     return shapes
 end

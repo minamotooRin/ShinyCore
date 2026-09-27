@@ -13,7 +13,7 @@ Packaging includes effective map, group, layer, tileset, tile and object file
 references. Missing files or paths outside the project fail before publication.
 The runtime needs only the built index/chunks and referenced files, never the
 source Tiled JSON. The builder cache key was version 13 at this checkpoint; the
-current cache is version 14 for object coverage. Chunk format stays 3.
+current cache is version 15 for streamed object collision. Chunk format stays 3.
 
 The [TSX/TX example](../examples/tsx_import/README.md) reads map and group file
 properties through `sc.stream.metadata()`. Focused builder and package tests,

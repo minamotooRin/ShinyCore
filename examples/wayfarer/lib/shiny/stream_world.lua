@@ -167,7 +167,7 @@ local function prepare_transition(world,transaction)
     local loaded={}
     for _,entry in ipairs(ordered(plan.desired)) do loaded[#loaded+1]=assert(chunks[key(entry.x,entry.y)]) end
     local prepared=Tiles.prepare(world.view,loaded)
-    local terrain=Tiles.terrain(world.view,prepared)
+    local terrain=Tiles.terrain(world.view,prepared,loaded)
     local navigation
     if world.navigation then
         navigation=#loaded>0 and Tiles.navigation(world.view,loaded,world.cell_size)
@@ -315,8 +315,9 @@ function World.patch(world,items)
     end
     for index in pairs(items) do integer(index,1,count,"patch index") end
     if count==0 then return 0 end
-    local prepared=Tiles.prepare(world.view,ordered(chunks))
-    local terrain=Tiles.terrain(world.view,prepared)
+    local loaded=ordered(chunks)
+    local prepared=Tiles.prepare(world.view,loaded)
+    local terrain=Tiles.terrain(world.view,prepared,loaded)
     if world.residency then
         local transaction={kind="patch",chunks=chunks,edits=edits,prepared=prepared,terrain=terrain}
         stage_images(world,transaction,image_names(world,prepared,world.owners),"publish")

@@ -21,7 +21,7 @@ see [object templates](tiled-templates.md). Embedded images, color-key transpare
 custom tile image subrectangles, grid-size tile rendering and aspect-fit are
 explicitly rejected. DTD/entity declarations are rejected, and a TSX is limited
 to 4 MiB. A game's runtime needs only the built index/chunks and referenced PNGs.
-The builder cache key is now version 14; the runtime chunk index remains format 3.
+The builder cache key is now version 15; the runtime chunk index remains format 3.
 
 This normalization follows Tiled's [TMX/TSX reference](https://doc.mapeditor.org/en/stable/reference/tmx-map-format/)
 and [JSON map reference](https://doc.mapeditor.org/en/stable/reference/json-map-format/).

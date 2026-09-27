@@ -19,7 +19,7 @@ import struct
 import tempfile
 import zlib
 
-VERSION = 14
+VERSION = 15
 CHUNK = 32
 
 
@@ -138,6 +138,46 @@ def tile_collision(group):
             if len(shapes)>16384: raise ValueError("tile collision exceeds 16384 triangles")
         except (ValueError,TypeError,KeyError) as error:
             raise ValueError(f"object {obj.get('id','?')} at ({obj.get('x',0)},{obj.get('y',0)}): {error}") from error
+    return shapes
+
+
+def object_collision(obj):
+    """Bake static object-layer collision into native terrain shapes."""
+    collision=next((p["value"] for p in obj.get("properties",[]) if p["name"]=="collision"),"empty")
+    if collision=="empty": return []
+    if collision not in ("solid","one_way"):
+        raise ValueError("object collision must be solid, one_way or empty")
+    if any(key in obj for key in ("gid","polyline","text")) or any(obj.get(key) for key in ("ellipse","point")):
+        raise ValueError("static object collision requires a rectangle or polygon")
+    x,y,angle=obj["x"],obj["y"],obj.get("rotation",0)
+    if not all(type(v) in (int,float) and math.isfinite(v) and abs(v)<=1e6 for v in (x,y,angle)):
+        raise ValueError("object collision transform outside range")
+    if "polygon" in obj:
+        if collision=="one_way": raise ValueError("one_way object requires an unrotated rectangle")
+        polygons=obj["triangles"]
+    else:
+        w,h=obj.get("width",0),obj.get("height",0)
+        if not all(type(v) in (int,float) and math.isfinite(v) and .16<=v<=4096 for v in (w,h)):
+            raise ValueError("object collision dimensions must be 0.16..4096")
+        if collision=="one_way" and angle%360: raise ValueError("one_way object requires an unrotated rectangle")
+        if angle%360==0:
+            return [{"x":x,"y":y,"w":w,"h":h,"one_way":collision=="one_way"}]
+        polygons=[[(0,0),(w,0),(w,h),(0,h)]]
+    radians=math.radians(angle)
+    cosine,sine=math.cos(radians),math.sin(radians)
+    if abs(cosine-round(cosine))<1e-12: cosine=round(cosine)
+    if abs(sine-round(sine))<1e-12: sine=round(sine)
+    shapes=[]
+    for points in polygons:
+        world=[(x+cosine*px-sine*py,y+sine*px+cosine*py) for px,py in points]
+        if any(not math.isfinite(v) or abs(v)>1e6 for pair in world for v in pair):
+            raise ValueError("object collision vertex outside range")
+        left=min(px for px,_ in world); top=min(py for _,py in world)
+        width=max(px for px,_ in world)-left; height=max(py for _,py in world)-top
+        if not .16<=width<=4096 or not .16<=height<=4096:
+            raise ValueError("object collision bounds must be 0.16..4096")
+        shapes.append({"x":left,"y":top,"w":width,"h":height,
+                       "vertices":[v for px,py in world for v in (px-left,py-top)]})
     return shapes
 
 
@@ -386,9 +426,14 @@ def tiled(root, source, read):
                     if identity in identities: raise ValueError(f"{context}: duplicate persistent_id {identity}")
                     identities.add(identity)
                     obj["persistent_id"]=identity; obj["layer"]=index
+                    if "collision_shapes" in obj: raise ValueError(f"{context}: collision_shapes is generated")
                     if "polygon" in obj:
                         try: obj["triangles"]=triangulate(obj["polygon"])
                         except ValueError as error: raise ValueError(f"{source}:{name}: object {obj['id']} at ({obj['x']},{obj['y']}): {error}") from error
+                    try: collision_shapes=object_collision(obj)
+                    except (ValueError,TypeError,KeyError) as error:
+                        raise ValueError(f"{context} at ({obj['x']},{obj['y']}): {error}") from error
+                    if collision_shapes: obj["collision_shapes"]=collision_shapes
                     anchor=(math.floor(obj["x"]/(tw*CHUNK)),math.floor(obj["y"]/(th*CHUNK)))
                     cover_object(obj,anchor,context)
                     block=block_at(*anchor)

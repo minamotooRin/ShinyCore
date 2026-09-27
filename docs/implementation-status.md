@@ -10,6 +10,15 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+Streamed Tiled object layers now bake `collision=solid/one_way` static shapes offline.
+The world publishes them with tile terrain, retains cross-chunk owner anchors,
+and preserves them when tile cells change; unloaded anchors remove their shapes.
+Focused builder and headless runtime checks cover ray, navigation, patch and unload.
+Builder cache version 15 leaves the two checked-in sample map payloads byte-identical;
+the Wayfarer/TSX local Lua SDKs are dev.51. Static collision remains independent of
+object deletion markers. See [streamed terrain](stream-tiles.md). Full acceptance
+remains open.
+
 Offline Tiled imports now write sparse cross-chunk object coverage into the stream
 index. Region requests pin intersecting objects' anchor chunks while loading walls
 and `contains` retain the true player/camera area. The ordinary stream-world

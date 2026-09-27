@@ -86,7 +86,7 @@ PNG 尺寸检查。可见图块计入 project.limits.draws，超出容量明确�
 
 ```lua
 local next_tiles = Tiles.prepare(view, loaded_chunks)
-sc.stream.terrain(Tiles.terrain(view, next_tiles), Tiles.navigation(view, loaded_chunks))
+sc.stream.terrain(Tiles.terrain(view, next_tiles, loaded_chunks), Tiles.navigation(view, loaded_chunks))
 prepared = next_tiles
 ```
 
@@ -96,6 +96,14 @@ one_way。碰撞使用原图块尺寸及层偏移，不跟随动画帧改变。�
 凹多边形和以 16 边形近似的椭圆；离线分解为三角形并烘焙对象旋转和偏移，
 运行时同步 GID 水平、垂直和对角变换。对象组不支持 one_way、点、折线、
 文字、图块对象或模板，遇到这些输入明确报错。碰撞不随图层视差移动。
+
+第三参数传入已加载块时，`Tiles.terrain` 也加入对象层中标记
+`collision=solid` 或 `collision=one_way` 的静态形状。离线构建器烘焙矩形、
+旋转矩形及凹多边形；one_way 只允许未旋转矩形。跨块形状只归锚点块所有，
+`stream_world` 根据稀疏覆盖索引保留该块。修改图块后重建地形时仍保留对象
+形状；卸载锚点块后形状消失。缺少烘焙数据的旧块会明确报错，需重新构建资源。
+静态碰撞独立于对象实体和删除标记；可开关/移动的障碍应由游戏创建实体碰撞，
+不要给它设置静态 `collision` 属性。
 
 `sc.stream.terrain(shapes, navigation?, entities?)` 在 load/init/update 原子替换全部导入地形；空数组
 清除导入地形，原 ASCII 图块仍保留。形状为世界像素矩形

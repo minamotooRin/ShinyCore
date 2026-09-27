@@ -6,8 +6,9 @@ an object's authored shape outside that anchor. Each entry contains `x`, `y` and
 an `anchors` array of chunk coordinates. Rectangles, tile objects, rotated shapes,
 polygons and polylines use a conservative axis-aligned footprint. The builder
 rejects non-finite dimensions/points and footprints spanning over 1024 chunks;
-the index retains its 16 MiB bound. Builder cache version 14 changes no chunk
-payload format.
+the index retains its 16 MiB bound. Coverage arrived with builder cache version 14;
+version 15 additionally bakes static object collision into chunks, without changing
+the runtime index format.
 `sc.stream.metadata()` exposes the bounded sparse table without copying the chunk
 directory or object payloads; generated LuaLS contracts name `ScStreamMetadata`,
 `ScObjectCoverage` and `ScChunkCoordinate`.

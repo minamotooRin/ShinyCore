@@ -447,6 +447,45 @@ end}''')
         with self.assertRaisesRegex(ValueError,r'map.json: tileset .* tile 0: object 7 at .*degenerate'):
             assets.build(self.root/'assets.json',self.root/'built')
 
+    def test_stream_world_object_layer_collision(self):
+        spec=importlib.util.spec_from_file_location('assets',Path(__file__).resolve().parents[1]/'tools/assets.py')
+        assets=importlib.util.module_from_spec(spec); spec.loader.exec_module(assets)
+        shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
+        source={'orientation':'orthogonal','infinite':True,'tilewidth':8,'tileheight':8,'layers':[
+            {'type':'tilelayer','name':'ground','chunks':[{'x':32,'y':-1,'width':1,'height':1,'data':[0]}]},
+            {'type':'objectgroup','name':'walls','objects':[{'id':1,'x':248,'y':-8,'width':24,'height':8,
+                'properties':[{'name':'collision','value':'solid'}]}]}]}
+        (self.root/'map.json').write_text(json.dumps(source),encoding='utf-8')
+        (self.root/'assets.json').write_text(json.dumps({'maps':{'world':'map.json'}}),encoding='utf-8')
+        built=assets.build(self.root/'assets.json',self.root/'built')
+        index=(built/'map-world/index.json').relative_to(self.root).as_posix()
+        self.scene('''local World=require("shiny.stream_world")
+local world,stage
+return {init=function()
+    world=World.new{index="'''+index+'''",name="walls",slot="slot",margin=0,boundary=false,
+        prepare=function(object) return {x=object.x,y=object.y,body=false},{} end,
+        export=function() return {} end}
+    World.request(world,{{x=264,y=-4}},0); stage=0
+end,update=function(dt)
+    local changed,err,event=World.update(world,dt)
+    assert(not err,err)
+    if event=="published" and stage==0 then
+        assert(changed and world.owners["0:-1"] and World.contains(world,{x=264,y=-4}))
+        local hit=sc.physics.ray(260,-16,0,24)
+        assert(hit and hit.id==0 and math.abs(hit.y+8)<.01)
+        assert(sc.navigation.path(32,31,32,31).status=="unreachable")
+        assert(World.patch(world,{{x=33,y=-1,layer=0,gid=0}})==1)
+        assert(sc.physics.ray(260,-16,0,24).id==0)
+        assert(sc.navigation.path(32,31,32,31).status=="unreachable")
+        World.request(world,{{x=600,y=-4}},sc.tick()+1); stage=1
+    elseif event=="published" and stage==1 then
+        assert(changed and not world.owners["0:-1"])
+        assert(sc.physics.ray(260,-16,0,24)==nil)
+        sc.debug.watch("object_terrain",true); stage=2
+    end
+end}''')
+        self.assertTrue(self.run_game('stream-object-terrain',save=True,frames=12)['watches']['object_terrain'])
+
     def test_streamed_navigation_region(self):
         shutil.copytree(Path(__file__).resolve().parents[1]/'lua/shiny',self.root/'lib/shiny')
         self.scene('''local Tiles=require("shiny.stream_tiles")

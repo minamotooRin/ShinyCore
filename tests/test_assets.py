@@ -358,15 +358,32 @@ class Assets(unittest.TestCase):
             root=Path(temp)
             data={'orientation':'orthogonal','tilewidth':8,'tileheight':8,
                   'layers':[{'type':'objectgroup','name':'shapes','objects':[
-                      {'id':1,'x':248,'y':4,'width':24,'height':8},
+                      {'id':1,'x':248,'y':4,'width':24,'height':8,
+                       'properties':[{'name':'collision','value':'solid'}]},
                       {'id':2,'x':-4,'y':-4,'rotation':90,'polygon':[
-                          {'x':0,'y':0},{'x':12,'y':0},{'x':0,'y':8}]}]}]}
+                          {'x':0,'y':0},{'x':12,'y':0},{'x':0,'y':8}],
+                       'properties':[{'name':'collision','value':'solid'}]},
+                      {'id':3,'x':8,'y':8,'width':8,'height':2,
+                       'properties':[{'name':'collision','value':'one_way'}]}]}]}
             (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
             metadata,blocks=assets.tiled(root,'map.json',lambda p:p.read_bytes())
             self.assertEqual(set(blocks),{(0,0),(-1,-1)})
             self.assertEqual(metadata['object_coverage'],[
                 {'x':-1,'y':0,'anchors':[{'x':-1,'y':-1}]},
                 {'x':1,'y':0,'anchors':[{'x':0,'y':0}]}])
+            self.assertEqual(blocks[0,0]['objects'][0]['collision_shapes'],
+                             [{'x':248,'y':4,'w':24,'h':8,'one_way':False}])
+            self.assertTrue(blocks[0,0]['objects'][1]['collision_shapes'][0]['one_way'])
+            rotated=blocks[-1,-1]['objects'][0]['collision_shapes'][0]
+            self.assertEqual(len(rotated['vertices']),6)
+            self.assertAlmostEqual(rotated['x'],-12)
+            self.assertAlmostEqual(rotated['y'],-4)
+            data['layers'][0]['objects'][1]['properties'][0]['value']='one_way'
+            (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
+            with self.assertRaisesRegex(ValueError,'one_way object requires'):
+                assets.tiled(root,'map.json',lambda p:p.read_bytes())
+            data['layers'][0]['objects'][1]['properties'][0]['value']='solid'
+            data['layers'][0]['objects'][0]['properties'][0]['value']='empty'
             data['layers'][0]['objects'][0]['width']=256*1025
             (root/'map.json').write_text(json.dumps(data),encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'footprint exceeds'): assets.tiled(root,'map.json',lambda p:p.read_bytes())
