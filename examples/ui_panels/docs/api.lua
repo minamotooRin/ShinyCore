@@ -502,25 +502,27 @@
 ---@field normal_y number # Read-only. Ground normal Y; positive Y points down.
 
 ---@class ScMap
----@field rows string[] # Required dense array of equal-length ASCII rows; only '.', '#', '='. At most 16384 cells.
----@field tile_size? integer # Pixels per cell, 1..256. Default 8.
----@field color? ScColor # Tile fill.
----@field accent? ScColor # Tile edge/accent.
----@field background? ScColor # Scene background.
+-- Fields generated from native --api.
+---@field rows string[] # Dense equal-length ASCII rows of '.', '#' and '='; at least one row, at most 16384 cells.
+---@field tile_size? integer # Pixels per cell. Range 1..256. Default 8.
+---@field color? ScColor # Tile fill. Default "#183244FF".
+---@field accent? ScColor # Tile edge/accent. Default "#28566FFF".
+---@field background? ScColor # Scene background. Default "#070B19FF".
 
 ---@class ScScene
----@field title? string # At most 127 UTF-8 bytes.
----@field width? integer # Logical viewport width, 64..4096. Default 384.
----@field height? integer # Logical viewport height, 64..4096. Default 216.
----@field gravity? number # Pixels/second², -1e6..1e6. Default 600.
----@field ambient? number # Ambient light, 0..1. Default 0.4.
----@field map? ScMap|string # Tiled .tmj path or ASCII map. Default empty 48×27 map with solid virtual bounds.
----@field entities? ScEntityPatch[] # Dense array bounded by project.limits.entities; default 4096 living entities.
----@field preload_images? string[] # Initial image names/paths, at most 128 distinct entries; default none. Requires streaming. Prepared after init and committed before first draw; includes bound normal maps.
----@field init? fun() # Runs once after config/entities are loaded.
----@field update? fun(dt: number) # Runs before physics, exactly dt=1/60 seconds.
----@field draw? fun(alpha: number) # Queue drawing only; alpha=0..1. Keep Lua state unchanged.
----@field ui_update? fun(dt: number) # UI before gameplay; live once per host frame, replay/headless before each fixed update, including waits. dt=0..0.25; gameplay mutations forbidden. See docs/ui-lifecycle.md.
+-- Fields generated from native --api.
+---@field title? string # Room title, at most 127 UTF-8 bytes. Default "ShinyCore".
+---@field width? integer # Logical viewport width. Range 64..4096. Default 384.
+---@field height? integer # Logical viewport height. Range 64..4096. Default 216.
+---@field gravity? number # Pixels per second squared; finite. Range -1000000..1000000. Default 600.
+---@field ambient? number # Ambient light; finite. Range 0..1. Default 0.4.
+---@field map? ScMap|string # ASCII map or project-relative Tiled .tmj path; omitted uses an empty 48x27 map with solid virtual bounds.
+---@field entities? ScEntityPatch[] # Dense initial entity array bounded by project.limits.entities; omitted is empty.
+---@field preload_images? string[] # At most 128 distinct declared image names or paths; requires streaming; committed before first draw.
+---@field init? fun() # Called once after scene fields and entities load; may initialize room state.
+---@field update? fun(dt: number) # Fixed gameplay update before physics; dt is exactly 1/60 second.
+---@field draw? fun(alpha: number) # Draw command submission; alpha is 0..1; gameplay mutation is forbidden.
+---@field ui_update? fun(dt: number) # UI and device update before gameplay, including loading waits; dt is 0..0.25 second; gameplay mutation is forbidden.
 -- A .lua scene file MUST return a ScScene. Unknown scene/map/entity keys error.
 -- Scene, map and entity configs/patches must be plain tables without metatables.
 -- Seed belongs to the host (--seed), not the scene table. Each scene is self-contained.

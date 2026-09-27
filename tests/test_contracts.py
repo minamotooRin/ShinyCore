@@ -171,6 +171,21 @@ assert(not pcall(sc.spawn,{{body={{shapes={{{{shape='box',w=0}}}}}}}}))
         for name, field in limits.items():
             self.assertEqual(field['default'], self.api['limits'][name], name)
 
+    def test_scene_and_ascii_map_metadata(self):
+        types = self.api['types']
+        fields = lambda name: {field['name']: field for field in types[name]['fields']}
+        scene, map_fields = fields('ScScene'), fields('ScMap')
+        self.assertEqual(set(scene), set(self.api['scene_fields']))
+        self.assertEqual(set(map_fields), set(self.api['map_fields']))
+        self.assertEqual({name: scene[name]['default'] for name in ('title','width','height','gravity','ambient')},
+                         {'title':'ShinyCore','width':384,'height':216,'gravity':600,'ambient':0.4})
+        self.assertEqual(map_fields['tile_size']['default'], 8)
+        self.assertTrue(map_fields['rows']['required'])
+        self.assertEqual((scene['width']['minimum'], scene['width']['maximum']), (64,4096))
+        self.assertEqual((scene['height']['minimum'], scene['height']['maximum']), (64,4096))
+        self.run_lua('''return {map={rows={"....",".#=."},tile_size=8},
+            width=384,height=216,gravity=600,ambient=.4}''', scene=True)
+
     def test_function_phases_match_execution(self):
         mutations = {'sc.spawn', 'sc.spawn_many', 'sc.set', 'sc.set_many', 'sc.destroy'}
         core = mutations | {'sc.get', 'sc.get_many', 'sc.find', 'sc.find_all', 'sc.overlap'}

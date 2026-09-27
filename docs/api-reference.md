@@ -448,6 +448,18 @@ also use the descriptions and [authoring annotations](api.lua).
 
 - Plain partial object, no unknown fields or coercion. All numbers finite, lower <= upper even when limit is disabled. Omitted fields retain values; validation failure changes no controls.
 
+## ScMap
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| rows | string[] | Dense equal-length ASCII rows of '.', '#' and '='; at least one row, at most 16384 cells. |
+| tile_size? | integer | Pixels per cell. Range 1..256. Default 8. |
+| color? | ScColor | Tile fill. Default "#183244FF". |
+| accent? | ScColor | Tile edge/accent. Default "#28566FFF". |
+| background? | ScColor | Scene background. Default "#070B19FF". |
+
+- Plain table; unknown fields and metatables rejected. Zero-width rows are accepted, but every row must have the same byte length.
+
 ## ScMaterialCapacity
 
 | Field | Type | Contract |
@@ -791,6 +803,25 @@ also use the descriptions and [authoring annotations](api.lua).
 | error? | string | Read-only. Present only on failure; retry preserves the original frozen payload. |
 
 - Independent status copy. Release invalidates the request; pending requests cannot be released.
+
+## ScScene
+
+| Field | Type | Contract |
+| --- | --- | --- |
+| title? | string | Room title, at most 127 UTF-8 bytes. Default "ShinyCore". |
+| width? | integer | Logical viewport width. Range 64..4096. Default 384. |
+| height? | integer | Logical viewport height. Range 64..4096. Default 216. |
+| gravity? | number | Pixels per second squared; finite. Range -1000000..1000000. Default 600. |
+| ambient? | number | Ambient light; finite. Range 0..1. Default 0.4. |
+| map? | ScMap\|string | ASCII map or project-relative Tiled .tmj path; omitted uses an empty 48x27 map with solid virtual bounds. |
+| entities? | ScEntityPatch[] | Dense initial entity array bounded by project.limits.entities; omitted is empty. |
+| preload_images? | string[] | At most 128 distinct declared image names or paths; requires streaming; committed before first draw. |
+| init? | fun() | Called once after scene fields and entities load; may initialize room state. |
+| update? | fun(dt: number) | Fixed gameplay update before physics; dt is exactly 1/60 second. |
+| draw? | fun(alpha: number) | Draw command submission; alpha is 0..1; gameplay mutation is forbidden. |
+| ui_update? | fun(dt: number) | UI and device update before gameplay, including loading waits; dt is 0..0.25 second; gameplay mutation is forbidden. |
+
+- Scene file returns a plain table; unknown fields and metatables rejected. Seed belongs to the host. Candidate load and init must not change active application services.
 
 ## ScSettings
 

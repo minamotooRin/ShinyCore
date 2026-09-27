@@ -1,5 +1,8 @@
 #include "core_contract.h"
 #include "shiny/core.h"
+#include <optional>
+#include <string>
+#include <utility>
 
 namespace sc_core_api {
 namespace {
@@ -80,6 +83,20 @@ const ScLuaContract time{{},"number",ScLuaPhases::read,"Room tick / 60; not wall
 const ScLuaContract log{log_parameters,nullptr,ScLuaPhases::read};
 ScValue types() {
     using V=ScValue;V::Array fields;
+    auto field=[](const char* name,const char* kind,bool required,const char* description,
+                  std::optional<V> initial={},std::optional<double> minimum={},std::optional<double> maximum={}) {
+        V::Object item{{"name",V{std::string(name)}},{"type",V{std::string(kind)}},
+            {"required",V{required}},{"description",V{std::string(description)}}};
+        if(initial) item.emplace("default",std::move(*initial));
+        if(minimum) item.emplace("minimum",V{*minimum});
+        if(maximum) item.emplace("maximum",V{*maximum});
+        return V{std::move(item)};
+    };
+    auto type=[](V::Array items,const char* constraint) {
+        return V{V::Object{{"fields",V{std::move(items)}},
+            {"constraints",V{V::Array{V{std::string(constraint)}}}},
+            {"unknown_fields",V{std::string("reject")}}}};
+    };
     fields.emplace_back(V::Object{{"name",V{std::string("font")}},{"type",V{std::string("string")}},
         {"required",V{false}},{"default",V{std::string{}}},{"maximum_bytes",V{127.0}},
         {"description",V{std::string("Declared font name; empty uses default font. No NUL.")}}});
@@ -91,6 +108,27 @@ ScValue types() {
         {"description",V{std::string("0 left, 1 center, 2 right.")}}});
     V::Array constraints{V{std::string("Plain table; unknown fields and metatables rejected. Nil/omitted option fields retain defaults.")}};
     V::Object record{{"fields",V{std::move(fields)}},{"constraints",V{std::move(constraints)}},{"unknown_fields",V{std::string("reject")}}};
-    return V{V::Object{{"ScTextOptions",V{std::move(record)}}}};
+    return V{V::Object{{"ScTextOptions",V{std::move(record)}},
+        {"ScMap",type({
+            field("rows","string[]",true,"Dense equal-length ASCII rows of '.', '#' and '='; at least one row, at most 16384 cells."),
+            field("tile_size","integer",false,"Pixels per cell.",V{8.0},1,256),
+            field("color","ScColor",false,"Tile fill.",V{std::string("#183244FF")}),
+            field("accent","ScColor",false,"Tile edge/accent.",V{std::string("#28566FFF")}),
+            field("background","ScColor",false,"Scene background.",V{std::string("#070B19FF")})},
+            "Plain table; unknown fields and metatables rejected. Zero-width rows are accepted, but every row must have the same byte length.")},
+        {"ScScene",type({
+            field("title","string",false,"Room title, at most 127 UTF-8 bytes.",V{std::string("ShinyCore")}),
+            field("width","integer",false,"Logical viewport width.",V{384.0},64,4096),
+            field("height","integer",false,"Logical viewport height.",V{216.0},64,4096),
+            field("gravity","number",false,"Pixels per second squared; finite.",V{600.0},-1000000,1000000),
+            field("ambient","number",false,"Ambient light; finite.",V{0.4},0,1),
+            field("map","ScMap|string",false,"ASCII map or project-relative Tiled .tmj path; omitted uses an empty 48x27 map with solid virtual bounds."),
+            field("entities","ScEntityPatch[]",false,"Dense initial entity array bounded by project.limits.entities; omitted is empty."),
+            field("preload_images","string[]",false,"At most 128 distinct declared image names or paths; requires streaming; committed before first draw."),
+            field("init","fun()",false,"Called once after scene fields and entities load; may initialize room state."),
+            field("update","fun(dt: number)",false,"Fixed gameplay update before physics; dt is exactly 1/60 second."),
+            field("draw","fun(alpha: number)",false,"Draw command submission; alpha is 0..1; gameplay mutation is forbidden."),
+            field("ui_update","fun(dt: number)",false,"UI and device update before gameplay, including loading waits; dt is 0..0.25 second; gameplay mutation is forbidden.")},
+            "Scene file returns a plain table; unknown fields and metatables rejected. Seed belongs to the host. Candidate load and init must not change active application services.")}}};
 }
 }

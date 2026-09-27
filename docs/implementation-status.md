@@ -10,6 +10,12 @@ development now includes native visual review through hidden, unfocused captures
 interactive device/window tests still need a suitable desktop period. See the updated
 [execution order](continuation-plan.md).
 
+`ScScene` and `ScMap` now have structured native `--api` fields, defaults,
+ranges and table constraints. The generated LuaLS/reference copies and 18
+example annotations are synchronized; 11 manifested SDKs are dev.72.
+Full/lightweight builds and focused contract/generation checks pass. This
+changes authoring metadata only; remaining work and release gates stay open.
+
 Barrage now probes `last_result` on the application save worker after its title
 initializes and writes victory/defeat results asynchronously. The result screen
 holds until write completion, offers retry on failure and labels an unsaved new
