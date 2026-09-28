@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
@@ -45,6 +46,17 @@ cd /d "%~dp0"
 shiny.exe examples\lantern %*
 exit /b %errorlevel%
 '''
+
+
+def game_executable_name(name: str, project: Path | None) -> str:
+    if platform.system() != "Windows" or project is None:
+        raise OSError("--launcher-exe requires --project and a Windows executable")
+    stem = name[:-4] if name.lower().endswith(".exe") else name
+    if (not stem or len(stem) > 64 or stem != stem.strip(" .")
+            or any(ord(char) < 32 or char in '<>:"/\\|?*' for char in stem)
+            or re.fullmatch(r"(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?", stem, re.I)):
+        raise OSError("--launcher-exe: invalid Windows executable name")
+    return stem + ".exe"
 
 
 def executable(path: Path, contents: str | None = None) -> None:
@@ -140,7 +152,8 @@ def copy_resources(destination: Path, with_network: bool = False, custom: bool =
 
 def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             with_network: bool = False, project: Path | None = None, symbols: tuple[Path, ...] = (),
-            runtimes: tuple[tuple[Path,Path], ...] = ()) -> tuple[Path, Path | None]:
+            runtimes: tuple[tuple[Path,Path], ...] = (), launcher_exe: str | None = None) -> tuple[Path, Path | None]:
+    launcher_name = game_executable_name(launcher_exe, project) if launcher_exe is not None else None
     archive = preflight(binary, destination, make_zip, with_network, project is not None)
     dependencies = audit_runtimes(binary, runtimes)
     content = content_closure(project) if project is not None else None
@@ -183,10 +196,13 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
             launch_hint = "Double-click ShinyCore.app (or run-lantern.command) to play."
         else:
             resources = destination
-            copied_binary = destination / ("shiny.exe" if system == "Windows" else "shiny")
+            copied_binary = destination / ((launcher_name or "shiny.exe") if system == "Windows" else "shiny")
             if system == "Windows":
-                (destination / "run-lantern.bat").write_text(WINDOWS_LAUNCH, encoding="utf-8")
-                launch_hint = "Double-click run-lantern.bat to play."
+                if launcher_name:
+                    launch_hint = f"Double-click {launcher_name} to play."
+                else:
+                    (destination / "run-lantern.bat").write_text(WINDOWS_LAUNCH, encoding="utf-8")
+                    launch_hint = "Double-click run-lantern.bat to play."
             else:
                 executable(destination / "run-lantern.sh", UNIX_LAUNCH)
                 launch_hint = "Run ./run-lantern.sh to play."
@@ -203,12 +219,14 @@ def package(binary: Path, destination: Path, *, strip: bool, make_zip: bool,
                 executable(macos / "launch", MAC_LAUNCH.replace("examples/lantern", "game"))
                 (destination / "run-lantern.command").rename(destination / "run-game.command")
             elif system == "Windows":
-                (destination / "run-lantern.bat").unlink()
-                (destination / "run-game.bat").write_text(WINDOWS_LAUNCH.replace("examples\\lantern", "game"), encoding="utf-8")
+                if not launcher_name:
+                    (destination / "run-lantern.bat").unlink()
+                    (destination / "run-game.bat").write_text(WINDOWS_LAUNCH.replace("examples\\lantern", "game"), encoding="utf-8")
             else:
                 (destination / "run-lantern.sh").unlink()
                 executable(destination / "run-game.sh", UNIX_LAUNCH.replace("examples/lantern", "game"))
-            launch_hint = "Launch the bundled game with " + ("ShinyCore.app" if system == "Darwin" else "run-game.bat" if system == "Windows" else "run-game.sh") + "."
+            if not launcher_name:
+                launch_hint = "Launch the bundled game with " + ("ShinyCore.app" if system == "Darwin" else "run-game.bat" if system == "Windows" else "run-game.sh") + "."
         shutil.copy2(binary, copied_binary)
         executable(copied_binary)
         bundled_runtimes = []
@@ -306,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-zip", action="store_true", help="create only the runnable folder")
     parser.add_argument("--with-network-examples", action="store_true", help="include DUET and network docs; requires a network-enabled executable")
     parser.add_argument("--project", type=Path, help="validate and bundle an authored game with its own launcher")
+    parser.add_argument("--launcher-exe", metavar="NAME", help="Windows: name the directly playable game executable (requires --project)")
     parser.add_argument("--symbols", type=Path, action="append", default=[], help="include a separate symbol file (repeatable)")
     parser.add_argument("--runtime", type=Path, nargs=2, action="append", default=[], metavar=("LIBRARY", "LICENSE"),
                         help="bundle an explicit native runtime and its redistribution notice (repeatable)")
@@ -315,7 +334,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         copied_binary, archive = package(binary, destination, strip=not args.no_strip,
                                         make_zip=not args.no_zip, with_network=args.with_network_examples, project=args.project,
-                                        symbols=tuple(args.symbols), runtimes=tuple(tuple(pair) for pair in args.runtime))
+                                        symbols=tuple(args.symbols), runtimes=tuple(tuple(pair) for pair in args.runtime),
+                                        launcher_exe=args.launcher_exe)
     except (OSError, zipfile.BadZipFile) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

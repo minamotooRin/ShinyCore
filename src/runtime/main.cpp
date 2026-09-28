@@ -140,11 +140,16 @@ Result<Options> parse_options(const char* exe_name,std::span<char*> arguments) {
         opt.project=arg; project_set=true;
     }
     if (!project_set) {
-        if (std::filesystem::exists("main.lua")) opt.project=".";
-        else if (exe_name) {
-            std::filesystem::path path(exe_name);
-            if(path.has_parent_path()&&std::filesystem::exists(path.parent_path()/"main.lua")) opt.project=path.parent_path().string();
-        }
+        // A packaged executable owns its adjacent game directory, regardless of the caller's cwd.
+        std::error_code path_error;
+        if (exe_name) {
+            auto directory=std::filesystem::absolute(std::filesystem::path(exe_name),path_error).parent_path();
+            if (!path_error && std::filesystem::exists(directory/"game"/"project.lua",path_error)
+                && std::filesystem::exists(directory/"game"/"main.lua",path_error))
+                opt.project=(directory/"game").string();
+            else if (!path_error && std::filesystem::exists("main.lua",path_error)) opt.project=".";
+            else if (!path_error && std::filesystem::exists(directory/"main.lua",path_error)) opt.project=directory.string();
+        } else if (std::filesystem::exists("main.lua",path_error)) opt.project=".";
     }
     if(opt.debug_stdio&&opt.check) return std::unexpected(Error{"arguments","debug-stdio cannot be combined with check"});
     if(opt.debug_load&&!opt.debug_stdio) return std::unexpected(Error{"arguments","debug-load requires --debug-stdio"});

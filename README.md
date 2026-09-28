@@ -122,9 +122,11 @@ Lua 可通过 `sc.input` 查询桌面键盘、鼠标和最多四个手柄。例�
 
 ```sh
 python tools/package.py build/shiny dist/MyGame --project examples/workshop
+# Windows：生成可直接双击的游戏专用 EXE（连同 game/、资源和运行库一起分发）
+python tools/package.py build/full/shiny.exe dist/Wayfarer --project examples/wayfarer --launcher-exe Wayfarer
 ```
 
-Windows 生成 BAT 启动器，Linux 生成 shell 启动器，macOS 生成 `.app`；均包含游戏、文档、许可和 ZIP，拒绝覆盖已有目标。不传 `--project` 时打包 Lantern；`--with-network-examples` 需要网络开启的引擎。包对应构建它的系统与 CPU，签名、公证和商店发行流程由项目负责。
+Windows 默认生成 BAT 启动器；`--launcher-exe` 生成命名的直启 EXE。Linux 生成 shell 启动器，macOS 生成 `.app`；均包含游戏、文档、许可和 ZIP，拒绝覆盖已有目标。不传 `--project` 时打包 Lantern；`--with-network-examples` 需要网络开启的引擎。包对应构建它的系统与 CPU，签名、公证和商店发行流程由项目负责。
 
 打包时审计原生运行库；非系统库通过 `--runtime LIBRARY LICENSE` 显式携带，
 缺失或架构不匹配时失败。报告分列二进制、运行库、资源、Lua 库和符号大小。

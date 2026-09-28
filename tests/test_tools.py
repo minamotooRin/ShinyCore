@@ -270,6 +270,37 @@ int main(int argc, char **argv) {
         self.assertTrue(json.loads(result.stdout)["ok"])
         self.assertTrue((self.base / "saved game/shiny.workshop/checkpoint.json").is_file())
 
+    @unittest.skipUnless(os.name == "nt", "named executable is a Windows package option")
+    def test_named_game_executable_starts_relocated_project(self) -> None:
+        if BINARY is None:
+            self.skipTest("requires a real engine")
+        project = self.base / "authored game"
+        project.mkdir()
+        (project / "project.lua").write_text('return {id="launcher-check"}\n', encoding="utf-8")
+        (project / "main.lua").write_text('return {}\n', encoding="utf-8")
+        invalid = self.base / "invalid launcher"
+        self.cli(ROOT / "tools/package.py", BINARY, invalid, "--project", project,
+                 "--launcher-exe", "CON", "--no-zip", ok=False)
+        self.assertFalse(invalid.exists())
+        destination = self.base / "launcher package"
+        self.cli(ROOT / "tools/package.py", BINARY, destination, "--project", project,
+                 "--launcher-exe", "旅人 Game.exe", "--no-zip")
+        moved = self.base / "moved launcher"
+        shutil.move(str(destination), moved)
+        launcher = moved / "旅人 Game.exe"
+        self.assertTrue(launcher.is_file())
+        self.assertFalse((moved / "run-game.bat").exists())
+        self.assertFalse((moved / "shiny.exe").exists())
+        self.assertIn(launcher.name, (moved / "README.txt").read_text(encoding="utf-8"))
+        self.assertIn(launcher.name, [item["path"] for item in json.loads(
+            (moved / "package-report.json").read_text(encoding="utf-8"))["files"]])
+        (self.base / "main.lua").write_text("error('wrong working directory')\n", encoding="utf-8")
+        for arguments in (("--check-all",), ("--headless", "--frames", "3")):
+            result = subprocess.run([str(launcher), *arguments], cwd=self.base,
+                                    capture_output=True, text=True, encoding="utf-8", timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(json.loads(result.stdout)["ok"])
+
     def test_explicit_package_keeps_late_modules_and_checks_staged_rooms(self) -> None:
         if BINARY is None:
             self.skipTest("requires a real engine")

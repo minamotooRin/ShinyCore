@@ -2,9 +2,18 @@
 
 ```powershell
 python tools/package.py build/full/shiny.exe build/packages/Wayfarer --project examples/wayfarer
+# Windows：直接双击游戏专用 EXE 启动，不生成 run-game.bat：
+python tools/package.py build/full/shiny.exe build/packages/WayfarerExe --project examples/wayfarer --launcher-exe Wayfarer
 # 使用动态链接工具链时，按需重复指定运行库及其再分发许可：
 python tools/package.py build/shiny.exe build/packages/Game --project my-game --runtime path/runtime.dll path/LICENSE
 ```
+
+`--launcher-exe` 仅用于 Windows 自定义游戏包，可传文件名主体或 `.exe` 文件名，
+也支持中文与空格。打包器将已构建的引擎复制为该名称；启动时自动读取同目录的
+`game/project.lua` 与 `game/main.lua`，因此从任意工作目录双击或移动整个包后
+仍能运行。显式传入项目路径时，以命令行路径为准；`--api` 等开发命令仍可使用。
+这是游戏专用启动程序，不是把脚本、资源和运行库压进单个 EXE：分发时须保留
+整个输出目录或 ZIP。未使用此选项的包维持 `shiny.exe` 与批处理启动器。
 
 输出目录必须不存在。游戏先通过 `--check-all` 校验所需模块和内容； `advanced_render`
 表示高级渲染整组已编译，细分需求可使用 materials/postprocessing/geometry_shadows/normal_maps；
