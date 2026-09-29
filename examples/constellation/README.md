@@ -60,4 +60,4 @@ python tests/constellation_faults.py build/full/shiny.exe
 python tools/package.py build/full/shiny.exe dist/constellation --project examples/constellation
 ```
 
-输出目录必须不存在。完整验收范围见仓库的 `docs/verification/constellation.md`。
+输出目录必须不存在。完整验收范围见仓库的 `docs/verification/games/constellation.md`。

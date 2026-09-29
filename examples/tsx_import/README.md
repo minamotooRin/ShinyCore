@@ -21,4 +21,4 @@ build/full/shiny.exe examples/tsx_import --headless --frames 30 --replay example
 
 `make_source.py` creates the original pixel art and JSON map deterministically;
 `assets/ground.tsx`, `assets/flower.tsx` and `assets/plaque.tx` are hand-authored Tiled-format inputs.
-No Tiled editor export is claimed. See [the importer contract](../../docs/tiled-tsx.md).
+No Tiled editor export is claimed. See [the importer contract](../../docs/content/tiled-tsx.md).

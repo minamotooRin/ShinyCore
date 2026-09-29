@@ -1,5 +1,11 @@
 # Verification records
 
-These dated notes record what was actually checked at each stage. Search by subsystem name or by sample prefix (`crossing-`, `wayfarer-`, `barrage-`). `implementation-history.md` preserves the former progress log; `baseline-0.2.md` and `v0.1.md` describe older releases.
+These notes preserve the checks performed at each development stage. They are evidence for the named revision or scenario, not automatic proof for the current tree.
 
-They are historical evidence, not a blanket claim about the current tree. For the 1.0 development closeout and outstanding coverage, see `../acceptance-audit-20260928.md`.
+| Area | Contents |
+| --- | --- |
+| [Games](games/README.md) | Sample playthroughs, screenshots, audio and release checks |
+| [Systems](systems/README.md) | Focused subsystem and fault-injection checks |
+| [Release](release/README.md) | Older baselines, package checks and development history |
+
+For current closeout status and unverified coverage, use the [acceptance audit](../acceptance-audit-20260928.md).

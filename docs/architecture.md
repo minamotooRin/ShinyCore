@@ -1,6 +1,6 @@
 # Architecture and contracts
 
-This is the current development implementation, not a complete-edition acceptance report. Expanded importer output and streaming APIs are documented separately in [new systems](new-systems.md); direct runtime Tiled loading retains the subset described below.
+This describes the current development architecture, not a complete-edition acceptance report. Expanded importer output and streaming APIs are documented under [content](content/README.md); direct runtime Tiled loading retains the subset described below. For current coverage and limits, see the [acceptance audit](acceptance-audit-20260928.md).
 
 ShinyCore owns one simulation world per room, one Lua VM per runtime, and one native backend per host. There is no ECS, plugin framework or generated editor scene database.
 
@@ -21,8 +21,8 @@ animation, image-layer and object dependencies, prepares them before outgoing sa
 and publishes them with terrain/objects. Wayfarer uses this path. Image-dependent
 map edits expose the same prepare/publish transaction. Explicit image reload stages
 private revisions beside active pixels; commit changes future cache lookup preference,
-while other owners retain their old versions until release. See [image residency](image-residency.md).
-Standalone native streams can own a private loader; see [lifetimes and limits](streaming.md).
+while other owners retain their old versions until release. See [image residency](content/image-residency.md).
+Standalone native streams can own a private loader; see [lifetimes and limits](content/streaming.md).
 
 `src/content/save_io.cpp` supplies a lazy, single-transaction native read/write/delete service
 with owned checkpoint payloads, explicit result observation and retry. The host
@@ -44,7 +44,7 @@ slot enumeration remain explicit utilities.
 Rooms declaring `project.stream_indexes` stage index parsing on the content worker
 between scene-table loading and `init`, then consume the parsed index in `sc.stream.open`.
 Undeclared indexes still open synchronously.
-See [save lifetimes](chunk-saves.md) and [world coordination](stream-world.md).
+See [save lifetimes](runtime/chunk-saves.md) and [world coordination](content/stream-world.md).
 
 The pixel scene uses the authored render resolution. Unlayered screen/UI commands
 compose afterward at native window resolution, with the same logical coordinates,
@@ -59,11 +59,11 @@ scale changes. Default bitmap text and world text retain pixel-scene styling.
 Particles use dedicated room-owned columns (`ScParticles`), with a dense active prefix
 and stable compaction to preserve translucent order. Emit/step reuse allocated storage;
 zero project capacity releases the columns. Burst exhaustion fails atomically and does
-not advance visual RNG. See [particle contract](particles.md).
+not advance visual RNG. See [particle contract](world/particles.md).
 
-Each tick applies input, invokes `update(1/60)`, synchronizes authored body changes, steps Box2D with four substeps, synchronizes [visual attachments](attachments.md) after root movement and before projectiles/camera, updates particles/camera, and increments scene time. The host then advances application audio before preparing any requested room and calling drawing. `grounded`, `support` and contacts describe the preceding completed step. Raycasts and joint creation synchronize pending bodies early without advancing time.
+Each tick applies input, invokes `update(1/60)`, synchronizes authored body changes, steps Box2D with four substeps, synchronizes [visual attachments](world/attachments.md) after root movement and before projectiles/camera, updates particles/camera, and increments scene time. The host then advances application audio before preparing any requested room and calling drawing. `grounded`, `support` and contacts describe the preceding completed step. Raycasts and joint creation synchronize pending bodies early without advancing time.
 
-The real-time loop caps catch-up at eight steps. Scheduled streaming gates run before input consumption and update; an unready due batch holds simulation time while native presentation and input sampling continue (see [streaming](streaming.md)). Bounded graphical runs advance at most one simulation step per displayed frame; loading/paused frames do not count toward --frames, and headless uses the same updates and draws with alpha one (the latest completed fixed state). Optional [display interpolation](presentation.md) blends room-owned prior poses without mutating simulation; bounded/paused/loading presentation uses current state. [Camera controls](camera.md) share the transform with draw-time coordinate conversion, culling and lighting. Gameplay coordinate conversion remains fixed-step. Draw cannot mutate engine state or first-load modules; Lua-local side effects cannot be prevented generally.
+The real-time loop caps catch-up at eight steps. Scheduled streaming gates run before input consumption and update; an unready due batch holds simulation time while native presentation and input sampling continue (see [streaming](content/streaming.md)). Bounded graphical runs advance at most one simulation step per displayed frame; loading/paused frames do not count toward --frames, and headless uses the same updates and draws with alpha one (the latest completed fixed state). Optional [display interpolation](presentation/presentation.md) blends room-owned prior poses without mutating simulation; bounded/paused/loading presentation uses current state. [Camera controls](presentation/camera.md) share the transform with draw-time coordinate conversion, culling and lighting. Gameplay coordinate conversion remains fixed-step. Draw cannot mutate engine state or first-load modules; Lua-local side effects cannot be prevented generally.
 
 ## Bodies and handles
 
@@ -72,7 +72,7 @@ waits and debug pauses. Live devices update UI once per host frame; replays and
 headless runs update it before each fixed snapshot is delivered to gameplay.
 Its temporary device snapshot is restored before returning
 to simulation; gameplay mutation remains forbidden. Text focus, clipboard, explicit
-pause and exit are the limited host-facing exceptions. See [UI lifecycle](ui-lifecycle.md)
+pause and exit are the limited host-facing exceptions. See [UI lifecycle](presentation/ui-lifecycle.md)
 for replay behavior. The Lua action module bridges UI consumption to fixed updates,
 including pending edges and held-action release, without mutating raw input.
 
@@ -82,9 +82,9 @@ Entity positions locate the unrotated bounds' top-left; rotation is about the ce
 
 ASCII solid runs are merged to avoid contact seams. Tiled collision geometry is compiled into the same solver, not a second collision engine. Map virtual boundaries are solid. One-way platforms use prior bounds and relative vertical velocity; use unrotated top-face geometry. `drop` temporarily disables their contacts. Lua implements coyote time, jump buffering and moving-platform velocity inheritance; Workshop supplies an editable controller.
 
-Contacts are sorted by a/b/phase. Terrain has ID 0. Solid contacts carry normals from a to b, sensors emit begin/end edges with zero normals; destroyed shapes may not produce end events. Limits are 64 contacts per body and 16384 collected records per step by default, with explicit failures. `sc.overlap` uses authored AABBs. `physics.query`, `physics.overlap`, `physics.sweep` and `physics.ray` use actual solver shapes; see [query contracts](physics-queries.md). Distance, revolute and local-vertical prismatic joints expose atomic limit/motor controls; see [joint contracts](joints.md).
+Contacts are sorted by a/b/phase. Terrain has ID 0. Solid contacts carry normals from a to b, sensors emit begin/end edges with zero normals; destroyed shapes may not produce end events. Limits are 64 contacts per body and 16384 collected records per step by default, with explicit failures. `sc.overlap` uses authored AABBs. `physics.query`, `physics.overlap`, `physics.sweep` and `physics.ray` use actual solver shapes; see [query contracts](world/physics-queries.md). Distance, revolute and local-vertical prismatic joints expose atomic limit/motor controls; see [joint contracts](world/joints.md).
 
-Entity/joint IDs encode room epoch, generation and slot within 52 bits; audio IDs use six slot bits. Entity/joint IDs are room-local and must not be stored as persistent game references. Joint slots retire at generation exhaustion; room epochs never wrap. Use room paths plus `persistent_id` in saves and resolve rebuilt objects through `sc.identity` (see [object identity](identity.md)). The bounded room-owned index retains unloaded/deleted records until the room ends; games explicitly restore persistent object state in init. The world hash contains explicit logical fields including compound geometry, not padding, addresses, solver caches, joints, resources or arbitrary Lua locals; audio is exposed separately in snapshots. It is diagnostic evidence, not a complete future-state identity.
+Entity/joint IDs encode room epoch, generation and slot within 52 bits; audio IDs use six slot bits. Entity/joint IDs are room-local and must not be stored as persistent game references. Joint slots retire at generation exhaustion; room epochs never wrap. Use room paths plus `persistent_id` in saves and resolve rebuilt objects through `sc.identity` (see [object identity](world/identity.md)). The bounded room-owned index retains unloaded/deleted records until the room ends; games explicitly restore persistent object state in init. The world hash contains explicit logical fields including compound geometry, not padding, addresses, solver caches, joints, resources or arbitrary Lua locals; audio is exposed separately in snapshots. It is diagnostic evidence, not a complete future-state identity.
 
 ## Lua and failure boundaries
 
@@ -92,7 +92,7 @@ Profiling is opt-in: the simulation receives an optional timing accumulator;
 host-owned JSON Lines output and OS memory sampling stay outside the core.
 The raylib backend uses custom frame control to time submission, swap/pacing and
 input polling separately. Its bounded GPU query ring never waits for a result
-and is destroyed before the graphics context. See [profiling](profiling.md).
+and is destroyed before the graphics context. See [profiling](guides/profiling.md).
 
 A runtime and its script cannot move: Lua's allocator/extraspace borrow stable addresses. The host transfers a unique runtime pointer. Native owners are move-only and release resources before their devices. Expected loading failures use `std::expected`; outer exception guards report diagnostics.
 
@@ -116,7 +116,7 @@ resource-specific constraints remain described rather than closed record schemas
 Core drawing, input convenience, map and utility descriptors are grouped in
 `src/script/core_contract.cpp`. They record strict optional arguments, draw-only
 phases and presence-triggered map mutation without another callback implementation.
-See [core contracts and evidence](core-api.md).
+See [core contracts and evidence](runtime/core-api.md).
 Network callbacks retain their context/guard closures while using the common API
 registration descriptors for JSON documentation. Event and budget snapshots have
 structured field contracts. Conditional mutation distinguishes omitted arguments
@@ -124,12 +124,12 @@ from explicit nil for session state; existing non-nil patch contracts are unchan
 Application/settings bindings live in `src/script/script_application.cpp`; they
 borrow the existing settings service and keep scene pause/exit flags room-local.
 State/module contracts remain with data conversion; bounded debug observations
-validate serialized UTF-8 before commit. See [application contracts](application-state.md).
+validate serialized UTF-8 before commit. See [application contracts](runtime/application-state.md).
 Projectile bindings similarly live in `src/script/script_projectiles.cpp`: scalar
 field descriptors drive strict Lua validation and metadata, with native defaults.
 Seven function contracts and spec/hit/stats records generate the Agent-facing SDK;
 manual integer, boolean, phase and transaction rules have focused contract checks.
-See [projectile contracts](projectiles.md).
+See [projectile contracts](world/projectiles.md).
 Input bindings have their own `src/script/script_input.cpp`; all 18 functions and
 nested snapshot records expose structured contracts. Validation keeps exact argument
 counts, UTF-8 limits, optional controller slots and clipboard/focus mutation phases
@@ -160,7 +160,7 @@ A rejected candidate does not undo the active room's completed tick: trace, debu
 step completion and frame limits still advance normally. A successful subsequent room
 commit clears the previous loading diagnostic; the full error remains in stderr logs.
 
-Only persistent music voices carry across rooms/F5; other voices expire. Candidate init may create new voices within the remaining capacity. The audio adapter retains matching persistent handles and replaces other voices after all GPU/audio preparation succeeds. Draft preparation cannot play or pause the active device voices. See [audio ownership](audio.md).
+Only persistent music voices carry across rooms/F5; other voices expire. Candidate init may create new voices within the remaining capacity. The audio adapter retains matching persistent handles and replaces other voices after all GPU/audio preparation succeeds. Draft preparation cannot play or pause the active device voices. See [audio ownership](presentation/audio.md).
 
 Named network sessions belong to the application. Host iterations service bounded
 event rings even while simulation is paused or awaiting chunks; a fixed update
@@ -181,7 +181,7 @@ records or automatic traces. Closing the session releases it.
 
 `load` validates the current format (3) and exact project data version, recovering from a previous valid `.bak` when the main file is damaged. Writes atomically preserve the previous valid record; malformed records never replace a good backup. Unsupported formats/data versions are rejected. Successful loading requests room reconstruction; VM locals and solver caches are not restored. `read`, `list` and `delete` expose records, sorted metadata and slot removal.
 
-`write_chunks` commits explicit chunk changes with the same checkpoint. Immutable bounded records are written before the index; the current and previous valid indices retain their referenced files. Opening a snapshot validates every record one at a time; a damaged chunk falls back to the whole previous checkpoint. Per-chunk reads then use one cached index and never silently mix generations. Unreferenced engine records are collected after successful commits. Async reads/writes reuse this format and validation/commit path. See [chunk saves](chunk-saves.md) for limits.
+`write_chunks` commits explicit chunk changes with the same checkpoint. Immutable bounded records are written before the index; the current and previous valid indices retain their referenced files. Opening a snapshot validates every record one at a time; a damaged chunk falls back to the whole previous checkpoint. Per-chunk reads then use one cached index and never silently mix generations. Unreferenced engine records are collected after successful commits. Async reads/writes reuse this format and validation/commit path. See [chunk saves](runtime/chunk-saves.md) for limits.
 
 Graphical defaults: LOCALAPPDATA/ShinyCore on Windows, ~/Library/Application Support/ShinyCore on macOS, XDG_DATA_HOME/shinycore or ~/.local/share/shinycore on Linux. Headless defaults to up to 16 in-memory slots; `--save-dir` opts into disk. Check modes invoke no updates and disable save operations. `--check-all` validates the entry and each declared room with empty state.
 
@@ -189,7 +189,7 @@ Graphical defaults: LOCALAPPDATA/ShinyCore on Windows, ~/Library/Application Sup
 
 Direct Tiled loading supports finite orthogonal, square equal-size tiles, right-down ordering, integer GID arrays, tile/object layers and one convex collision polygon per tile. Inline and external tilesets, spacing/margins, H/V/diagonal flips, visibility/opacity and tile/object-layer pixel offsets are supported. Compression/encoding, groups, image layers, parallax, tint, templates, rotated tile-local collision and hex rotation bits fail in this direct loader; expanded offline conversion is separate.
 
-Object records are copied to Lua with layer offsets applied. Explicit string property `collision=solid` adds a rotated rectangle or 3..8-point convex polygon to room-owned static terrain; `one_way` requires an unrotated rectangle, and the default `empty` leaves creation to Lua. The same committed geometry feeds physics, navigation and projectile collision. Authored object shapes survive tile edits, share the terrain capacity and never create entity handles. Lua factories must not duplicate these bodies. See [navigation](navigation-refresh.md) for limits.
+Object records are copied to Lua with layer offsets applied. Explicit string property `collision=solid` adds a rotated rectangle or 3..8-point convex polygon to room-owned static terrain; `one_way` requires an unrotated rectangle, and the default `empty` leaves creation to Lua. The same committed geometry feeds physics, navigation and projectile collision. Authored object shapes survive tile edits, share the terrain capacity and never create entity handles. Lua factories must not duplicate these bodies. See [navigation](world/navigation-refresh.md) for limits.
 
 Resources declare image, WAV sound, Ogg Vorbis music, or standalone TTF/OTF font paths. Header structure/duration and font metrics validate without devices; graphical builds additionally decode images/audio and validate atlas rectangles. Text caches metrics and glyph pages on demand, tries fallback fonts in name order and warns once per room when replacing a missing glyph with ?. Layout uses codepoint wrapping and optional alignment; no complex shaping, bidi or color Emoji is provided. Windows IME composition and candidate positioning live in src/platform; physical IME acceptance remains pending.
 
@@ -197,11 +197,11 @@ The application owns the logical audio mixer, with 32 SFX voices, two music stre
 pause/loop/pitch/volume/fades and generation-checked handles. Candidate rooms receive
 isolated drafts, committed only after successful preparation; persistent music keeps
 its ID and position. The native backend decodes sounds and streams music; device
-playback timing is not an exact simulation clock. See [audio ownership](audio.md).
+playback timing is not an exact simulation clock. See [audio ownership](presentation/audio.md).
 
-Rendering uses scene/light/composite targets, integer scaling, nearest-neighbor textures, layers and particles. Tiled layers interleave with entity layers; custom world drawing follows entities and screen drawing follows lighting. The lightweight renderer uses ASCII-grid shadows; optional [advanced lighting](lighting.md) uses committed map and entity geometry with sampled soft shadows. Default sc.message/debug text uses the ASCII font; multilingual authored UI uses sc.text.
+Rendering uses scene/light/composite targets, integer scaling, nearest-neighbor textures, layers and particles. Tiled layers interleave with entity layers; custom world drawing follows entities and screen drawing follows lighting. The lightweight renderer uses ASCII-grid shadows; optional [advanced lighting](presentation/lighting.md) uses committed map and entity geometry with sampled soft shadows. Default sc.message/debug text uses the ASCII font; multilingual authored UI uses sc.text.
 
-Optional ENet transport remains separate from the solver and game protocol; see networking.md. Current acceptance limits are recorded in the [closeout audit](acceptance-audit-20260928.md); sanitizer evidence is in [sanitizer verification](sanitizer-verification.md).
+Optional ENet transport remains separate from the solver and game protocol; see networking.md. Current acceptance limits are recorded in the [closeout audit](acceptance-audit-20260928.md); sanitizer evidence is in [sanitizer verification](guides/sanitizer-verification.md).
 
 ## Device input
 
@@ -229,7 +229,7 @@ Candidate loads attach the same observer before opening their VM. `--debug-load`
 also creates the protocol before initial load and stops at the first Lua line;
 without it the initial pause remains after initialization. Loading stops inspect
 candidate drafts while the host pump renders the active room only. Debugger quit
-unwinds loading without committing the candidate. See [protocol](debug-stdio.md).
+unwinds loading without committing the candidate. See [protocol](runtime/debug-stdio.md).
 The optional inspector owns a VM-local weak UI registry. Its field keys are pinned
 at bootstrap; raw inspection neither allocates in Lua nor invokes metamethods while
 C++ assembles results. UI objects can be collected normally and no borrowed Lua
@@ -249,13 +249,13 @@ before replacing them. Candidate room preparation holds a separate program set
 until all resources succeed; runtime reload retains the last valid program on failure.
 The host borrows its current script to render for one call, never transfers VM
 ownership. Default builds omit material content/bindings/backend sources entirely.
-See [material contracts and validation limits](materials.md).
+See [material contracts and validation limits](presentation/materials.md).
 
 The optional postprocess chain is room-owned data with at most four material IDs.
 The backend owns one or two reusable RGBA8 color-only targets, with an explicit
 byte budget checked before configuration commits. Candidate preparation owns a
 separate target set until the room commits. Passes run after world composition
-and before screen UI; clearing the chain releases its targets. See [postprocessing](postprocess.md).
+and before screen UI; clearing the chain releases its targets. See [postprocessing](presentation/postprocess.md).
 
 Optional `shiny_lighting` builds CPU occluder outlines without GPU/Lua/solver objects.
 The backend owns fixed polygon/angle/output buffers prepared with candidate rooms;
@@ -266,7 +266,7 @@ Explicit point lights are bounded draw commands, cleared before each draw callba
 One CPU preflight merges entity glows and point commands, culls invisible lights and
 checks total/shadow budgets identically in headless and graphical hosts. Shader and
 shadow stages consume the resulting fixed frame data without creating entities.
-See [geometry shadows and limits](lighting.md).
+See [geometry shadows and limits](presentation/lighting.md).
 
 Visual occlusion overrides are room presentation records indexed by entity slot and
 qualified by the complete generation handle. Storage is sized at project load;
@@ -279,7 +279,7 @@ world draw order; light fans sample it for diffuse response while retaining thei
 existing occlusion and attenuation. Candidate programs/target commit with all other
 resources. Shader compilation and color-target ownership are shared with materials
 and postprocessing; no default shader silently substitutes for compilation failure.
-Headless checks validate data and tangent transforms, not GPU output. See [normal maps](normal-maps.md).
+Headless checks validate data and tangent transforms, not GPU output. See [normal maps](presentation/normal-maps.md).
 
 ## Candidate image preparation
 
@@ -292,10 +292,10 @@ resources. Tick trace/debug completion waits for that decision, including at a
 frame limit. Startup displays a native loading notice without another Lua VM or
 physics world. Eager resources, Lua and ordinary project/map parsing still run synchronously;
 declared stream indexes are the exception and finish before `init`;
-see [image residency](image-residency.md) for the exact boundary.
+see [image residency](content/image-residency.md) for the exact boundary.
 
 The Windows executable owns a platform manifest declaring UTF-8 process paths
 (Windows 10 1903+), long-path awareness and asInvoker execution. RC dependencies
 track manifest changes; GNU/MinGW excludes only its default manifest resource to
 avoid conflicting language-tagged manifests. No path/locale policy enters the core.
-See [portable-package evidence](verification/portable-packages.md).
+See [portable-package evidence](verification/release/portable-packages.md).

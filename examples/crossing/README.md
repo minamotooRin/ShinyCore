@@ -11,7 +11,7 @@ SAVE/LOAD are available in the pause menu. Buttons also accept keyboard and mous
 `controls.lua` defines named actions, using the optional `settings.bindings.crossing`
 profile. `Input.bind` and `Input.save` can persist a customized profile independently
 of campaign saves. SETTINGS → CONTROLS also edits these bindings with draft/apply,
-cancel, defaults and conflict checks; see ../../docs/rebinding.md. Prompts use the bound
+cancel, defaults and conflict checks; see ../../docs/runtime/rebinding.md. Prompts use the bound
 keys/buttons and show controller bindings while the selected controller is connected.
 Left-stick displacement scales movement speed after the native deadzone; D-pad remains
 full speed. The walk animation follows movement speed. Rebinding can replace either
@@ -82,7 +82,7 @@ saves the ending. From the title choose LOAD, then NEW JOURNEY to restart.
 the focused test compares its final campaign state with the keyboard result and checks
 controller rescue after a disconnect/reconnect. This does not replace physical device
 or hot-plug acceptance. The controller HUD and normal controller LOAD flow were inspected
-in a short hidden native run; see ../../docs/verification/crossing-controls.md.
+in a short hidden native run; see ../../docs/verification/games/crossing-controls.md.
 `analog.jsonl` demonstrates partial left-stick travel, reversal and disconnect.
 
 The focused test checks actual support contacts on the ferry/ramp, plate occupancy,
@@ -102,15 +102,15 @@ Full art/audio acceptance and final packages remain outstanding. Headless checks
 above do not open a window; hidden native ending capture is available through
 `tools/capture_samples.py --case crossing-ending` with the engine/output arguments.
 The added cue integration, unchanged walkthrough state and an inspected native
-aqueduct capture are recorded in ../../docs/verification/crossing-audio.md.
+aqueduct capture are recorded in ../../docs/verification/games/crossing-audio.md.
 
 For the new guidance views, use `--case crossing-mill` and `--case crossing-signal`.
 These cases reach the room headlessly using the walkthrough and F6, then capture ten
 native frames after the normal LOAD action. They show restored gameplay, not an exact
 continuation of transient physics or notification state. Reviewed evidence is recorded
-in ../../docs/verification/crossing-guide.md.
+in ../../docs/verification/games/crossing-guide.md.
 `--case crossing-aqueduct` also uses the short checkpoint-restore capture workflow.
-The three backgrounds have been reviewed in ../../docs/verification/crossing-scenery.md.
+The three backgrounds have been reviewed in ../../docs/verification/games/crossing-scenery.md.
 
 角色表现由 `presentation.lua` 与本地 `shiny.animation` 推进：待机、行走、上升、
 下落使用独立时钟，停步保留朝向，暂停冻结，回营重置。独立的上升/下落帧沿用
@@ -118,4 +118,4 @@ keeper 的色板，由 `tools/build_crossing_air.py` 离线重建；机关的空
 已完成；信号灯顺序与 campaign 的同一份规则数据对应。表现不改变碰撞与存档规则。
 渡台、固定踏板、箱子、开关和门现在由 `presentation.lua` 绘制少量像素细节；
 地面前缘和渡槽水纹使用固定关卡坐标与模拟时间，不调用玩法随机数。
-三关隐藏原生画面已目视检查，记录见 ../../docs/verification/crossing-presentation.md。
+三关隐藏原生画面已目视检查，记录见 ../../docs/verification/games/crossing-presentation.md。

@@ -12,5 +12,5 @@ shiny --headless examples/geometry_shadows --frames 6 --replay examples/geometry
 ```
 
 回放验证设置切换及状态。另已隐藏捕获并查看硬/软阴影，范围见
-[视觉记录](../../docs/verification/advanced-render.md)。
-契约和限制见 [lighting.md](../../docs/lighting.md)。
+[视觉记录](../../docs/verification/systems/advanced-render.md)。
+契约和限制见 [lighting.md](../../docs/presentation/lighting.md)。

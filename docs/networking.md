@@ -37,7 +37,7 @@ port/rtt/stats 及 state 无参数读取仍可使用。
 所有会话操作均严格检查参数个数；非法类型/范围抛 Lua 错误，连接/容量/关闭等
 预期失败返回 nil,error。poll 仅返回 nil 表示没有事件。关闭网络时仅有
 `sc.net.available=false`，不注册这些函数、方法或网络记录元数据。
-本轮定向证据见 [网络契约验证](verification/network-contracts.md)。
+本轮定向证据见 [网络契约验证](verification/systems/network-contracts.md)。
 
 ## 最小接口
 
@@ -87,7 +87,7 @@ session:flush()
 ## 应用会话的更新边界与预算
 
 `sc.net.time()` 提供固定更新边界采样的应用单调时间，供跨房间超时规则使用。
-`shiny.rejoin` 管理有界玩家记录及 30 秒保留窗口，见 [重连契约](rejoining.md)。
+`shiny.rejoin` 管理有界玩家记录及 30 秒保留窗口，见 [重连契约](network/rejoining.md)。
 协议数据使用 `session:state()` 读取副本、`session:state(object)` 原子替换，
 每会话最多 64 KiB；不进入游戏存档与自动 trace。不要将令牌和 peer 放入
 用于检查点的 `sc.state`。显式关闭会话同时释放协议数据。
@@ -115,7 +115,7 @@ session:flush()
 
 ## 适用边界
 
-开发期可通过[外部弱网代理](network-testing.md)注入延迟、抖动、丢包和重复包。
+开发期可通过[外部弱网代理](guides/network-testing.md)注入延迟、抖动、丢包和重复包。
 该工具独立于引擎与发行包，支持多客机并输出实际故障统计。
 
 ENet 提供传输可靠性，不提供加密、身份认证或玩家账号。当前接口没有 DNS、IPv6、HTTP/WebSocket、自动发现、NAT 穿透、房间匹配、中继或云服务；跨公网连接需要双方自行解决可达地址、防火墙和端口转发。协议版本校验不是身份认证，主机权威也不代表可以安全运行陌生 Lua 项目。

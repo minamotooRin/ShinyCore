@@ -10,5 +10,5 @@ R 重新读取 `tint.frag`；编译失败时旧程序继续绘制，错误由 `s
 无窗口：`shiny examples/materials --headless --frames 3 --replay examples/materials/smoke.jsonl`。
 回放切换两次默认绑定，只验证内容、参数和绘制
 命令，GPU 状态保持 pending。另已查看隐藏原生截图和 ready 状态；检查范围见
-[视觉记录](../../docs/verification/advanced-render.md)。
+[视觉记录](../../docs/verification/systems/advanced-render.md)。
 PNG 沿用引擎已有原创 keeper 资产，无新增下载或运行时依赖。

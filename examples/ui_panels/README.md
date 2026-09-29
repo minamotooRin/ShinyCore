@@ -9,8 +9,8 @@ from the engine root to verify right-arrow focus and Enter selection at exact fr
 
 `skin` on a node overrides `theme.skins[kind]`; false selects the ordinary color
 background. `anchor` aligns within the parent's allocated rectangle; overlays
-provide their whole padded inner rectangle. See `docs/ui-lifecycle.md` and
-`docs/image-regions.md` in the engine repository.
+provide their whole padded inner rectangle. See `docs/presentation/ui-lifecycle.md` and
+`docs/presentation/image-regions.md` in the engine repository.
 
 Hidden visual check: `shiny examples/ui_panels --frames 1 --replay
 examples/ui_panels/idle.jsonl --mute --capture-hidden --capture OUTPUT.png

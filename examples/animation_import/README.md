@@ -18,5 +18,5 @@ build/lightweight/shiny.exe examples/animation_import --headless --frames 60 --r
 
 project.lua declares the image resource; content/animations.lua is a generated plain
 Lua catalog consumed by main.lua. Source PNG/JSON and the cache are not required by
-the running game and are omitted from its runtime package. See docs/aseprite.md in
+the running game and are omitted from its runtime package. See docs/guides/aseprite.md in
 the engine checkout for trimmed exports, tag directions, bounds and diagnostics.

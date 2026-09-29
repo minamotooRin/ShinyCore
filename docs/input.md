@@ -177,12 +177,12 @@ correct highlighted Chinese segment. This does not validate real IMM messages,
 candidate windows or physical IME interaction.
 
 Segment metadata, replay and visual evidence are recorded in
-[IME segment verification](verification/ime-segments.md).
+[IME segment verification](verification/systems/ime-segments.md).
 
 The `sc.input` namespace exposes these snapshots and individual controls.
 Unslotted gamepad queries retain the selected-controller view; an optional slot
-argument addresses one of the four pads directly. See [new-systems.md](new-systems.md)
-for text editing, action profiles and settings.
+argument addresses one of the four pads directly. See [input actions](runtime/input-actions.md)
+and [rebinding](runtime/rebinding.md) for action profiles and settings.
 
 ## Machine-readable input contract
 

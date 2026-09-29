@@ -63,7 +63,7 @@ Prompts follow the configured interaction binding and hide behind menus/dialogue
 objects from 16 authored chunk files. Unprepared edges have loading barriers.
 The offline index pins an object's anchor chunk when its authored geometry extends
 into a neighboring interest chunk; the barrier still follows the player/camera
-area. See ../../docs/stream-object-coverage.md.
+area. See ../../docs/content/stream-object-coverage.md.
 Collected herbs use object persistent IDs and deletion markers; road edits and
 active objects are saved with explicit player, name, equipment and quest state.
 The road objective changes only after its streamed tile patch is published; a failed
@@ -117,7 +117,7 @@ completes the same 3245-frame mission with controller input; `controller-journal
 checks journal toggling, name typing and held-stick isolation in 24 frames. The
 integration test compares keyboard/controller quest and courier state, and checks
 the same music voice and continuous loop clock across room changes. See
-../../docs/verification/wayfarer-controls.md for the new controller visual check.
+../../docs/verification/games/wayfarer-controls.md for the new controller visual check.
 
 Actual hidden native captures have been inspected for title, dialogue, journal,
 forest and the restored quest ending. The ending displays herb/road progress and
@@ -127,6 +127,6 @@ plays the quest headlessly, then captures its normal native checkpoint restore. 
 scene. The journal has an opaque panel. The optimized full route takes about 54 simulated
 seconds; normal 5–10 minute exploration has not been established by a human session.
 Audio-device playback, real IME input, final art, ending screenshots and portable
-packages remain unaccepted. See ../../docs/verification/sample-visuals.md.
+packages remain unaccepted. See ../../docs/verification/games/sample-visuals.md.
 The distant route marker has a separate native visual check in
-../../docs/verification/wayfarer-route-guide.md.
+../../docs/verification/games/wayfarer-route-guide.md.
