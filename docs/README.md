@@ -1,6 +1,6 @@
 # ShinyCore documentation
 
-Start with [architecture](architecture.md), the [API reference](api-reference.md), and the [Agent guide](llm-guide.md). For the executable's exact capabilities and defaults, run `shiny --api`; [LuaLS annotations](api.lua) support editing.
+Start with the [one-page architecture diagram](architecture-overview.md), [detailed architecture](architecture.md), the [API reference](api-reference.md), and the [Agent guide](llm-guide.md). For the executable's exact capabilities and defaults, run `shiny --api`; [LuaLS annotations](api.lua) support editing.
 
 | Area | Read this first | Covers |
 | --- | --- | --- |

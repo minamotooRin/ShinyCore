@@ -103,7 +103,7 @@ python tools/new_game.py ../my-game
 
 - [API 与 LuaLS 类型](docs/api.lua)
 - [Agent 开发指南](docs/llm-guide.md)
-- [架构与运行语义](docs/architecture.md)
+- [架构总览图](docs/architecture-overview.md) · [架构与运行语义](docs/architecture.md)
 - [Workshop / Tiled 工作流](examples/workshop/README.md)
 - [Aseprite PNG＋JSON 动画导入](docs/guides/aseprite.md)
 - [Tiled JSON 地图与外部 TSX 图集](docs/content/tiled-tsx.md)；[JSON/XML 对象模板](docs/content/tiled-templates.md)；[地图与组属性](docs/content/tiled-map-properties.md)；[跨块对象覆盖](docs/content/stream-object-coverage.md)

@@ -1,5 +1,7 @@
 # Architecture and contracts
 
+For the ownership and code map in one diagram, see the [architecture overview](architecture-overview.md).
+
 This describes the current development architecture, not a complete-edition acceptance report. Expanded importer output and streaming APIs are documented under [content](content/README.md); direct runtime Tiled loading retains the subset described below. For current coverage and limits, see the [acceptance audit](acceptance-audit-20260928.md).
 
 ShinyCore owns one simulation world per room, one Lua VM per runtime, and one native backend per host. There is no ECS, plugin framework or generated editor scene database.
