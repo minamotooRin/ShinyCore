@@ -2,10 +2,22 @@
 
 **小型原生 2D 引擎 · C++23 + Lua · 为人和 LLM Agent 共同开发设计**
 
-当前工作树为 **1.0 开发版，功能开发已按简化必要标准完成结项检查**。原计划的严格性能和实体设备验收尚未完成，见[验收核对](docs/acceptance-audit-20260928.md)；新增系统与限制见 [开发状态](docs/implementation-status.md) 和 [新增接口](docs/new-systems.md)。
+当前工作树为 **1.0 开发版，功能开发已按简化必要标准完成结项检查**。原计划的严格性能和实体设备验收尚未完成，见[验收核对](docs/acceptance-audit-20260928.md)；新增系统与限制见 [新增接口](docs/new-systems.md)，开发过程记录归档在 [验证目录](docs/verification/)。
 性能诊断使用 `--profile` 和 [采样报告工具](docs/profiling.md)，区分 CPU 处理、GPU 时间与限帧等待。
 
 ShinyCore 提供固定 60 Hz 模拟、Box2D 刚体、Tiled 地图、跨房间数据与磁盘检查点、精灵图集、音频文件和中英文字体。游戏就是一个可读、可回放的 Lua 项目；角色控制、动画、收集和关卡规则保持在普通 Lua 模块中。
+
+## 目录
+
+| 路径 | 内容 |
+| --- | --- |
+| [`include/shiny/`](include/shiny/) · [`src/`](src/) | 原生接口及按职责划分的 C++ 实现 |
+| [`lua/shiny/`](lua/shiny/) | 可复制到游戏项目的 Lua 标准模块 |
+| [`tools/`](tools/) · [`tests/`](tests/) · [`benchmarks/`](benchmarks/) | 离线工具、自动检查和固定负载 |
+| [`examples/`](examples/) · [`docs/`](docs/) | 自包含游戏、功能示例、契约与验证记录 |
+| [`cmake/`](cmake/) · [`licenses/`](licenses/) | 构建辅助文件与第三方许可 |
+
+`build*/`、`dist/` 和 `artifacts/` 是本机生成物，已被 Git 忽略；各主要目录的 README 说明所有权和入口。
 
 ## 构建与运行
 
@@ -20,7 +32,7 @@ ctest --test-dir build --output-on-failure
 
 Windows 可使用现代 MSVC、GCC/MinGW，或 LLVM-MinGW + Ninja。 Windows 运行目标为 10 1903 或更新版本；可执行文件内嵌 UTF-8 进程清单，命令行及文件路径支持中文等 Unicode 字符。Visual Studio 多配置构建使用 `cmake --build build --config Release`，程序在 `build/Release/shiny.exe`。更换编译器时使用新的构建目录。Linux 图形构建需要 GLFW 对应的 OpenGL/X11 开发库，CI 提供安装配置。
 
-也可使用 Ninja 预设：`cmake --preset lightweight`、`cmake --build --preset lightweight`、`ctest --preset lightweight`。另有 `full` 与 `headless` 预设。`full` 请求全部模块。高级渲染已提供独立的 [材质/片元着色器能力](docs/materials.md)及[最多四 pass 后处理链](docs/postprocess.md)，附 Bloom、调色、扭曲示例；[几何遮挡与软阴影](docs/lighting.md)已接入，[法线贴图](docs/normal-maps.md)已接入，已完成[定向原生视觉检查](docs/verification-advanced-render.md)，完整 GPU 验收仍待完成；开发工具提供 `--debug-stdio` 协议，支持帧步进、Lua 行断点、步入/步过/步出及调用栈、局部变量和显式状态分页检查；并可用 `--debug-keys` 下的 F4 打开原生检查面板（Agent 可通过 panel 命令选择页面；已有隐藏截图检查，实体按键待验收），详见 [调试协议](docs/debug-stdio.md)。`--api` 报告构建模块，连接后的 ready 事件列出已实现命令。运行开发工具和测试需 Python 3.11+，图集构建和截图检查依赖 `python -m pip install -r tools/requirements.txt`；发行游戏不需要 Python。
+也可使用 Ninja 预设：`cmake --preset lightweight`、`cmake --build --preset lightweight`、`ctest --preset lightweight`。另有 `full` 与 `headless` 预设。`full` 请求全部模块。高级渲染已提供独立的 [材质/片元着色器能力](docs/materials.md)及[最多四 pass 后处理链](docs/postprocess.md)，附 Bloom、调色、扭曲示例；[几何遮挡与软阴影](docs/lighting.md)已接入，[法线贴图](docs/normal-maps.md)已接入，已完成[定向原生视觉检查](docs/verification/advanced-render.md)，完整 GPU 验收仍待完成；开发工具提供 `--debug-stdio` 协议，支持帧步进、Lua 行断点、步入/步过/步出及调用栈、局部变量和显式状态分页检查；并可用 `--debug-keys` 下的 F4 打开原生检查面板（Agent 可通过 panel 命令选择页面；已有隐藏截图检查，实体按键待验收），详见 [调试协议](docs/debug-stdio.md)。`--api` 报告构建模块，连接后的 ready 事件列出已实现命令。运行开发工具和测试需 Python 3.11+，图集构建和截图检查依赖 `python -m pip install -r tools/requirements.txt`；发行游戏不需要 Python。
 
 Windows 已使用 LLVM-MinGW 22.1.8 实测 ASan/UBSan；[检测结果与复现命令](docs/sanitizer-verification.md)包含运行库 PATH 和遇错退出设置。
 
@@ -56,7 +68,7 @@ Workshop 展示中文 UI、Tiled 图层、箱子、斜坡、移动平台、Lua �
 
 样例视觉检查可使用 `python tools/capture_samples.py build/full/shiny.exe --output build/captures --case wayfarer-dialogue`。
 它通过 `--capture-hidden --capture FILE.png --frames N --mute` 生成真实原生截图，窗口保持隐藏且不获取焦点；
-仍需要图形驱动/显示环境，不是无窗口模拟。输出目录须为新目录；检查范围及限制见[视觉记录](docs/verification-sample-visuals.md)。
+仍需要图形驱动/显示环境，不是无窗口模拟。输出目录须为新目录；检查范围及限制见[视觉记录](docs/verification/sample-visuals.md)。
 
 ## 当前能力
 
@@ -98,7 +110,6 @@ python tools/new_game.py ../my-game
 - [声明式流式地图索引与固定帧提交](docs/streaming.md)
 - [用原生导航烘焙流式块通行掩码](docs/navigation-bake.md)
 - [联机协议与 API](docs/networking.md)
-- [当前开发树验证与限制](docs/verification-complete-dev.md)
 
 无窗口运行默认把存档放在内存中；测试磁盘恢复需显式指定 `--save-dir DIR`。图形运行默认写入系统用户数据目录。`--check` 和 `--check-all` 不执行 update，也不允许写入或读取检查点。
 
@@ -144,4 +155,4 @@ Windows 默认生成 BAT 启动器；`--launcher-exe` 生成命名的直启 EXE�
 
 同一二进制、平台、种子和回放可用于行为回归；不承诺浮点跨架构逐位一致。`hash`/`state_hash` 是诊断摘要，不是完整恢复格式。Box2D 替代 0.1 碰撞器，数值轨迹可能变化；旧 `dynamic` 字段作为兼容写法保留，新项目使用 `body`。
 
-C11 与 C++23 的 0.1 标签保持不动；[历史迁移记录](docs/verification-v0.1.md) 的体积和验收结果不代表 0.2。第三方与字体许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+C11 与 C++23 的 0.1 标签保持不动；[历史迁移记录](docs/verification/v0.1.md) 的体积和验收结果不代表 0.2。第三方与字体许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。

@@ -1,25 +1,12 @@
-# Examples
+# 游戏与功能示例
 
-## Lantern / The Quiet Below
+三款较完整的样例是 [`crossing`](crossing/)（动作解谜）、[`wayfarer`](wayfarer/)（中文 RPG）和 [`barrage`](barrage/)（弹幕生存）。它们各有项目配置、资源、回放与独立 README。四人联机玩法见 [`constellation`](constellation/)；较短的入门项目见 [`workshop`](workshop/) 和 [`lantern`](lantern/)。
 
-[`lantern`](lantern/) is a complete original exploration game: pixel sprites,
-fixed-step platform movement, one-way platforms, collectible lights, procedural
-audio, camera follow, particles, a HUD, and a transition between two rooms.
+其他目录是单项功能演示，如 `ui_scroll`、`text_input`、`materials`、`normal_maps`、`particles`、`tsx_import`。从具体示例的 README 入手；游戏项目自己的 `lib/shiny/` 和 `docs/api.lua` 供离线开发，不与引擎源码共享运行时路径。
 
-```sh
-./build/shiny examples/lantern
-./build/shiny --check examples/lantern
-./build/shiny --headless examples/lantern --frames 430 \
-  --replay examples/lantern/replays/tour.txt --snapshot /tmp/lantern.json
+```powershell
+.\build\lightweight\shiny.exe examples/crossing --check-all
+.\build\lightweight\shiny.exe examples/crossing
 ```
 
-Start a new game by copying this directory and replacing its scene data and
-rules. The runtime consumes the `.lua` files and `.png` assets directly; the
-included Python sprite generator is optional development tooling.
-
-[`tsx_import`](tsx_import/) shows a JSON map with external TSX atlas and image
-collection tilesets plus an XML `.tx` object template, converted offline to streamed chunks. It includes original
-small pixel art, a local Lua SDK and a short replay.
-
-[`ui_scroll`](ui_scroll/) demonstrates a horizontal, focus-aware scroll container
-with a native screenshot case and a project-local Lua SDK.
+原生画面改动须查看实际截图；无窗口检查只验证规则与数据。测试及截图入口见 [`../tools/README.md`](../tools/README.md)。

@@ -3,7 +3,7 @@
 `SHINY_ADVANCED_RENDER=ON` 编译 CPU 材质与可用时的 OpenGL 3.3 后端，默认关闭。
 `--api` 的 `advanced_render` 表示整组功能已编译，`materials`、`postprocessing`、
 `geometry_shadows`、`normal_maps` 分别用于声明细分需求；它们跟随同一构建开关。
-图形后端另由 `graphics` 表示，见[构建能力契约](capabilities.md)。已有[定向原生视觉检查](verification-advanced-render.md)，
+图形后端另由 `graphics` 表示，见[构建能力契约](capabilities.md)。已有[定向原生视觉检查](verification/advanced-render.md)，
 完整平台/硬件与性能验收仍独立记录，不由这些构建能力布尔值表示。
 无窗口预设保留材质内容检查，不创建 GPU。
 
@@ -100,7 +100,7 @@ GPU 编译、驱动 uniform 检查、保留旧程序、透明像素及 GPU 资�
 2026-09-27：完整示例已隐藏运行并查看原生截图，着色程序 ready，图像/精灵、
 弹体、粒子、几何及图块着色可见。进一步注入 GLSL 编译错误、活跃 uniform 不匹配，
 原生像素证明旧程序保留，修正重载后颜色更新；候选编译失败保留旧房间。
-透明排序、辅助纹理采样和长期 GPU 生命周期仍待检查；详见[视觉记录](verification-advanced-render.md)。
+透明排序、辅助纹理采样和长期 GPU 生命周期仍待检查；详见[视觉记录](verification/advanced-render.md)。
 
 2026-09-27：补全材质字段契约与返回类型，相关元数据/调用数量断言加入
 `tests/materials_integration.py`。完整与轻量构建、生成文档检查、项目 SDK 审计及

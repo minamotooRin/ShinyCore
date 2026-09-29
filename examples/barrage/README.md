@@ -62,7 +62,7 @@ wisp atlas remains in use for projectiles. `tools/build_barrage_sprites.py` rebu
 the enemy images offline; gameplay rules and the fixed challenge seed do not depend
 on sprite animation.
 The focused native review and its limits are recorded in
-../../docs/verification-barrage-sprites.md.
+../../docs/verification/barrage-sprites.md.
 The arena uses a dark stone-court background with a recessed beacon seal; its
 low-contrast floor stays below characters, projectiles and attack warnings.
 The seal is passable decoration, not a separate damageable objective.
@@ -85,7 +85,7 @@ reduce wave durations or replace native projectile hits.
 `gamepad.jsonl` completes the same challenge entirely with controller snapshots,
 including quick-tap menu confirmations released before the next dash. Its complete
 result matches the original keyboard route. Targeted checks also verify partial
-stick movement and resume isolation. See ../../docs/verification-analog-actions.md;
+stick movement and resume isolation. See ../../docs/verification/analog-actions.md;
 physical controllers and hot-plug behavior remain unverified by this replay.
 
 Hidden native victory and defeat screens have been inspected: titles distinguish
@@ -95,16 +95,16 @@ and portable final packages remain outstanding. This gameplay is separate from t
 20,000-projectile performance workload in benchmarks/barrage.
 
 Combat feedback was checked against the unchanged six-wave result and in hidden
-native gameplay/preview captures; see ../../docs/verification-barrage-feedback.md.
+native gameplay/preview captures; see ../../docs/verification/barrage-feedback.md.
 The preview arranges representative visual states, so it is not evidence of gameplay
 completion. The gameplay comparison uses the ordinary unmodified challenge replay.
 The new arena was checked with the same native battle/feedback states and matching
-gameplay fields; see ../../docs/verification-barrage-arena.md.
+gameplay fields; see ../../docs/verification/barrage-arena.md.
 
 Combat audio integration preserves the complete six-wave gameplay result. Cue
 cooldowns, native voice priority/capacity rejection, PCM validation and restart
 music continuity were checked headlessly. Real-device playback and subjective
-mix quality remain unaccepted; see ../../docs/verification-barrage-audio.md.
+mix quality remain unaccepted; see ../../docs/verification/barrage-audio.md.
 
 Sprite timelines now use the local shiny.animation module: idle/walk and a .2s
 dash sequence for the keeper, independent clocks and kind-specific rates for enemies.

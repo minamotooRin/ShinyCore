@@ -30,5 +30,5 @@ The delivered PNG is 1672 x 941, RGBA, 2,438,040 bytes. Runtime regions are x=0,
 y=0/314/628, w=1672, h=313, excluding row-edge pixels. game.lua draws the current row
 with a subdued tint at layer -100, inside the side walls and above the ground.
 The PNG is shipped locally and listed in package.json; no image-generation service
-or Python is needed to run the game. Native review: docs/verification-crossing-scenery.md
+or Python is needed to run the game. Native review: docs/verification/crossing-scenery.md
 in the engine repository.

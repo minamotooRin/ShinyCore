@@ -18,4 +18,4 @@ Keep the PNG, replay/frame reference and concise finding. A generated screenshot
 is pending review until actually viewed. Headless results do not prove rendering;
 static screenshots do not prove animation, audio, device input or complete visual
 acceptance. Record unverified coverage explicitly. Existing evidence and commands:
-`../docs/verification-sample-visuals.md`.
+`../docs/verification/sample-visuals.md`.

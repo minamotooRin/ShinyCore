@@ -17,4 +17,4 @@ shiny --headless examples/postprocess --frames 10 --replay examples/postprocess/
 
 该回放依次切换全部模式。无窗口只验证逻辑、资源和参数，GPU 状态保持 pending，
 目标分配量为零。另已原生检查关闭与 Bloom＋调色，角色使用图集单帧等比绘制。
-其他模式及 GPU 生命周期仍待检查，见[视觉记录](../../docs/verification-advanced-render.md)。
+其他模式及 GPU 生命周期仍待检查，见[视觉记录](../../docs/verification/advanced-render.md)。

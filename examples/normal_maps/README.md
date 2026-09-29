@@ -3,7 +3,7 @@
 启用 SHINY_ADVANCED_RENDER 后运行 `shiny examples/normal_maps`。
 两盏彩色光源照亮共享图集，展示图像区域、旋转/翻转精灵和 Tiled GID 变换。
 H 切换主灯高度。原生画面与定向法线探针已检查，范围见
-[视觉记录](../../docs/verification-advanced-render.md)。
+[视觉记录](../../docs/verification/advanced-render.md)。
 
 ```sh
 shiny --headless examples/normal_maps --frames 4 --replay examples/normal_maps/smoke.jsonl

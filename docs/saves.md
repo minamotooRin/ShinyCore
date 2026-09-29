@@ -39,5 +39,5 @@ load 验证记录并暂存恢复状态；只有候选房间成功后才提交，
 `delete_async`，以 `status/retry/release` 管理请求，见[异步事务](chunk-saves.md)。
 请求未释放时禁止其他存档操作及切房间。Wayfarer 标题和流式世界已使用异步接口。
 
-早期存档契约验证记录见[分块存档验证](verification-chunk-saves.md)；
-当前异步删除的定向证据见[Wayfarer 删除验证](verification-wayfarer-delete-async.md)。
+早期存档契约验证记录见[分块存档验证](verification/chunk-saves.md)；
+当前异步删除的定向证据见[Wayfarer 删除验证](verification/wayfarer-delete-async.md)。

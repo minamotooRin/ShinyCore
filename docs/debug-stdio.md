@@ -155,7 +155,7 @@ section=off 关闭。不传字段返回当前 section/offset/tree，空 tree 表
 
 2026-09-27：隐藏原生材质恢复检查实际使用 ready/step/stopped/terminated 协议，
 验证 GPU/脚本/尺寸三种候选失败后的帧数及 trace 连续性，并验证后续成功切换。
-详见[原生恢复证据](verification-advanced-render.md)。这不包含原生面板交互或
+详见[原生恢复证据](verification/advanced-render.md)。这不包含原生面板交互或
 Lua 源码断点的图形验收。
 
 同日新增源码调试定向测试 `tests/debug_lines_integration.py`：嵌套调用断点、原始

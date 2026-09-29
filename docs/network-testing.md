@@ -43,5 +43,5 @@ ctest --test-dir build/full -R network_faults --output-on-failure
 
 以上代理测试只覆盖可靠传输。四人协作、20 Hz 快照、跨房间、令牌重连及
 游戏协议故障使用 [Constellation](../examples/constellation/README.md) 单独验证，
-见[验收记录](verification-constellation.md)。长时间联网尚未验收。
+见[验收记录](verification/constellation.md)。长时间联网尚未验收。
 当前工具没有带宽限速、断网时间表或网络事件回放功能。

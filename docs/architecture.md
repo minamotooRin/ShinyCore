@@ -199,9 +199,9 @@ isolated drafts, committed only after successful preparation; persistent music k
 its ID and position. The native backend decodes sounds and streams music; device
 playback timing is not an exact simulation clock. See [audio ownership](audio.md).
 
-Rendering uses scene/light/composite targets, integer scaling, nearest-neighbor textures, layers and particles. Tiled layers interleave with entity layers; custom world drawing follows entities and screen drawing follows lighting. Light occlusion remains an approximate ASCII-grid DDA; it does not reflect Tiled or dynamic-body geometry. Default sc.message/debug text uses the ASCII font; multilingual authored UI uses sc.text.
+Rendering uses scene/light/composite targets, integer scaling, nearest-neighbor textures, layers and particles. Tiled layers interleave with entity layers; custom world drawing follows entities and screen drawing follows lighting. The lightweight renderer uses ASCII-grid shadows; optional [advanced lighting](lighting.md) uses committed map and entity geometry with sampled soft shadows. Default sc.message/debug text uses the ASCII font; multilingual authored UI uses sc.text.
 
-Optional ENet transport remains separate from the solver and game protocol; see networking.md. Platform acceptance and sanitizer availability are recorded in verification.md.
+Optional ENet transport remains separate from the solver and game protocol; see networking.md. Current acceptance limits are recorded in the [closeout audit](acceptance-audit-20260928.md); sanitizer evidence is in [sanitizer verification](sanitizer-verification.md).
 
 ## Device input
 
@@ -298,4 +298,4 @@ The Windows executable owns a platform manifest declaring UTF-8 process paths
 (Windows 10 1903+), long-path awareness and asInvoker execution. RC dependencies
 track manifest changes; GNU/MinGW excludes only its default manifest resource to
 avoid conflicting language-tagged manifests. No path/locale policy enters the core.
-See [portable-package evidence](verification-portable-packages.md).
+See [portable-package evidence](verification/portable-packages.md).

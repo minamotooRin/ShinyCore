@@ -28,7 +28,7 @@ python tools/package.py build/shiny.exe build/packages/Game --project my-game --
 使用轻量引擎，Wayfarer 使用完整引擎。本轮重新打包纳入三份
 完整流程场景清单，源项目和包内 `--check-all`、运行库审计通过；从中性工作目录
 运行包内 180 帧场景断言，三款通过。报告与 ZIP 均含完整流程清单。旧版移动目录的
-Unicode/原生截图证据见[可移动包记录与大小](verification-portable-packages.md)，
+Unicode/原生截图证据见[可移动包记录与大小](verification/portable-packages.md)，
 不自动证明本轮包已在源码外移动或执行完整流程；这些仍待验收。
 这不是全平台/干净系统验收。
 
@@ -40,11 +40,11 @@ Wayfarer 的游戏脚本。包内 `--check-all` 与中性工作目录的 180 帧
 Wayfarer 结局存档提交修正后的精简运行时包现位于
 `build/wayfarer-runtime-release-20260928/`，仅启用图形和流式地图。
 包已复制到仓库外执行完整场景，原生对话画面已检查；详见
-[精简发行构建记录](verification-wayfarer-runtime-release.md)。旧 Wayfarer 包不含本次修正。
+[精简发行构建记录](verification/wayfarer-runtime-release.md)。旧 Wayfarer 包不含本次修正。
 
 当前 Wayfarer 包更新为 `build/wayfarer-navigation-release-20260928/` 和同名 ZIP，
 包含世界坐标导航入口及项目本地 dev.74 SDK；复制到仓库外的完整场景通过。
-精简引擎开关与二进制保持上段配置，见[流式导航验证](verification-stream-world-navigation.md)。
+精简引擎开关与二进制保持上段配置，见[流式导航验证](verification/stream-world-navigation.md)。
 
 ## 内容清单
 
@@ -153,7 +153,7 @@ ELF/Mach-O 仍为模拟工具输出测试，平台实机验证未执行。
 中文 UI 修正后的最新包在 `build/sample-packages-native-ui-20260926/`。
 三款均包含清单和 ZIP，在源码目录外解压、仅系统 PATH 下运行隐藏短回放成功，
 实际查看渡台、中文对话和第一波截图；记录在 `build/package-visuals-native-ui-20260926/`。
-Wayfarer 的中文已清晰，旧包的中文质量判断已撤销，见 [视觉记录](verification-sample-visuals.md)。
+Wayfarer 的中文已清晰，旧包的中文质量判断已撤销，见 [视觉记录](verification/sample-visuals.md)。
 这次只裁剪未用 Lua 模块及 Wayfarer 的离线地图源/构建清单，不删减运行负载。
 
 截图工具也可检查移动后的项目，并记录引擎 SHA-256：

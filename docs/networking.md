@@ -37,7 +37,7 @@ port/rtt/stats 及 state 无参数读取仍可使用。
 所有会话操作均严格检查参数个数；非法类型/范围抛 Lua 错误，连接/容量/关闭等
 预期失败返回 nil,error。poll 仅返回 nil 表示没有事件。关闭网络时仅有
 `sc.net.available=false`，不注册这些函数、方法或网络记录元数据。
-本轮定向证据见 [网络契约验证](verification-network-contracts.md)。
+本轮定向证据见 [网络契约验证](verification/network-contracts.md)。
 
 ## 最小接口
 

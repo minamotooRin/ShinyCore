@@ -58,4 +58,4 @@ allocated_color_bytes、target_count、status、error。颜色字节数是已分
 
 2026-09-27：修正示例的图集单帧选取，实际查看关闭与四 pass Bloom＋调色。
 检查世界像素变化、UI 字形不变和目标数量；单独调色、扭曲及资源循环仍未覆盖。
-详见[视觉记录](verification-advanced-render.md)。
+详见[视觉记录](verification/advanced-render.md)。

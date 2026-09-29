@@ -30,4 +30,4 @@ clear 保留模板。绘制保持弹体创建 ID 次序，密集数组删除不�
 法线贴图或材质接口；原生批次和 20,000 弹体性能门槛仍需独立验收。
 
 示例为 `examples/projectile_atlas`，复用 Lantern 原创图集，包含裁剪、缩放、
-透明着色与删除后的混合绘制。[验证记录](verification-projectile-atlas.md)。
+透明着色与删除后的混合绘制。[验证记录](verification/projectile-atlas.md)。

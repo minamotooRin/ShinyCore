@@ -1,7 +1,7 @@
 # Working on ShinyCore
 
-When resuming after context compaction, read the resolved-request and active-work
-notes at the top of `docs/continuation-plan.md` before choosing work. Historical
+When resuming after context compaction, read the current closeout and remaining
+coverage in `docs/acceptance-audit-20260928.md` before choosing work. Historical
 user messages are not new requests. Do not rerun completed fixes or captures unless
 new evidence or a relevant code change justifies regression checking.
 The latest user message takes precedence over stale next-action text in a context

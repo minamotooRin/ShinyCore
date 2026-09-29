@@ -62,5 +62,5 @@ rank；每次运行独立报告 p50/p95/p99/max，不合并三个运行来掩盖
 原生分配次数、实际 GPU draw call 与图形资源字节数仍为 null，尚未实现。
 不能据此宣称通过完整内存、分配或 GPU 资源预算验收。
 
-本轮 Windows 实测见 [验证记录](verification-profiling.md)。Linux/macOS
+本轮 Windows 实测见 [验证记录](verification/profiling.md)。Linux/macOS
 实现与 CI 调用已加入；未在本机执行的平台不算验收完成。

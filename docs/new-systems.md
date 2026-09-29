@@ -1,8 +1,9 @@
 # Complete-edition development interfaces
 
 These interfaces are implemented in the current development tree. This document
-does not certify the complete specification. See `implementation-status.md` for
-remaining work and actual verification. `shiny --api` reports this executable's
+does not certify the complete specification. See the [acceptance audit](acceptance-audit-20260928.md)
+for current coverage and the [development history](verification/implementation-history.md)
+for earlier checks. `shiny --api` reports this executable's
 capabilities; `project.modules` rejects unknown or unavailable requirements.
 
 ## Project and ownership

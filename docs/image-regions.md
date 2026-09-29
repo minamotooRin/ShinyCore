@@ -52,4 +52,4 @@ slice 相对选定源区域（或整张 PNG），相对两侧的和必须小于�
 `ScImageOptions`、`ScImageSlice` 的字段、默认值及调用阶段现由 `--api` 生成。
 
 这是[流式图块绘制](stream-tiles.md)使用的底层接口。原生九宫格证据见
-[UI 样式检查](verification-ui-style.md)；不据此宣称所有材质/光照组合已验收。
+[UI 样式检查](verification/ui-style.md)；不据此宣称所有材质/光照组合已验收。

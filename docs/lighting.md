@@ -113,5 +113,5 @@ point_commands 是当前/最近一次 draw 已接收命令数量，normal_maps �
 仅执行本次改动相关检查，没有全套回归、性能优化或压力测试。
 
 2026-09-27：提高示例地面可见度，实际查看硬阴影与四样本软阴影，并检查
-原生提交状态及像素差异。详见[视觉记录](verification-advanced-render.md)；
+原生提交状态及像素差异。详见[视觉记录](verification/advanced-render.md)；
 这不替代光照负载、全部几何组合和 GPU 生命周期验收。

@@ -47,7 +47,7 @@ Crossing uses this entry point and retains the same music voice across all three
 rooms and normal checkpoint loads. A fresh application starts a fresh track;
 save records contain campaign progress, not native voice handles. Logical/native
 ownership evidence and its audible limits are in
-[persistent music verification](verification-persistent-music.md).
+[persistent music verification](verification/persistent-music.md).
 Wayfarer's title and forest now acquire its theme the same way. Its integration
 trace checks the voice ID and clock through ending, title and a new journey;
 the original 20-second loop also advances across its end in a headless run.
@@ -59,7 +59,7 @@ themes in place of their 0.3-second placeholder loops. All three sample themes
 rebuild byte-for-byte in the current offline encoder environment and cross their
 loop boundaries with one voice in the real headless host. Crossing/Barrage
 packages include the new tracks; hidden native scene captures were inspected.
-See [sample music verification](verification-sample-music.md). Real speaker
+See [sample music verification](verification/sample-music.md). Real speaker
 playback and subjective mixing remain unaccepted.
 
 The host backend owns `ScAudioDevice` in `src/audio/device.cpp`. It owns the device,
